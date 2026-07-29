@@ -1,14 +1,24 @@
 # Orchestrators
 
-Runs one [Symphony](https://github.com/openai/symphony) instance per project and
-optionally monitors all instances from Slack.
+[Symphony](https://github.com/openai/symphony) is a powerful orchestrator, but
+managing it outside its dashboard can be difficult. Orchestrators runs one
+Symphony instance per project, brings notifications from every instance into
+Slack, and makes it easy to update Linear issue statuses. This lets you
+efficiently keep many tasks moving, even while away from your desk.
+
+![Task monitoring and Linear status updates in Slack](.github/assets/task.png)
 
 ## What it does
 
-- Creates isolated Symphony instances from `symphony_template/`
-- Runs all enabled instances with one command
-- Keeps each instance's workspaces and logs under `data/`
-- Shows task state in Slack and lets users update Linear statuses
+- Monitor tasks across all your Symphony projects from one Slack channel
+- Get notified when tasks change state, open pull requests, become blocked, or
+  finish
+- Update Linear issue statuses directly from Slack
+- Keep work moving during automated code review by requeuing Linear issues when
+  a configured emoji reaction (for example, Codex's 👀) appears on a linked
+  pull request
+- Run multiple isolated Symphony instances with one command while keeping each
+  project's workspace and logs separate
 
 Generated instances, runtime data, and private configuration are gitignored.
 
