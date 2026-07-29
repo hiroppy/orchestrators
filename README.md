@@ -14,6 +14,8 @@ efficiently keep many tasks moving, even while away from your desk.
 - Get notified when tasks change state, open pull requests, become blocked, or
   finish
 - Update Linear issue statuses directly from Slack
+- Reply to a Linear workpad from its Slack task thread, so you can keep
+  Symphony work moving directly from Slack
 - Keep work moving during automated code review by requeuing Linear issues when
   a configured emoji reaction (for example, Codex's 👀) appears on a linked
   pull request
@@ -73,10 +75,6 @@ used by the watcher:
   private task threads
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
-
-For an existing Slack app, apply the updated manifest in **App Manifest**,
-save it, and reinstall the app to the workspace so the new event subscriptions
-and history scopes are authorized before restarting the watcher.
 
 The manifest cannot issue an app-level token. In **Basic Information →
 App-Level Tokens**, choose **Generate Token and Scopes**, add
