@@ -166,6 +166,10 @@ mise exec -- mix build
 cd ../../..
 ```
 
+If the Symphony runner or Slack watcher is already running, restart both
+processes after adding or changing an instance. Configuration is loaded at
+startup.
+
 </details>
 
 ## Run
