@@ -50,7 +50,6 @@ For sections that do not apply, write "N/A — <reason>" instead of leaving them
 - [ ] Unit tests
 - [ ] Type checking
 - [ ] Lint
-- [ ] Storybook tests
 - [ ] E2E tests
 - [ ] Manual verification
 
