@@ -189,6 +189,68 @@ describe("Slack app behavior", () => {
     });
   });
 
+  it("does not repeat a closed notification after a related issue reply fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const postMessage = client.chat.postMessage;
+      client.chat.postMessage = async (args) => {
+        if (String(args.text).includes("ENG-64")) {
+          throw new Error("Slack related issue post failed");
+        }
+        return postMessage(args);
+      };
+
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      const terminalEvent = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+        relatedIssues: [
+          {
+            identifier: "ENG-63",
+            title: "First next task",
+            url: "https://linear.app/example/issue/ENG-63/first",
+          },
+          {
+            identifier: "ENG-64",
+            title: "Second next task",
+            url: "https://linear.app/example/issue/ENG-64/second",
+          },
+        ],
+      };
+
+      await assert.rejects(
+        publishWatcherEvent(client, store, "C123", terminalEvent),
+        /Slack related issue post failed/,
+      );
+      await publishWatcherEvent(client, store, "C123", terminalEvent);
+
+      assert.equal(
+        calls.filter(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("Task closed"),
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-63"),
+        ).length,
+        1,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
+    });
+  });
+
   it("mentions on configured status entry and configured events without repeating otherwise", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

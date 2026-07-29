@@ -201,6 +201,7 @@ export async function publishWatcherEvent(
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
+  let terminalNotificationPosted = false;
 
   if (!task.parentChannelId || !task.parentMessageTs) {
     const parent = await client.chat.postMessage({
@@ -220,16 +221,22 @@ export async function publishWatcherEvent(
       });
       store.setRenderedSummary(task.id, summary);
       if (announceTerminalParent) {
-        await postParentPermalink(
+        const closedMessage = await postParentPermalink(
           client,
           task.parentChannelId,
           task.parentMessageTs,
           task.status,
+        );
+        terminalNotificationPosted = true;
+        await postRelatedIssues(
+          client,
+          task.parentChannelId,
+          closedMessage.ts,
           event.relatedIssues,
         );
       }
     } catch (error) {
-      if (announceTerminalParent) {
+      if (announceTerminalParent && !terminalNotificationPosted) {
         store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
       }
       throw error;
@@ -268,8 +275,7 @@ async function postParentPermalink(
   channel: string,
   messageTs: string,
   status: string,
-  relatedIssues: RelatedIssue[] = [],
-): Promise<void> {
+): Promise<ChatPostMessageResponse> {
   const response = await client.chat.getPermalink({
     channel,
     message_ts: messageTs,
@@ -277,19 +283,27 @@ async function postParentPermalink(
   if (!response.permalink) {
     throw new Error(`Slack did not return a permalink for ${channel}:${messageTs}.`);
   }
-  const closedMessage = await client.chat.postMessage({
+  return client.chat.postMessage({
     channel,
     text: buildTaskClosedMessage(status, response.permalink),
   });
+}
+
+async function postRelatedIssues(
+  client: SlackClient,
+  channel: string,
+  closedMessageTs: string | undefined,
+  relatedIssues: RelatedIssue[] = [],
+): Promise<void> {
   if (relatedIssues.length === 0) return;
-  if (!closedMessage.ts) {
+  if (!closedMessageTs) {
     throw new Error(`Slack did not return a timestamp for the task closed message in ${channel}.`);
   }
 
   for (const issue of relatedIssues) {
     await client.chat.postMessage({
       channel,
-      thread_ts: closedMessage.ts,
+      thread_ts: closedMessageTs,
       text: buildRelatedIssueMessage(issue),
     });
   }
