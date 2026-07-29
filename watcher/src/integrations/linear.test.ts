@@ -64,7 +64,10 @@ describe("createLinearWorkpadReply", () => {
       parentId: "active",
       body: "Please add a test.",
     });
-    assert.match(requests[2].variables.id, /^[0-9a-f-]{36}$/);
+    assert.match(
+      requests[2].variables.id,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it("does not create a comment when the issue has no active Workpad", async (context) => {
@@ -129,7 +132,9 @@ describe("createLinearWorkpadReply", () => {
   });
 
   it("rejects failed comment mutations", async (context) => {
+    let requestCount = 0;
     context.mock.method(globalThis, "fetch", async (_url, options) => {
+      requestCount += 1;
       const request = JSON.parse(String(options?.body));
       return request.query.includes("IssueWorkpad")
         ? Response.json({
@@ -154,6 +159,7 @@ describe("createLinearWorkpadReply", () => {
       }),
       /rejected Workpad reply/,
     );
+    assert.equal(requestCount, 2);
   });
 
   it("reconciles an ambiguously successful comment creation without resubmitting it", async (context) => {
@@ -175,7 +181,7 @@ describe("createLinearWorkpadReply", () => {
       }
       if (request.query.includes("CommentById")) {
         return Response.json({
-          data: { comment: createdCommentId ? { id: createdCommentId } : null },
+          data: { comments: { nodes: createdCommentId ? [{ id: createdCommentId }] : [] } },
         });
       }
 
@@ -192,6 +198,41 @@ describe("createLinearWorkpadReply", () => {
 
     assert.equal(created, true);
     assert.equal(mutationCount, 1);
+  });
+
+  it("retries when an interrupted mutation did not create the comment", async (context) => {
+    let mutationCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({ data: { comments: { nodes: [] } } });
+      }
+
+      mutationCount += 1;
+      if (mutationCount === 1) throw new DOMException("Request timed out", "TimeoutError");
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Retry once.", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(mutationCount, 2);
   });
 });
 

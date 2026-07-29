@@ -103,9 +103,11 @@ const COMMENT_REPLY_CREATE_MUTATION = `
 `;
 
 const COMMENT_BY_ID_QUERY = `
-  query OrchestratorWatcherCommentById($id: String!) {
-    comment(id: $id) {
-      id
+  query OrchestratorWatcherCommentById($id: ID!) {
+    comments(first: 1, filter: { id: { eq: $id } }) {
+      nodes {
+        id
+      }
     }
   }
 `;
@@ -291,8 +293,9 @@ export async function createLinearWorkpadReply(
       }
       return true;
     } catch (error) {
+      if (!isTransientLinearError(error)) throw error;
       if (await linearCommentExists(commentId, requestOptions)) return true;
-      if (attempt >= maxAttempts || !isTransientLinearError(error)) throw error;
+      if (attempt >= maxAttempts) throw error;
       await sleep(retryDelayMs);
     }
   }
@@ -304,7 +307,7 @@ async function linearCommentExists(
 ): Promise<boolean> {
   const result = await retryLinearRequest(
     () =>
-      linearRequest<{ comment?: { id: string } | null }>(
+      linearRequest<{ comments?: { nodes?: Array<{ id: string }> } }>(
         options.apiKey,
         COMMENT_BY_ID_QUERY,
         { id: commentId },
@@ -312,12 +315,12 @@ async function linearCommentExists(
       ),
     options,
   );
-  return result.comment?.id === commentId;
+  return result.comments?.nodes?.some((comment) => comment.id === commentId) ?? false;
 }
 
 function stableUuid(value: string): string {
   const hex = createHash("sha256").update(value).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 async function findLinearWorkpad(
