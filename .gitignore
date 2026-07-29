@@ -6,6 +6,7 @@
 /data/**
 !/data/**/
 !/data/**/.gitkeep
+/data/symphony/workspaces/*/
 *.log
 *.db
 *.sqlite
