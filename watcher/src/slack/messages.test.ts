@@ -161,10 +161,7 @@ describe("Slack rendering", () => {
     };
 
     assert.equal(card.text, "[service-a] Symphony connection");
-    assert.match(
-      context.elements[0].text,
-      /^Status: Available \| Event: Recovered \| UpdatedAt: /,
-    );
+    assert.match(context.elements[0].text, /^Status: Available \| Event: Recovered \| UpdatedAt: /);
   });
 
   it("keeps thread output bounded and records Slack status actors", () => {
