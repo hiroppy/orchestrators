@@ -1,6 +1,6 @@
 import type { EventType, PullRequest, RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
+import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 
-export const TASK_STATUS_ACTION_ID = "task_status_select";
 const MAX_THREAD_BODY_LENGTH = 2_500;
 
 const EVENT_LABELS: Record<EventType, string> = {
@@ -115,25 +115,42 @@ export interface ThreadMessageContext {
   updatedAt?: string;
 }
 
+export function buildThreadMessageBlocks(
+  event: WatcherEvent,
+  mentionTarget?: string,
+  context: ThreadMessageContext = {},
+): Array<Record<string, unknown>> | undefined {
+  const transition = statusTransitionDetails(event, mentionTarget, context);
+  if (!transition) return undefined;
+
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: transition.headline,
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: transition.details.join("\n"),
+        },
+      ],
+    },
+  ];
+}
+
 export function buildThreadMessage(
   event: WatcherEvent,
   mentionTarget?: string,
   context: ThreadMessageContext = {},
 ): string {
-  const fromStatus = context.fromStatus;
-  const toStatus = context.toStatus;
-  if (fromStatus && toStatus && normalizeStatus(fromStatus) !== normalizeStatus(toStatus)) {
-    const summary = [
-      [
-        `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
-        context.updatedAt ? updatedAtLabel(context.updatedAt) : null,
-        mentionLabel(mentionTarget),
-      ]
-        .filter(isPresent)
-        .join(" | "),
-      compactEventDetails(event, false).join(" | "),
-    ].filter((line) => line.length > 0);
-    return truncateThreadBody(summary.join("\n"));
+  const transition = statusTransitionDetails(event, mentionTarget, context);
+  if (transition) {
+    return truncateThreadBody([transition.headline, ...transition.details].join("\n"));
   }
 
   const headline = event.pullRequest
@@ -157,6 +174,33 @@ export function buildThreadMessage(
   return truncateThreadBody(body);
 }
 
+function statusTransitionDetails(
+  event: WatcherEvent,
+  mentionTarget: string | undefined,
+  context: ThreadMessageContext,
+): { headline: string; details: string[] } | undefined {
+  const { fromStatus, toStatus, updatedAt } = context;
+  if (!fromStatus || !toStatus || normalizeStatus(fromStatus) === normalizeStatus(toStatus)) {
+    return undefined;
+  }
+
+  const details = [
+    [
+      `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
+      updatedAt ? updatedAtLabel(updatedAt) : null,
+      mentionLabel(mentionTarget),
+    ]
+      .filter(isPresent)
+      .join(" | "),
+    compactEventDetails(event, false).join(" | "),
+  ].filter((line) => line.length > 0);
+
+  return {
+    headline: `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`,
+    details,
+  };
+}
+
 export function buildStatusChangedMessage(
   actorDisplayName: string,
   fromStatus: string,
@@ -174,19 +218,6 @@ export function buildTaskClosedMessage(status: string, parentPermalink: string):
 export function buildRelatedIssueMessage(issue: RelatedIssue): string {
   const label = [issue.identifier, issue.title].filter(isPresent).join(": ");
   return `Next task | ${issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label)}`;
-}
-
-export function taskIdFromBlockId(blockId?: string): string | undefined {
-  if (!blockId?.startsWith("task:")) return undefined;
-  try {
-    return decodeURIComponent(blockId.slice("task:".length).split(":", 1)[0]);
-  } catch {
-    return undefined;
-  }
-}
-
-function taskBlockId(taskId: string, status: string): string {
-  return `task:${encodeURIComponent(taskId)}:${encodeURIComponent(status)}`;
 }
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
