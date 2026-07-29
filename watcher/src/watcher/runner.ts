@@ -27,7 +27,7 @@ import {
   publishWatcherStarted,
   publishWatcherEvent,
 } from "../slack/app.ts";
-import { buildTaskCard, buildThreadMessage } from "../slack/messages.ts";
+import { buildTaskCard, buildThreadMessage } from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,

@@ -10,15 +10,15 @@ import type {
   UsersInfoResponse,
 } from "@slack/web-api";
 
+import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildRelatedIssueMessage,
   buildTaskCard,
   buildTaskClosedMessage,
   buildThreadMessage,
-  TASK_STATUS_ACTION_ID,
-  taskIdFromBlockId,
-} from "./messages.ts";
+  buildThreadMessageBlocks,
+} from "./views.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
@@ -246,16 +246,19 @@ export async function publishWatcherEvent(
     normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
   const threadEvent =
     isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
-  const threadBody = buildThreadMessage(threadEvent, mentionTarget, {
+  const threadContext = {
     fromStatus: previousTask?.status,
     toStatus: task.status,
     updatedAt: task.updatedAt,
-  });
+  };
+  const threadBody = buildThreadMessage(threadEvent, mentionTarget, threadContext);
+  const threadBlocks = buildThreadMessageBlocks(threadEvent, mentionTarget, threadContext);
   const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, mentionTarget)
     ? await client.chat.postMessage({
         channel: task.parentChannelId!,
         thread_ts: task.parentMessageTs!,
         text: threadBody,
+        ...(threadBlocks ? { blocks: threadBlocks } : {}),
       })
     : undefined;
   store.addEvent({
