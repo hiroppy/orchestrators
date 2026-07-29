@@ -18,7 +18,7 @@
 /watcher/config.ts
 /watcher/config.local.ts
 /config.json
-/launchd/*.plist
+/launchd/
 
 # macOS/editor
 node_modules/
