@@ -60,21 +60,24 @@ export function buildSlackPreviewMessage(
   now: Date = new Date(),
 ): TaskCard {
   const updatedAt = now.toISOString();
-  const issueIdentifier = "PREVIEW-123";
   const service = "preview-service";
-  const status = previewStatus(previewCase);
+  const recovered = previewCase === "recovered";
+  const issueIdentifier = recovered ? `watcher:${service}` : "PREVIEW-123";
+  const status = recovered ? "available" : previewStatus(previewCase);
 
   return buildTaskCard(
     {
       id: `${service}:${issueIdentifier}`,
       serviceName: service,
       issueIdentifier,
-      title: "Confirm the watcher Slack output",
+      title: recovered ? issueIdentifier : "Confirm the watcher Slack output",
       status,
       updatedAt,
     },
     PREVIEW_STATUSES,
     previewEvent(previewCase, service, issueIdentifier, status),
+    undefined,
+    { interactive: false },
   );
 }
 
@@ -103,30 +106,31 @@ function previewEvent(
   issueIdentifier: string,
   resolvedState: string,
 ): WatcherEvent {
-  const event: WatcherEvent = { type, service, issueIdentifier, resolvedState };
+  const event: WatcherEvent = { type, service, issueIdentifier };
+  const resolvedEvent = { ...event, resolvedState };
 
   switch (type) {
     case "started":
       return {
-        ...event,
+        ...resolvedEvent,
         turnCount: 1,
         tokens: { total: 1_250 },
         pullRequest: { url: "https://github.com/example/preview/pull/123", number: 123 },
       };
     case "updated":
-      return { ...event, turnCount: 12, tokens: { total: 12_345 } };
+      return { ...resolvedEvent, turnCount: 12, tokens: { total: 12_345 } };
     case "retrying":
       return {
-        ...event,
+        ...resolvedEvent,
         attempt: 2,
         dueAt: "2026-07-29T00:05:00.000Z",
         error: "Temporary orchestrator failure",
       };
     case "blocked":
-      return { ...event, error: "Waiting for required credentials" };
+      return { ...resolvedEvent, error: "Waiting for required credentials" };
     case "ended":
-      return { ...event, turnCount: 24, tokens: { total: 98_765 } };
+      return { ...resolvedEvent, turnCount: 24, tokens: { total: 98_765 } };
     case "recovered":
-      return { ...event, activity: "Watcher connection restored" };
+      return { ...event, state: "available", activity: "Watcher connection restored" };
   }
 }

@@ -21,11 +21,16 @@ export interface TaskCard {
   };
 }
 
+export interface TaskCardOptions {
+  interactive?: boolean;
+}
+
 export function buildTaskCard(
   task: Task,
   configuredStatuses: string[],
   event?: WatcherEvent,
   mentionTarget?: string,
+  options: TaskCardOptions = {},
 ): TaskCard {
   const mention = mentionLabel(mentionTarget);
   const issueUrl = event?.issueUrl ?? task.linkUrl;
@@ -51,7 +56,7 @@ export function buildTaskCard(
       .join(" | "),
     eventDetails.join(" | "),
   ].filter((line) => line.length > 0);
-  const showStatusSelect = !isWatcherErrorTask(task);
+  const showStatusSelect = options.interactive !== false && !isWatcherErrorTask(task);
 
   return {
     text: [displayTitle, mention].filter(isPresent).join(" "),
