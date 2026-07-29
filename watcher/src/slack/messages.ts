@@ -28,8 +28,13 @@ export function buildTaskCard(
   mentionTarget?: string,
 ): TaskCard {
   const mention = mentionLabel(mentionTarget);
+  const watcherErrorTask = isWatcherErrorTask(task);
   const issueUrl = event?.issueUrl ?? task.linkUrl;
-  const issueTitle = task.title === task.issueIdentifier ? undefined : task.title;
+  const issueTitle = watcherErrorTask
+    ? "Symphony connection"
+    : task.title === task.issueIdentifier
+      ? undefined
+      : task.title;
   const displayTitle = [`[${task.serviceName}]`, issueTitle].filter(isPresent).join(" ");
   const linkedTitle = issueUrl
     ? `<${issueUrl}|${escapeSlack(displayTitle)}>`
@@ -43,6 +48,7 @@ export function buildTaskCard(
   const eventDetails = event ? compactEventDetails(event) : [];
   const detailLines = [
     [
+      watcherErrorTask ? `Status: ${escapeSlack(capitalize(task.status))}` : null,
       event ? `Event: ${escapeSlack(EVENT_LABELS[event.type])}` : null,
       updatedAtLabel(task.updatedAt),
       mention,
@@ -51,7 +57,7 @@ export function buildTaskCard(
       .join(" | "),
     eventDetails.join(" | "),
   ].filter((line) => line.length > 0);
-  const showStatusSelect = !isWatcherErrorTask(task);
+  const showStatusSelect = !watcherErrorTask;
 
   return {
     text: [displayTitle, mention].filter(isPresent).join(" "),
@@ -209,6 +215,10 @@ function updatedAtLabel(value: string): string {
 
   const timestamp = Math.floor(date.getTime() / 1_000);
   return `UpdatedAt: <!date^${timestamp}^{date_short_pretty} {time}|${date.toISOString()}>`;
+}
+
+function capitalize(value: string): string {
+  return value.length > 0 ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function normalizeStatus(status: string): string {

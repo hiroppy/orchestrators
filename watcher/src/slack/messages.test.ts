@@ -125,7 +125,46 @@ describe("Slack rendering", () => {
       card.blocks.some((block) => block.type === "actions"),
       false,
     );
-    assert.equal(card.text, "[service-a]");
+    assert.equal(card.text, "[service-a] Symphony connection");
+    assert.equal(
+      (card.blocks[0].text as { text: string }).text,
+      "*[service-a] Symphony connection*",
+    );
+    const context = card.blocks.find((block) => block.type === "context") as {
+      elements: Array<{ text: string }>;
+    };
+    assert.match(
+      context.elements[0].text,
+      /^Status: Unavailable \| Event: Retrying \| UpdatedAt: /,
+    );
+  });
+
+  it("makes a recovered Symphony connection understandable without opening its thread", () => {
+    const card = buildTaskCard(
+      {
+        ...task,
+        id: "service-a:watcher:service-a",
+        issueIdentifier: "watcher:service-a",
+        title: "watcher:service-a",
+        status: "available",
+      },
+      ["Todo", "In Progress", "Done"],
+      {
+        type: "recovered",
+        service: "service-a",
+        issueIdentifier: "watcher:service-a",
+        state: "available",
+      },
+    );
+    const context = card.blocks.find((block) => block.type === "context") as {
+      elements: Array<{ text: string }>;
+    };
+
+    assert.equal(card.text, "[service-a] Symphony connection");
+    assert.match(
+      context.elements[0].text,
+      /^Status: Available \| Event: Recovered \| UpdatedAt: /,
+    );
   });
 
   it("keeps thread output bounded and records Slack status actors", () => {
