@@ -122,14 +122,28 @@ During setup, you will configure the following values:
 - `<repository-url>` — repository cloned into each issue workspace
 - `<linear-project-slug>` — Linear project slug
 
-Copy and configure Symphony:
+Create and configure Symphony:
 
 ```sh
-instance_name="<instance-name>"
-
-test ! -e "symphonies/${instance_name}"
-cp -R symphony_template "symphonies/${instance_name}"
+./scripts/setup-symphony.sh "<instance-name>"
 ```
+
+The setup command asks which workflow profile to use:
+
+- `official` (default) — copies the upstream Symphony workflow unchanged
+- `customize` — applies the repository's Japanese Linear, pull request, review
+  quiet-window, and Docker cleanup conventions
+
+For non-interactive setup, pass the profile explicitly:
+
+```sh
+./scripts/setup-symphony.sh "<instance-name>" official
+./scripts/setup-symphony.sh "<instance-name>" customize
+```
+
+The `customize` profile is maintained separately in
+[`overlays/customize/workflow.patch`](overlays/customize/workflow.patch), keeping
+the `symphony_template/` Git subtree identical to upstream.
 
 Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
 workflow and can customize it independently. Since `symphonies/` is gitignored,
@@ -168,7 +182,7 @@ directory.
 Build the copied instance:
 
 ```sh
-cd "symphonies/${instance_name}/elixir"
+cd "symphonies/<instance-name>/elixir"
 mise trust
 mise install
 mise exec -- mix setup
