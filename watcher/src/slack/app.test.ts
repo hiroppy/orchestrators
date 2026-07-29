@@ -189,10 +189,12 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("does not repeat a closed notification after a related issue reply fails", async () => {
+  it("continues without repeating a closed notification when a related reply fails", async (context) => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
+      const errors: unknown[][] = [];
+      context.mock.method(console, "error", (...args) => errors.push(args));
       const postMessage = client.chat.postMessage;
       client.chat.postMessage = async (args) => {
         if (String(args.text).includes("ENG-64")) {
@@ -225,13 +227,15 @@ describe("Slack app behavior", () => {
             title: "Second next task",
             url: "https://linear.app/example/issue/ENG-64/second",
           },
+          {
+            identifier: "ENG-65",
+            title: "Third next task",
+            url: "https://linear.app/example/issue/ENG-65/third",
+          },
         ],
       };
 
-      await assert.rejects(
-        publishWatcherEvent(client, store, "C123", terminalEvent),
-        /Slack related issue post failed/,
-      );
+      await publishWatcherEvent(client, store, "C123", terminalEvent);
       await publishWatcherEvent(client, store, "C123", terminalEvent);
 
       assert.equal(
@@ -247,7 +251,15 @@ describe("Slack app behavior", () => {
         ).length,
         1,
       );
+      assert.equal(
+        calls.filter(
+          ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-65"),
+        ).length,
+        1,
+      );
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0][0]), /Failed to post related issue ENG-64/);
     });
   });
 

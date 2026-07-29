@@ -201,7 +201,6 @@ export async function publishWatcherEvent(
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
-  let terminalNotificationPosted = false;
 
   if (!task.parentChannelId || !task.parentMessageTs) {
     const parent = await client.chat.postMessage({
@@ -227,7 +226,6 @@ export async function publishWatcherEvent(
           task.parentMessageTs,
           task.status,
         );
-        terminalNotificationPosted = true;
         await postRelatedIssues(
           client,
           task.parentChannelId,
@@ -236,7 +234,7 @@ export async function publishWatcherEvent(
         );
       }
     } catch (error) {
-      if (announceTerminalParent && !terminalNotificationPosted) {
+      if (announceTerminalParent) {
         store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
       }
       throw error;
@@ -297,15 +295,20 @@ async function postRelatedIssues(
 ): Promise<void> {
   if (relatedIssues.length === 0) return;
   if (!closedMessageTs) {
-    throw new Error(`Slack did not return a timestamp for the task closed message in ${channel}.`);
+    console.error(`Slack did not return a timestamp for the task closed message in ${channel}.`);
+    return;
   }
 
   for (const issue of relatedIssues) {
-    await client.chat.postMessage({
-      channel,
-      thread_ts: closedMessageTs,
-      text: buildRelatedIssueMessage(issue),
-    });
+    try {
+      await client.chat.postMessage({
+        channel,
+        thread_ts: closedMessageTs,
+        text: buildRelatedIssueMessage(issue),
+      });
+    } catch (error) {
+      console.error(`Failed to post related issue ${issue.identifier}:`, error);
+    }
   }
 }
 
