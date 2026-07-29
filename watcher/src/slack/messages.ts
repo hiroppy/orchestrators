@@ -1,4 +1,4 @@
-import type { EventType, PullRequest, Task, WatcherEvent } from "../domain/types.ts";
+import type { EventType, PullRequest, RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 
 export const TASK_STATUS_ACTION_ID = "task_status_select";
 const MAX_THREAD_BODY_LENGTH = 2_500;
@@ -151,6 +151,11 @@ export function buildStatusChangedMessage(
 
 export function buildTaskClosedMessage(status: string, parentPermalink: string): string {
   return `Task closed | *${escapeSlack(status)}*\n${parentPermalink}`;
+}
+
+export function buildRelatedIssueMessage(issue: RelatedIssue): string {
+  const label = [issue.identifier, issue.title].filter(isPresent).join(": ");
+  return `Next task | ${issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label)}`;
 }
 
 export function taskIdFromBlockId(blockId?: string): string | undefined {

@@ -4,7 +4,8 @@ const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
-import type { PullRequest } from "../domain/types.ts";
+import { isTerminalLinearStateType } from "../domain/linear.ts";
+import type { PullRequest, RelatedIssue } from "../domain/types.ts";
 
 const ISSUE_STATE_QUERY = `
   query OrchestratorWatcherIssueState($id: String!) {
@@ -18,6 +19,19 @@ const ISSUE_STATE_QUERY = `
       attachments {
         nodes {
           url
+        }
+      }
+      relations {
+        nodes {
+          type
+          relatedIssue {
+            identifier
+            title
+            url
+            state {
+              type
+            }
+          }
         }
       }
       url
@@ -85,6 +99,17 @@ interface LinearIssueState {
   stateType: string | null;
   url: string | null;
   pullRequest?: PullRequest;
+  relatedIssues?: RelatedIssue[];
+}
+
+interface LinearIssueRelation {
+  type?: string | null;
+  relatedIssue?: {
+    identifier?: string | null;
+    title?: string | null;
+    url?: string | null;
+    state?: { type?: string | null } | null;
+  } | null;
 }
 
 interface LinearIssueResponse {
@@ -94,6 +119,7 @@ interface LinearIssueResponse {
       title?: string | null;
       state?: { name?: string | null; type?: string | null } | null;
       attachments?: { nodes?: Array<{ url?: string | null }> | null } | null;
+      relations?: { nodes?: LinearIssueRelation[] | null } | null;
       url?: string | null;
     } | null;
   };
@@ -215,6 +241,7 @@ export async function fetchLinearIssueState(
       if (!issue) return null;
 
       const pullRequest = findPullRequestAttachment(issue.attachments?.nodes);
+      const relatedIssues = findNextRelatedIssues(issue.relations?.nodes);
 
       return {
         identifier: issue.identifier,
@@ -223,6 +250,7 @@ export async function fetchLinearIssueState(
         stateType: issue.state?.type ?? null,
         url: issue.url ?? null,
         ...(pullRequest ? { pullRequest } : {}),
+        ...(relatedIssues.length > 0 ? { relatedIssues } : {}),
       };
     } catch {
       if (attempt >= maxAttempts) return null;
@@ -231,6 +259,28 @@ export async function fetchLinearIssueState(
   }
 
   return null;
+}
+
+function findNextRelatedIssues(relations?: LinearIssueRelation[] | null): RelatedIssue[] {
+  if (!Array.isArray(relations)) return [];
+
+  return relations.flatMap(({ type, relatedIssue }) => {
+    if (
+      type?.trim().toLowerCase() !== "blocks" ||
+      !relatedIssue?.identifier ||
+      isTerminalLinearStateType(relatedIssue.state?.type)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        identifier: relatedIssue.identifier,
+        title: relatedIssue.title ?? null,
+        url: relatedIssue.url ?? null,
+      },
+    ];
+  });
 }
 
 function findPullRequestAttachment(
