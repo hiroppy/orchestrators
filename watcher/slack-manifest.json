@@ -12,10 +12,13 @@
   },
   "oauth_config": {
     "scopes": {
-      "bot": ["chat:write", "users:read"]
+      "bot": ["channels:history", "chat:write", "groups:history", "users:read"]
     }
   },
   "settings": {
+    "event_subscriptions": {
+      "bot_events": ["message.channels", "message.groups"]
+    },
     "interactivity": {
       "is_enabled": true
     },

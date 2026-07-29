@@ -69,6 +69,8 @@ manifest enables Socket Mode and interactivity. It grants only the bot scopes
 used by the watcher:
 
 - `chat:write` — post and update task messages
+- `channels:history` / `groups:history` — receive user replies in public or
+  private task threads
 - `users:read` — resolve the display name of a user who changes a status
 
 The manifest cannot issue an app-level token. In **Basic Information →

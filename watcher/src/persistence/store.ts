@@ -237,6 +237,26 @@ export class WatcherStore {
       : undefined;
   }
 
+  getTaskBySlackThread(channel: string, threadTs: string): Task | undefined {
+    const row = this.db
+      .select({
+        task: tasks,
+        serviceName: services.name,
+        statusName: statuses.name,
+        observationIssueUrl: taskObservations.issueUrl,
+      })
+      .from(tasks)
+      .innerJoin(services, eq(tasks.serviceId, services.id))
+      .innerJoin(statuses, eq(tasks.statusId, statuses.id))
+      .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
+      .where(and(eq(tasks.parentChannelId, channel), eq(tasks.parentMessageTs, threadTs)))
+      .get();
+
+    return row
+      ? taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl)
+      : undefined;
+  }
+
   getTasksForLinearSync(): Task[] {
     return this.db
       .select({
@@ -434,6 +454,16 @@ export class WatcherStore {
       .where(eq(taskEvents.taskId, taskId))
       .all()
       .some(({ body }) => body?.includes(url));
+  }
+
+  hasRecordedSlackMessage(taskId: string, messageTs: string): boolean {
+    return (
+      this.db
+        .select({ id: taskEvents.id })
+        .from(taskEvents)
+        .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.slackThreadTs, messageTs)))
+        .get() !== undefined
+    );
   }
 
   countEvents(taskId: string, type: string): number {

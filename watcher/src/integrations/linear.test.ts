@@ -2,10 +2,106 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  createLinearWorkpadReply,
   fetchLinearIssueState,
   fetchLinearWorkflowStates,
   updateLinearIssueStatus,
 } from "./linear.ts";
+
+describe("createLinearWorkpadReply", () => {
+  it("creates a reply under the active Codex Workpad", async (context) => {
+    const requests: Array<{ query: string; variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+
+      if (requests.length === 1) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [
+                  { id: "resolved", body: "## Codex Workpad", resolvedAt: "2026-07-01" },
+                  { id: "active", body: "\n## Codex Workpad\n", resolvedAt: null },
+                ],
+              },
+            },
+          },
+        });
+      }
+
+      return Response.json({
+        data: { commentCreate: { success: true } },
+      });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Please add a test.", {
+      apiKey: "lin_test",
+    });
+
+    assert.equal(created, true);
+    assert.deepEqual(requests[1].variables, {
+      issueId: "issue-uuid",
+      parentId: "active",
+      body: "Please add a test.",
+    });
+  });
+
+  it("does not create a comment when the issue has no active Workpad", async (context) => {
+    let requestCount = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requestCount += 1;
+      return Response.json({
+        data: {
+          issue: {
+            id: "issue-uuid",
+            comments: {
+              nodes: [
+                { id: "resolved", body: "## Codex Workpad", resolvedAt: "2026-07-01" },
+                { id: "other", body: "ordinary comment", resolvedAt: null },
+              ],
+            },
+          },
+        },
+      });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "No destination", {
+      apiKey: "lin_test",
+    });
+
+    assert.equal(created, false);
+    assert.equal(requestCount, 1);
+  });
+
+  it("rejects failed comment mutations", async (context) => {
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      return request.query.includes("IssueWorkpad")
+        ? Response.json({
+            data: {
+              issue: {
+                id: "issue-uuid",
+                comments: {
+                  nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+                },
+              },
+            },
+          })
+        : Response.json({
+            data: { commentCreate: { success: false } },
+          });
+    });
+
+    await assert.rejects(
+      createLinearWorkpadReply("ENG-62", "Please add a test.", {
+        apiKey: "lin_test",
+      }),
+      /rejected Workpad reply/,
+    );
+  });
+});
 
 describe("fetchLinearWorkflowStates", () => {
   it("returns team workflow states in Linear position order", async (context) => {

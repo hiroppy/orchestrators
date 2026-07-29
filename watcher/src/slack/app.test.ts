@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { createDatabase } from "../persistence/database.ts";
-import { handleStatusAction, publishWatcherStarted, publishWatcherEvent } from "./app.ts";
+import {
+  handleStatusAction,
+  handleThreadReply,
+  publishWatcherStarted,
+  publishWatcherEvent,
+} from "./app.ts";
 import { WatcherStore } from "../persistence/store.ts";
 
 describe("Slack app behavior", () => {
@@ -608,6 +613,136 @@ describe("Slack app behavior", () => {
 
       assert.deepEqual(linearUpdates, ["Rework", "Done"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
+    });
+  });
+
+  it("copies a user thread reply to Linear once when Slack redelivers the event", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const replies: Array<{ issueIdentifier: string; body: string }> = [];
+      const args = {
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "2.000",
+          user: "U123",
+          text: "Please cover the retry path.",
+          subtype: "thread_broadcast",
+        },
+        logger: { error: (error: unknown) => assert.fail(String(error)) },
+      };
+      const reply = async (task: { issueIdentifier: string }, body: string) => {
+        replies.push({ issueIdentifier: task.issueIdentifier, body });
+        return true;
+      };
+
+      await Promise.all([
+        handleThreadReply(args, store, reply),
+        handleThreadReply(args, store, reply),
+      ]);
+
+      assert.deepEqual(replies, [
+        {
+          issueIdentifier: "ENG-62",
+          body: "Please cover the retry path.",
+        },
+      ]);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+    });
+  });
+
+  it("ignores non-user, empty, and unrelated thread messages", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const messages = [
+        { channel: "C123", thread_ts: "1.000", ts: "2.000", user: "U123", text: " " },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "3.000",
+          user: "U123",
+          text: "edited",
+          subtype: "message_changed",
+        },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "4.000",
+          user: "U123",
+          text: "bot",
+          bot_id: "B123",
+        },
+        {
+          channel: "C123",
+          thread_ts: "999.000",
+          ts: "5.000",
+          user: "U123",
+          text: "unrelated",
+        },
+        { channel: "C123", ts: "6.000", user: "U123", text: "top-level" },
+      ];
+      let replyCount = 0;
+
+      for (const message of messages) {
+        await handleThreadReply(
+          {
+            message,
+            logger: { error: (error) => assert.fail(String(error)) },
+          },
+          store,
+          async () => {
+            replyCount += 1;
+            return true;
+          },
+        );
+      }
+
+      assert.equal(replyCount, 0);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
+    });
+  });
+
+  it("leaves missing Workpads and Linear failures unrecorded", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const errors: unknown[] = [];
+      const args = {
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "2.000",
+          user: "U123",
+          text: "Please update the Workpad.",
+        },
+        logger: { error: (error: unknown) => errors.push(error) },
+      };
+
+      await handleThreadReply(args, store, async () => false);
+      await handleThreadReply(args, store, async () => {
+        throw new Error("Linear unavailable");
+      });
+
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Linear unavailable/);
     });
   });
 });

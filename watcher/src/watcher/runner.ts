@@ -12,6 +12,7 @@ import {
 import { createDatabase } from "../persistence/database.ts";
 import { diffSnapshots, normalizeSnapshot } from "./diff.ts";
 import {
+  createLinearWorkpadReply,
   fetchLinearIssueState,
   fetchLinearWorkflowStates,
   updateLinearIssueStatus,
@@ -69,6 +70,10 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
             });
           },
+          createLinearWorkpadReply: async (task, body) =>
+            createLinearWorkpadReply(task.issueIdentifier, body, {
+              apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
+            }),
           store,
         })
       : undefined;
