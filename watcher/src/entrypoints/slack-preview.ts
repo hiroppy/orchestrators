@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { WebClient } from "@slack/web-api";
 
 import {
