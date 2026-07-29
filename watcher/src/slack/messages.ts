@@ -112,6 +112,7 @@ export function buildTaskCard(
 export interface ThreadMessageContext {
   fromStatus?: string;
   toStatus?: string;
+  updatedAt?: string;
 }
 
 export function buildThreadMessage(
@@ -121,21 +122,29 @@ export function buildThreadMessage(
 ): string {
   const fromStatus = context.fromStatus;
   const toStatus = context.toStatus;
-  let statusChanged = false;
-  let headline = `*${escapeSlack(EVENT_LABELS[event.type])}*`;
   if (fromStatus && toStatus && normalizeStatus(fromStatus) !== normalizeStatus(toStatus)) {
-    statusChanged = true;
-    headline = `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
-  } else if (event.pullRequest) {
-    headline = "*PR created*";
+    const summary = [
+      [
+        `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
+        context.updatedAt ? updatedAtLabel(context.updatedAt) : null,
+        mentionLabel(mentionTarget),
+      ]
+        .filter(isPresent)
+        .join(" | "),
+      compactEventDetails(event, false).join(" | "),
+    ].filter((line) => line.length > 0);
+    return truncateThreadBody(summary.join("\n"));
   }
 
+  const headline = event.pullRequest
+    ? "*PR created*"
+    : `*${escapeSlack(EVENT_LABELS[event.type])}*`;
   const details = [
     headline,
     mentionTarget,
     ...[
       event.pullRequest ? formatPullRequest(event.pullRequest) : null,
-      statusChanged || event.pullRequest ? null : event.activity,
+      event.pullRequest ? null : event.activity,
       event.error ? `Error: ${event.error}` : null,
       event.attempt ? `Attempt: ${event.attempt}` : null,
       event.dueAt ? `Due: ${event.dueAt}` : null,
@@ -145,9 +154,7 @@ export function buildThreadMessage(
   ].filter(isPresent);
   const body = details.join(" | ");
 
-  return body.length <= MAX_THREAD_BODY_LENGTH
-    ? body
-    : `${body.slice(0, MAX_THREAD_BODY_LENGTH - 1)}…`;
+  return truncateThreadBody(body);
 }
 
 export function buildStatusChangedMessage(
@@ -182,16 +189,22 @@ function taskBlockId(taskId: string, status: string): string {
   return `task:${encodeURIComponent(taskId)}:${encodeURIComponent(status)}`;
 }
 
-function compactEventDetails(event: WatcherEvent): string[] {
+function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
   return [
     event.pullRequest ? formatPullRequest(event.pullRequest) : null,
-    event.attempt ? `Attempt: ${event.attempt}` : null,
+    includeAttempt && event.attempt ? `Attempt: ${event.attempt}` : null,
     event.error ? `Error: ${escapeSlack(truncate(event.error, 180))}` : null,
     positiveNumber(event.turnCount) ? `Turns: ${formatNumber(event.turnCount)}` : null,
     positiveNumber(event.tokens?.total)
       ? `Tokens: ${formatCompactNumber(event.tokens?.total)}`
       : null,
   ].filter(isPresent);
+}
+
+function truncateThreadBody(body: string): string {
+  return body.length <= MAX_THREAD_BODY_LENGTH
+    ? body
+    : `${body.slice(0, MAX_THREAD_BODY_LENGTH - 1)}…`;
 }
 
 function formatPullRequest(pullRequest: PullRequest): string {
