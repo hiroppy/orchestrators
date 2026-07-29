@@ -145,6 +145,59 @@ describe("createLinearWorkpadReply", () => {
     assert.equal(requestCount, 3);
   });
 
+  it("retries Linear GraphQL rate limits returned with HTTP 400", async (context) => {
+    let mutationCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [
+                  {
+                    id: "active",
+                    body: "## Codex Workpad",
+                    createdAt: "2026-07-01T00:00:00Z",
+                    resolvedAt: null,
+                  },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({ data: { comments: { nodes: [] } } });
+      }
+
+      mutationCount += 1;
+      return mutationCount === 1
+        ? Response.json(
+            {
+              errors: [
+                {
+                  message: "Rate limit exceeded",
+                  extensions: { code: "RATELIMITED" },
+                },
+              ],
+            },
+            { status: 400 },
+          )
+        : Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Retry this reply.", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(mutationCount, 2);
+  });
+
   it("rejects failed comment mutations", async (context) => {
     let requestCount = 0;
     context.mock.method(globalThis, "fetch", async (_url, options) => {

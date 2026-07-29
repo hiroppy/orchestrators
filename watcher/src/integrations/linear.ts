@@ -523,21 +523,26 @@ async function linearRequest<T>(
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(timeoutMs),
   });
+  const body = (await response.json().catch(() => undefined)) as
+    | {
+        data?: T;
+        errors?: Array<{ message?: string; extensions?: { code?: string } }>;
+      }
+    | undefined;
+  const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATELIMITED");
   if (!response.ok) {
     throw new LinearHttpError(
       `Linear returned HTTP ${response.status}.`,
-      shouldRetryResponse(response.status),
+      Boolean(rateLimited) || shouldRetryResponse(response.status),
     );
   }
 
-  const body = (await response.json()) as {
-    data?: T;
-    errors?: Array<{ message?: string }>;
-  };
-  if (body.errors?.length) {
-    throw new Error(`Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`);
+  if (body?.errors?.length) {
+    const message = `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`;
+    if (rateLimited) throw new LinearHttpError(message, true);
+    throw new Error(message);
   }
-  if (!body.data) throw new Error("Linear response did not include data.");
+  if (!body?.data) throw new Error("Linear response did not include data.");
   return body.data;
 }
 
