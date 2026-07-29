@@ -182,7 +182,7 @@ directory.
 Build the copied instance:
 
 ```sh
-cd "symphonies/${instance_name}/elixir"
+cd "symphonies/<instance-name>/elixir"
 mise trust
 mise install
 mise exec -- mix setup
