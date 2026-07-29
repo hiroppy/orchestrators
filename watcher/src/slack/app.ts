@@ -76,29 +76,42 @@ export async function handleThreadReply(
 
   const queueKey = `${message.channel}:${message.thread_ts}`;
   await withQueue(threadReplyQueues, queueKey, async () => {
-    if (store.hasRecordedSlackMessage(task.id, message.ts)) return;
+    const replyRecorded = store.hasRecordedSlackMessage(task.id, message.ts, "workpad_replied");
 
-    try {
-      const created = await createLinearWorkpadReply(
-        task,
-        message.text,
-        `${message.channel}:${message.ts}`,
-      );
-      if (!created) return;
-
-      store.addEvent({
-        taskId: task.id,
-        type: "workpad_replied",
-        actor: message.user,
-        body: message.text,
-        slackThreadTs: message.ts,
-      });
-
+    if (!replyRecorded) {
       try {
-        await addCopiedReplyReaction(client, message);
+        const created = await createLinearWorkpadReply(
+          task,
+          message.text,
+          `${message.channel}:${message.ts}`,
+        );
+        if (!created) return;
+
+        store.addEvent({
+          taskId: task.id,
+          type: "workpad_replied",
+          actor: message.user,
+          body: message.text,
+          slackThreadTs: message.ts,
+        });
       } catch (error) {
         logger.error(error);
+        return;
       }
+    }
+
+    if (store.hasRecordedSlackMessage(task.id, message.ts, "workpad_reply_acknowledged")) {
+      return;
+    }
+
+    try {
+      await addCopiedReplyReaction(client, message);
+      store.addEvent({
+        taskId: task.id,
+        type: "workpad_reply_acknowledged",
+        actor: message.user,
+        slackThreadTs: message.ts,
+      });
     } catch (error) {
       logger.error(error);
     }

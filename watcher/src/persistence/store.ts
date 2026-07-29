@@ -456,12 +456,18 @@ export class WatcherStore {
       .some(({ body }) => body?.includes(url));
   }
 
-  hasRecordedSlackMessage(taskId: string, messageTs: string): boolean {
+  hasRecordedSlackMessage(taskId: string, messageTs: string, eventType: string): boolean {
     return (
       this.db
         .select({ id: taskEvents.id })
         .from(taskEvents)
-        .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.slackThreadTs, messageTs)))
+        .where(
+          and(
+            eq(taskEvents.taskId, taskId),
+            eq(taskEvents.slackThreadTs, messageTs),
+            eq(taskEvents.type, eventType),
+          ),
+        )
         .get() !== undefined
     );
   }

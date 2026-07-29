@@ -683,6 +683,7 @@ describe("Slack app behavior", () => {
         { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
       ]);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 2);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 2);
     });
   });
 
@@ -823,7 +824,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("does not duplicate a copied reply when adding the check reaction fails", async () => {
+  it("retries an unacknowledged copied reply on redelivery without calling Linear again", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       await publishWatcherEvent(fakeClient(calls), store, "C123", {
@@ -851,16 +852,25 @@ describe("Slack app behavior", () => {
         logger: { error: (error: unknown) => errors.push(error) },
       };
       let replyCount = 0;
+      let reactionAttempts = 0;
       const reply = async () => {
         replyCount += 1;
         return true;
+      };
+      args.client.reactions.add = async () => {
+        reactionAttempts += 1;
+        if (reactionAttempts === 1) {
+          throw new Error("Slack unavailable");
+        }
       };
 
       await handleThreadReply(args, store, reply);
       await handleThreadReply(args, store, reply);
 
       assert.equal(replyCount, 1);
+      assert.equal(reactionAttempts, 2);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 1);
       assert.equal(errors.length, 1);
       assert.match(String(errors[0]), /Slack unavailable/);
     });
@@ -908,6 +918,7 @@ describe("Slack app behavior", () => {
       assert.equal(replyCount, 1);
       assert.equal(reactionAttempts, 3);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 1);
     });
   });
 });
