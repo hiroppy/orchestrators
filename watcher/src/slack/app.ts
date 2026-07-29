@@ -249,6 +249,7 @@ export async function publishWatcherEvent(
   const threadBody = buildThreadMessage(threadEvent, mentionTarget, {
     fromStatus: previousTask?.status,
     toStatus: task.status,
+    updatedAt: task.updatedAt,
   });
   const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, mentionTarget)
     ? await client.chat.postMessage({

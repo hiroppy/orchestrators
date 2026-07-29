@@ -651,7 +651,7 @@ describe("runOnce", () => {
       );
       assert.match(
         String(calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.text),
-        /\*In Review\* → \*Done\*.*PR#42/,
+        /^Event: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
 
       await runOnce({

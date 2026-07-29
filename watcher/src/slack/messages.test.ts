@@ -188,6 +188,35 @@ describe("Slack rendering", () => {
     assert.match(pullRequestBody, /github\.com\/acme\/example\/pull\/42/);
   });
 
+  it("renders watcher status changes like the parent event summary", () => {
+    const body = buildThreadMessage(
+      {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/4",
+          number: 4,
+        },
+        turnCount: 1,
+        attempt: 1,
+        dueAt: "2026-07-29T05:14:49Z",
+      },
+      "<@UHIROPPY>",
+      {
+        fromStatus: "In Progress",
+        toStatus: "In Review",
+        updatedAt: "2026-07-29T07:56:00.000Z",
+      },
+    );
+
+    assert.match(
+      body,
+      /^Event: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+    );
+    assert.doesNotMatch(body, /In Progress|In Review|Attempt:|Due:/);
+  });
+
   it("renders a precomputed attention mention in cards and threads", () => {
     const mention = "<!subteam^SXXXXXXXX>";
     const card = buildTaskCard(
