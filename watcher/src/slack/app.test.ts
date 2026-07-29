@@ -140,6 +140,18 @@ describe("Slack app behavior", () => {
         issueUrl,
         resolvedState: "Done",
         resolvedStateType: "completed",
+        relatedIssues: [
+          {
+            identifier: "ENG-63",
+            title: "Deploy the merged change",
+            url: "https://linear.app/example/issue/ENG-63/deploy",
+          },
+          {
+            identifier: "ENG-64",
+            title: "Verify production",
+            url: "https://linear.app/example/issue/ENG-64/verify",
+          },
+        ],
       });
       await publishWatcherEvent(client, store, "C123", {
         type: "updated",
@@ -160,11 +172,94 @@ describe("Slack app behavior", () => {
         channel: "C123",
         text: "Task closed | *Done*\nhttps://example.slack.com/archives/C123/p1000",
       });
+      assert.deepEqual(
+        calls
+          .filter(({ method, args }) => method === "postMessage" && args.thread_ts === "2.000")
+          .map(({ args }) => args.text),
+        [
+          "Next task | <https://linear.app/example/issue/ENG-63/deploy|ENG-63: Deploy the merged change>",
+          "Next task | <https://linear.app/example/issue/ENG-64/verify|ENG-64: Verify production>",
+        ],
+      );
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, "1.000");
       assert.deepEqual(
         calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
         ["1.000", "1.000"],
       );
+    });
+  });
+
+  it("continues without repeating a closed notification when a related reply fails", async (context) => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const errors: unknown[][] = [];
+      context.mock.method(console, "error", (...args) => errors.push(args));
+      const postMessage = client.chat.postMessage;
+      client.chat.postMessage = async (args) => {
+        if (String(args.text).includes("ENG-64")) {
+          throw new Error("Slack related issue post failed");
+        }
+        return postMessage(args);
+      };
+
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      const terminalEvent = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+        relatedIssues: [
+          {
+            identifier: "ENG-63",
+            title: "First next task",
+            url: "https://linear.app/example/issue/ENG-63/first",
+          },
+          {
+            identifier: "ENG-64",
+            title: "Second next task",
+            url: "https://linear.app/example/issue/ENG-64/second",
+          },
+          {
+            identifier: "ENG-65",
+            title: "Third next task",
+            url: "https://linear.app/example/issue/ENG-65/third",
+          },
+        ],
+      };
+
+      await publishWatcherEvent(client, store, "C123", terminalEvent);
+      await publishWatcherEvent(client, store, "C123", terminalEvent);
+
+      assert.equal(
+        calls.filter(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("Task closed"),
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-63"),
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-65"),
+        ).length,
+        1,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0][0]), /Failed to post related issue ENG-64/);
     });
   });
 

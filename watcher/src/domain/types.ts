@@ -108,6 +108,12 @@ export interface PullRequest {
   hasConfiguredReaction?: boolean;
 }
 
+export interface RelatedIssue {
+  identifier: string;
+  title: string | null;
+  url: string | null;
+}
+
 export interface WatcherEvent {
   type: EventType;
   service: string;
@@ -130,6 +136,7 @@ export interface WatcherEvent {
   resolvedState?: string | null;
   resolvedStateType?: string | null;
   pullRequest?: PullRequest;
+  relatedIssues?: RelatedIssue[];
 }
 
 export interface Task {
