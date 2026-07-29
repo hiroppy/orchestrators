@@ -37,14 +37,14 @@ if [ -z "$profile" ]; then
   fi
 
   echo "Choose a workflow profile:"
-  echo "  1) official — use the upstream Symphony workflow unchanged"
-  echo "  2) customize — apply the local Japanese/Linear/PR workflow overlay"
+  echo "  1) customize — apply the local Japanese/Linear/PR workflow overlay"
+  echo "  2) official — use the upstream Symphony workflow unchanged"
   printf "Profile [1]: "
   read -r choice
 
   case "${choice:-1}" in
-    1 | official) profile=official ;;
-    2 | customize) profile=customize ;;
+    1 | customize) profile=customize ;;
+    2 | official) profile=official ;;
     *)
       echo "Unknown workflow profile: $choice" >&2
       exit 2

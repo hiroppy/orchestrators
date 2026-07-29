@@ -130,9 +130,9 @@ Create and configure Symphony:
 
 The setup command asks which workflow profile to use:
 
-- `official` (default) — copies the upstream Symphony workflow unchanged
-- `customize` — applies the repository's Japanese Linear, pull request, review
+- `customize` (default) — applies the repository's Japanese Linear, pull request, review
   quiet-window, and Docker cleanup conventions
+- `official` — copies the upstream Symphony workflow unchanged
 
 For non-interactive setup, pass the profile explicitly:
 
@@ -144,6 +144,11 @@ For non-interactive setup, pass the profile explicitly:
 The `customize` profile is maintained separately in
 [`overlays/customize/workflow.patch`](overlays/customize/workflow.patch), keeping
 the `symphony_template/` Git subtree identical to upstream.
+
+The watcher example configuration uses `In Review`, matching the default
+`customize` profile. The `official` profile uses Symphony's upstream
+`Human Review` status; when selecting it, set `watcher.reviewReaction.inReviewStatus`
+and any matching `slack.mention.statuses` entries to `Human Review`.
 
 Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
 workflow and can customize it independently. Since `symphonies/` is gitignored,
