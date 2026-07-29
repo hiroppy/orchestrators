@@ -308,7 +308,6 @@ async function processWatcherEvent({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const previousStatus = store.getTask(taskId)?.status;
   await publishWatcherEvent(
     slackClient,
     store,
@@ -320,10 +319,7 @@ async function processWatcherEvent({
   if (!reviewDecision.shouldRequeue || !review) return;
 
   const task = store.getTask(taskId)!;
-  if (
-    !reviewDecision.reachesLimit &&
-    normalizeStatus(previousStatus ?? "") === normalizeStatus(task.status)
-  ) {
+  if (!reviewDecision.reachesLimit) {
     await slackClient.chat.postMessage({
       channel: task.parentChannelId!,
       thread_ts: task.parentMessageTs!,

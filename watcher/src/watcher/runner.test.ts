@@ -453,7 +453,7 @@ describe("runOnce", () => {
           inReviewStatus: "In Review",
           inProgressStatus: "In Progress",
           reaction: "👀",
-          maxRequeues: 2,
+          maxRequeues: 3,
         },
         mention: {
           target: "<@U123>",
@@ -496,19 +496,34 @@ describe("runOnce", () => {
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        1,
+      );
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
       await run("In Progress");
       linearState = "In Review";
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress"]);
-      assert.match(JSON.stringify(calls), /review requeue limit reached \(2\/2\)/);
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        2,
+      );
+      assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached/);
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
       await run("In Progress");
       linearState = "In Review";
       await run("In Review");
-      assert.deepEqual(statusUpdates, ["In Progress", "In Progress"]);
+      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
+      assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
+      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+
+      await run("In Progress");
+      linearState = "In Review";
+      await run("In Review");
+      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.match(JSON.stringify(calls), /<@U123>/);
     });
