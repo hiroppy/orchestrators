@@ -102,6 +102,8 @@ connecting to Linear. Specify whether to preview a parent post or thread update,
 followed by the event type:
 
 ```sh
+cd watcher
+
 SLACK_BOT_TOKEN=xoxb-... \
 SLACK_CHANNEL_ID=C0123456789 \
 pnpm slack:preview post start
@@ -116,9 +118,10 @@ The first argument is `post` or `thread`. Available event types are `start`,
 a new parent message so its formatting can be inspected without an existing
 watcher thread.
 
-Run the command from the repository root. It uses the same card builder as the
-watcher and requires only a bot token with permission to post to the destination
-channel. It does not require `watcher/config.ts` or `SLACK_APP_TOKEN`.
+Run the command from the `watcher` directory. It uses the same card builder as
+the watcher and requires only a bot token with permission to post to the
+destination channel. It does not require `watcher/config.ts` or
+`SLACK_APP_TOKEN`.
 
 ## Message behavior
 
