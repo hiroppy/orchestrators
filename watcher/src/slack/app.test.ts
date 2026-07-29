@@ -413,9 +413,9 @@ describe("Slack app behavior", () => {
         threadTexts[2],
         /^\*In Progress\* → \*In Review\*\nEvent: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
-      const statusTransitionBlocks = calls
-        .filter(({ method, args }) => method === "postMessage" && args.thread_ts)[2].args
-        .blocks as Array<Record<string, unknown>>;
+      const statusTransitionBlocks = calls.filter(
+        ({ method, args }) => method === "postMessage" && args.thread_ts,
+      )[2].args.blocks as Array<Record<string, unknown>>;
       assert.deepEqual(
         statusTransitionBlocks.map(({ type }) => type),
         ["section", "context"],
@@ -425,7 +425,7 @@ describe("Slack app behavior", () => {
         "*In Progress* → *In Review*",
       );
       assert.match(
-        ((statusTransitionBlocks[1].elements as Array<{ text: string }>)[0]).text,
+        (statusTransitionBlocks[1].elements as Array<{ text: string }>)[0].text,
         /^Event: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       assert.equal(
