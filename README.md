@@ -14,6 +14,8 @@ efficiently keep many tasks moving, even while away from your desk.
 - Get notified when tasks change state, open pull requests, become blocked, or
   finish
 - Update Linear issue statuses directly from Slack
+- Reply to a Linear workpad from its Slack task thread, so you can keep
+  Symphony work moving directly from Slack
 - Keep work moving during automated code review by requeuing Linear issues when
   a configured emoji reaction (for example, Codex's 👀) appears on a linked
   pull request
@@ -69,6 +71,9 @@ manifest enables Socket Mode and interactivity. It grants only the bot scopes
 used by the watcher:
 
 - `chat:write` — post and update task messages
+- `channels:history` / `groups:history` — receive user replies in public or
+  private task threads
+- `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
 
 The manifest cannot issue an app-level token. In **Basic Information →

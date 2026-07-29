@@ -154,6 +154,11 @@ destination channel. It does not require `watcher/config.ts` or
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. A configured attention target is appended when the transition
   enters one of its configured statuses.
+- A user's non-empty reply in a task card thread is copied once to the active
+  `## Codex Workpad` comment on the corresponding Linear issue. Bot messages,
+  edited/deleted message events, unrelated threads, and issues without an
+  active Workpad are ignored. A successfully copied Slack reply receives a
+  `white_check_mark` reaction.
 - The Symphony snapshot diff emits task events when an issue first appears,
   changes its reported state, enters retrying or blocked, or disappears.
   Changes only to activity text, timestamps, or counters do not emit an event.

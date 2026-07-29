@@ -1,13 +1,14 @@
 import { App } from "@slack/bolt";
-import type {
-  ChatGetPermalinkArguments,
-  ChatGetPermalinkResponse,
-  ChatPostMessageArguments,
-  ChatPostMessageResponse,
-  ChatUpdateArguments,
-  ChatUpdateResponse,
-  UsersInfoArguments,
-  UsersInfoResponse,
+import {
+  ErrorCode,
+  type ChatGetPermalinkArguments,
+  type ChatGetPermalinkResponse,
+  type ChatPostMessageArguments,
+  type ChatPostMessageResponse,
+  type ChatUpdateArguments,
+  type ChatUpdateResponse,
+  type UsersInfoArguments,
+  type UsersInfoResponse,
 } from "@slack/web-api";
 
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
@@ -25,13 +26,20 @@ import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
+export type LinearWorkpadReplier = (
+  task: Task,
+  body: string,
+  idempotencyKey: string,
+) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
+const threadReplyQueues = new Map<string, Promise<void>>();
 
 export interface SlackAppOptions {
   botToken: string;
   appToken: string;
   mention?: ResolvedMentionConfig;
   updateLinearStatus: LinearStatusUpdater;
+  createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
 }
 
@@ -40,6 +48,7 @@ export function createSlackApp({
   appToken,
   mention,
   updateLinearStatus,
+  createLinearWorkpadReply,
   store,
 }: SlackAppOptions): App {
   const app = new App({
@@ -49,7 +58,64 @@ export function createSlackApp({
   });
 
   registerStatusAction(app, store, updateLinearStatus, mention);
+  app.message(async (args) => {
+    await handleThreadReply(args, store, createLinearWorkpadReply);
+  });
   return app;
+}
+
+export async function handleThreadReply(
+  { message, client, logger }: MessageArguments,
+  store: WatcherStore,
+  createLinearWorkpadReply: LinearWorkpadReplier,
+): Promise<void> {
+  if (!isUserThreadReply(message)) return;
+
+  const task = store.getTaskBySlackThread(message.channel, message.thread_ts);
+  if (!task) return;
+
+  const queueKey = `${message.channel}:${message.thread_ts}`;
+  await withQueue(threadReplyQueues, queueKey, async () => {
+    const replyRecorded = store.hasRecordedSlackMessage(task.id, message.ts, "workpad_replied");
+
+    if (!replyRecorded) {
+      try {
+        const created = await createLinearWorkpadReply(
+          task,
+          message.text,
+          `${message.channel}:${message.ts}`,
+        );
+        if (!created) return;
+
+        store.addEvent({
+          taskId: task.id,
+          type: "workpad_replied",
+          actor: message.user,
+          body: message.text,
+          slackThreadTs: message.ts,
+        });
+      } catch (error) {
+        logger.error(error);
+        return;
+      }
+    }
+
+    if (store.hasRecordedSlackMessage(task.id, message.ts, "workpad_reply_acknowledged")) {
+      return;
+    }
+
+    try {
+      await addCopiedReplyReaction(client, message);
+      store.addEvent({
+        taskId: task.id,
+        type: "workpad_reply_acknowledged",
+        actor: message.user,
+        slackThreadTs: message.ts,
+      });
+    } catch (error) {
+      logger.error(error);
+    }
+  });
 }
 
 function registerStatusAction(
@@ -154,21 +220,29 @@ export async function handleStatusAction(
 }
 
 async function withTaskStatusQueue<T>(taskId: string, run: () => Promise<T>): Promise<T> {
-  const previous = taskStatusQueues.get(taskId) ?? Promise.resolve();
+  return withQueue(taskStatusQueues, taskId, run);
+}
+
+async function withQueue<T>(
+  queues: Map<string, Promise<void>>,
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previous = queues.get(key) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
   const queued = previous.catch(() => {}).then(() => current);
-  taskStatusQueues.set(taskId, queued);
+  queues.set(key, queued);
 
   await previous.catch(() => {});
   try {
     return await run();
   } finally {
     release();
-    if (taskStatusQueues.get(taskId) === queued) {
-      taskStatusQueues.delete(taskId);
+    if (queues.get(key) === queued) {
+      queues.delete(key);
     }
   }
 }
@@ -427,6 +501,97 @@ interface StatusActionArguments {
   body: unknown;
   client: SlackClient;
   logger: { error(error: unknown): void };
+}
+
+interface MessageArguments {
+  message: unknown;
+  client: {
+    reactions: {
+      add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
+    };
+  };
+  logger: { error(error: unknown): void };
+}
+
+interface UserThreadReply {
+  channel: string;
+  thread_ts: string;
+  ts: string;
+  user: string;
+  text: string;
+}
+
+async function addCopiedReplyReaction(
+  client: MessageArguments["client"],
+  message: UserThreadReply,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await client.reactions.add({
+        channel: message.channel,
+        name: "white_check_mark",
+        timestamp: message.ts,
+      });
+      return;
+    } catch (error) {
+      if (slackError(error) === "already_reacted") return;
+      if (attempt >= 3 || !isTransientSlackError(error)) throw error;
+      await sleep(slackRetryDelayMs(error));
+    }
+  }
+}
+
+function slackRetryDelayMs(error: unknown): number {
+  if (!error || typeof error !== "object") return 100;
+  const details = error as { code?: unknown; retryAfter?: unknown };
+  return details.code === ErrorCode.RateLimitedError && typeof details.retryAfter === "number"
+    ? details.retryAfter * 1000
+    : 100;
+}
+
+function slackError(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { data?: { error?: unknown } }).data;
+  return typeof data?.error === "string" ? data.error : undefined;
+}
+
+function isTransientSlackError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = error as { code?: unknown; statusCode?: unknown };
+  if (details.code === ErrorCode.RequestError || details.code === ErrorCode.RateLimitedError) {
+    return true;
+  }
+  if (details.code === ErrorCode.HTTPError) {
+    return typeof details.statusCode !== "number" || details.statusCode >= 500;
+  }
+  return (
+    details.code === ErrorCode.PlatformError &&
+    ["fatal_error", "internal_error", "request_timeout", "service_unavailable"].includes(
+      slackError(error) ?? "",
+    )
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isUserThreadReply(message: unknown): message is UserThreadReply {
+  if (!message || typeof message !== "object") return false;
+
+  const event = message as Record<string, unknown>;
+  return (
+    typeof event.channel === "string" &&
+    typeof event.thread_ts === "string" &&
+    typeof event.ts === "string" &&
+    typeof event.user === "string" &&
+    typeof event.text === "string" &&
+    event.text.trim().length > 0 &&
+    (event.subtype === undefined ||
+      event.subtype === "thread_broadcast" ||
+      event.subtype === "file_share") &&
+    event.bot_id === undefined
+  );
 }
 
 function selectedStatusFromAction(action: unknown): string | undefined {

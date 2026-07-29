@@ -83,6 +83,7 @@ export const taskEvents = sqliteTable(
     fromStatusId: integer("from_status_id").references(() => statuses.id),
     toStatusId: integer("to_status_id").references(() => statuses.id),
     body: text("body"),
+    // Workpad events store the reply message ts; other events store their posted thread reply ts.
     slackThreadTs: text("slack_thread_ts"),
     createdAt: text("created_at").notNull(),
   },

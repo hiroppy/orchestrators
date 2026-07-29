@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, notInArray, or } from "drizzle-orm";
+import { and, asc, count, eq, isNull, ne, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -237,6 +237,26 @@ export class WatcherStore {
       : undefined;
   }
 
+  getTaskBySlackThread(channel: string, threadTs: string): Task | undefined {
+    const row = this.db
+      .select({
+        task: tasks,
+        serviceName: services.name,
+        statusName: statuses.name,
+        observationIssueUrl: taskObservations.issueUrl,
+      })
+      .from(tasks)
+      .innerJoin(services, eq(tasks.serviceId, services.id))
+      .innerJoin(statuses, eq(tasks.statusId, statuses.id))
+      .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
+      .where(and(eq(tasks.parentChannelId, channel), eq(tasks.parentMessageTs, threadTs)))
+      .get();
+
+    return row
+      ? taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl)
+      : undefined;
+  }
+
   getTasksForLinearSync(): Task[] {
     return this.db
       .select({
@@ -431,9 +451,25 @@ export class WatcherStore {
     return this.db
       .select({ body: taskEvents.body })
       .from(taskEvents)
-      .where(eq(taskEvents.taskId, taskId))
+      .where(and(eq(taskEvents.taskId, taskId), ne(taskEvents.type, "workpad_replied")))
       .all()
       .some(({ body }) => body?.includes(url));
+  }
+
+  hasRecordedSlackMessage(taskId: string, messageTs: string, eventType: string): boolean {
+    return (
+      this.db
+        .select({ id: taskEvents.id })
+        .from(taskEvents)
+        .where(
+          and(
+            eq(taskEvents.taskId, taskId),
+            eq(taskEvents.slackThreadTs, messageTs),
+            eq(taskEvents.type, eventType),
+          ),
+        )
+        .get() !== undefined
+    );
   }
 
   countEvents(taskId: string, type: string): number {
