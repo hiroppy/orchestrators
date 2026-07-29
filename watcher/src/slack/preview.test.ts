@@ -12,8 +12,8 @@ import {
 
 describe("Slack preview", () => {
   it("builds a representative watcher card for every event case", () => {
-    const messages = SLACK_PREVIEW_CASES.map((previewCase) =>
-      buildSlackPreviewMessage(previewCase, new Date("2026-07-29T00:00:00.000Z")),
+    const messages = SLACK_PREVIEW_CASES.filter((previewCase) => previewCase !== "thread").map(
+      (previewCase) => buildSlackPreviewMessage(previewCase, new Date("2026-07-29T00:00:00.000Z")),
     );
     const expectedEventLabels = ["Started", "Updated", "Retrying", "Blocked", "Ended", "Recovered"];
 
@@ -45,8 +45,30 @@ describe("Slack preview", () => {
     );
   });
 
+  it("builds a representative thread message as a parent post", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client: SlackPreviewClient = {
+      chat: {
+        async postMessage(args) {
+          calls.push(args);
+          return { ok: true, channel: args.channel, ts: "1.000" };
+        },
+      },
+    };
+
+    await postSlackPreview(client, "C123", "thread", new Date("2026-07-29T00:00:00.000Z"));
+
+    assert.equal(calls.length, 1);
+    assert.match(
+      String(calls[0].text),
+      /^Event: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+>\n<https:\/\/github\.com\/example\/preview\/pull\/123\|PR#123> \| Turns: 1 \| Tokens: 1\.3k$/,
+    );
+    assert.equal("thread_ts" in calls[0], false);
+  });
+
   it("requires a supported event case", () => {
     assert.equal(resolveSlackPreviewCase("blocked"), "blocked");
+    assert.equal(resolveSlackPreviewCase("thread"), "thread");
     assert.throws(() => resolveSlackPreviewCase(), /Missing Slack preview case.*Available cases/s);
     assert.throws(
       () => resolveSlackPreviewCase("unknown"),

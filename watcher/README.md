@@ -106,8 +106,10 @@ SLACK_CHANNEL_ID=C0123456789 \
 pnpm slack:preview blocked
 ```
 
-Available cases are `started`, `updated`, `retrying`, `blocked`, `ended`, and
-`recovered`.
+Available cases are `started`, `updated`, `retrying`, `blocked`, `ended`,
+`recovered`, and `thread`. The `thread` case posts a representative status
+update as a new parent message so its formatting can be inspected without an
+existing watcher thread.
 
 Run the command from the repository root. It uses the same card builder as the
 watcher and requires only a bot token with permission to post to the destination
