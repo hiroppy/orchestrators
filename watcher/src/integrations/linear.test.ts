@@ -173,7 +173,7 @@ describe("createLinearWorkpadReply", () => {
       }),
       /rejected Workpad reply/,
     );
-    assert.equal(requestCount, 2);
+    assert.equal(requestCount, 3);
   });
 
   it("reconciles an ambiguously successful comment creation without resubmitting it", async (context) => {
@@ -293,6 +293,56 @@ describe("createLinearWorkpadReply", () => {
     assert.equal(created, true);
     assert.equal(mutationCount, 2);
     assert.equal(reconciliationCount, 2);
+  });
+
+  it("recovers a copied reply after restart when Linear reports its stable ID as duplicate", async (context) => {
+    let createdCommentId: string | undefined;
+    let mutationCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [
+                  {
+                    id: "active",
+                    body: "## Codex Workpad",
+                    createdAt: "2026-07-01T00:00:00Z",
+                    resolvedAt: null,
+                  },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({
+          data: { comments: { nodes: createdCommentId ? [{ id: createdCommentId }] : [] } },
+        });
+      }
+
+      mutationCount += 1;
+      if (!createdCommentId) {
+        createdCommentId = request.variables.id;
+        return Response.json({ data: { commentCreate: { success: true } } });
+      }
+      return Response.json({
+        errors: [{ message: "Comment ID is already in use." }],
+      });
+    });
+
+    const options = {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      retryDelayMs: 0,
+    };
+    assert.equal(await createLinearWorkpadReply("ENG-62", "Copy once.", options), true);
+    assert.equal(await createLinearWorkpadReply("ENG-62", "Copy once.", options), true);
+    assert.equal(mutationCount, 2);
   });
 });
 

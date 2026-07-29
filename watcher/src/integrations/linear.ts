@@ -294,13 +294,12 @@ export async function createLinearWorkpadReply(
       }
       return true;
     } catch (error) {
-      if (!isTransientLinearError(error)) throw error;
       try {
         if (await linearCommentExists(commentId, requestOptions)) return true;
       } catch {
         // Reconciliation is best-effort; retry based on the original mutation error.
       }
-      if (attempt >= maxAttempts) throw error;
+      if (attempt >= maxAttempts || !isTransientLinearError(error)) throw error;
       await sleep(retryDelayMs);
     }
   }
