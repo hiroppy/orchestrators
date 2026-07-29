@@ -12,6 +12,7 @@ import type {
 
 import {
   buildStatusChangedMessage,
+  buildRelatedIssueMessage,
   buildTaskCard,
   buildTaskClosedMessage,
   buildThreadMessage,
@@ -20,7 +21,7 @@ import {
 } from "./messages.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import type { Task, WatcherEvent } from "../domain/types.ts";
+import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
@@ -219,7 +220,13 @@ export async function publishWatcherEvent(
       });
       store.setRenderedSummary(task.id, summary);
       if (announceTerminalParent) {
-        await postParentPermalink(client, task.parentChannelId, task.parentMessageTs, task.status);
+        await postParentPermalink(
+          client,
+          task.parentChannelId,
+          task.parentMessageTs,
+          task.status,
+          event.relatedIssues,
+        );
       }
     } catch (error) {
       if (announceTerminalParent) {
@@ -261,6 +268,7 @@ async function postParentPermalink(
   channel: string,
   messageTs: string,
   status: string,
+  relatedIssues: RelatedIssue[] = [],
 ): Promise<void> {
   const response = await client.chat.getPermalink({
     channel,
@@ -269,10 +277,22 @@ async function postParentPermalink(
   if (!response.permalink) {
     throw new Error(`Slack did not return a permalink for ${channel}:${messageTs}.`);
   }
-  await client.chat.postMessage({
+  const closedMessage = await client.chat.postMessage({
     channel,
     text: buildTaskClosedMessage(status, response.permalink),
   });
+  if (relatedIssues.length === 0) return;
+  if (!closedMessage.ts) {
+    throw new Error(`Slack did not return a timestamp for the task closed message in ${channel}.`);
+  }
+
+  for (const issue of relatedIssues) {
+    await client.chat.postMessage({
+      channel,
+      thread_ts: closedMessage.ts,
+      text: buildRelatedIssueMessage(issue),
+    });
+  }
 }
 
 export function mentionTargetForWatcherEvent(

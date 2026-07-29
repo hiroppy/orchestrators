@@ -112,7 +112,9 @@ database. Omit `watcher.reviewReaction` to disable this behavior.
 - When Linear moves an issue into a `completed`, `canceled`, or `duplicate`
   state type, the permalink URL of an existing parent card is posted to the
   same channel below a `Task closed` line containing the current Linear status.
-  Repeated observations of the same terminal state do not post it again.
+  Each nonterminal Linear issue that the closed issue blocks is then posted as
+  a separate link in that notification's thread. Repeated observations of the
+  same terminal state do not post the notification again.
 - Slack status changes are acknowledged immediately, validated against that
   task's referenced Linear team workflow, written with that team's API key,
   rendered in Slack, persisted, and recorded in the thread. Changes for the

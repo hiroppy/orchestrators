@@ -140,6 +140,18 @@ describe("Slack app behavior", () => {
         issueUrl,
         resolvedState: "Done",
         resolvedStateType: "completed",
+        relatedIssues: [
+          {
+            identifier: "ENG-63",
+            title: "Deploy the merged change",
+            url: "https://linear.app/example/issue/ENG-63/deploy",
+          },
+          {
+            identifier: "ENG-64",
+            title: "Verify production",
+            url: "https://linear.app/example/issue/ENG-64/verify",
+          },
+        ],
       });
       await publishWatcherEvent(client, store, "C123", {
         type: "updated",
@@ -160,6 +172,15 @@ describe("Slack app behavior", () => {
         channel: "C123",
         text: "Task closed | *Done*\nhttps://example.slack.com/archives/C123/p1000",
       });
+      assert.deepEqual(
+        calls
+          .filter(({ method, args }) => method === "postMessage" && args.thread_ts === "2.000")
+          .map(({ args }) => args.text),
+        [
+          "Next task | <https://linear.app/example/issue/ENG-63/deploy|ENG-63: Deploy the merged change>",
+          "Next task | <https://linear.app/example/issue/ENG-64/verify|ENG-64: Verify production>",
+        ],
+      );
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, "1.000");
       assert.deepEqual(
         calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),

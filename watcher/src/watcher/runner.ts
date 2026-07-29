@@ -261,6 +261,7 @@ async function reconcileLinearStatuses({
       resolvedState: linearIssue.state,
       resolvedStateType: linearIssue.stateType ? normalizeStatus(linearIssue.stateType) : undefined,
       pullRequest,
+      relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewReaction(config, store, event);
 
@@ -473,6 +474,7 @@ async function enrichEvent(
     resolvedState: linearIssue?.state,
     resolvedStateType: linearIssue?.stateType ? normalizeStatus(linearIssue.stateType) : undefined,
     pullRequest,
+    relatedIssues: linearIssue?.relatedIssues,
   });
 }
 

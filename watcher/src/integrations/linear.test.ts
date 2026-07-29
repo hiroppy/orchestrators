@@ -126,6 +126,62 @@ describe("fetchLinearIssueState", () => {
     });
   });
 
+  it("returns nonterminal issues blocked by the current issue as next related work", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+      Response.json({
+        data: {
+          issue: {
+            identifier: "ENG-62",
+            title: "Finish the foundation",
+            state: { name: "Done", type: "completed" },
+            url: "https://linear.app/example/issue/ENG-62/foundation",
+            relations: {
+              nodes: [
+                {
+                  type: "blocks",
+                  relatedIssue: {
+                    identifier: "ENG-63",
+                    title: "Start the follow-up",
+                    url: "https://linear.app/example/issue/ENG-63/follow-up",
+                    state: { type: "unstarted" },
+                  },
+                },
+                {
+                  type: "blocks",
+                  relatedIssue: {
+                    identifier: "ENG-64",
+                    title: "Already finished",
+                    url: "https://linear.app/example/issue/ENG-64/finished",
+                    state: { type: "completed" },
+                  },
+                },
+                {
+                  type: "related",
+                  relatedIssue: {
+                    identifier: "ENG-65",
+                    title: "Only related",
+                    url: "https://linear.app/example/issue/ENG-65/related",
+                    state: { type: "unstarted" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    const result = await fetchLinearIssueState("ENG-62", { apiKey: "lin_test" });
+
+    assert.deepEqual(result?.relatedIssues, [
+      {
+        identifier: "ENG-63",
+        title: "Start the follow-up",
+        url: "https://linear.app/example/issue/ENG-63/follow-up",
+      },
+    ]);
+  });
+
   it("retries transient Linear failures before falling back", async (context) => {
     let attempts = 0;
     context.mock.method(globalThis, "fetch", async () => {
