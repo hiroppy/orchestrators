@@ -7,9 +7,8 @@ import {
 } from "../slack/preview.ts";
 
 try {
-  const previewCase = resolveSlackPreviewCase(
-    process.argv.slice(2).find((value) => value !== "--"),
-  );
+  const [category, type, extra] = process.argv.slice(2).filter((value) => value !== "--");
+  const previewCase = resolveSlackPreviewCase(category, type, extra);
   const { botToken, channelId } = resolveSlackPreviewConfig();
   const response = await postSlackPreview(new WebClient(botToken), channelId, previewCase);
   console.log(`Slack preview posted to ${response.channel ?? channelId} (ts: ${response.ts}).`);

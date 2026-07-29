@@ -1,21 +1,44 @@
 import type { ChatPostMessageArguments, ChatPostMessageResponse } from "@slack/web-api";
 
 import type { EventType, WatcherEvent } from "../domain/types.ts";
-import { buildTaskCard, buildThreadMessage, type TaskCard } from "./messages.ts";
+import {
+  buildTaskCard,
+  buildThreadMessage,
+  buildThreadMessageBlocks,
+  type TaskCard,
+} from "./views.ts";
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
-const SLACK_PREVIEW_EVENT_CASES = [
-  "started",
-  "updated",
-  "retrying",
-  "blocked",
-  "ended",
-  "recovered",
-] as const satisfies readonly EventType[];
-export const SLACK_PREVIEW_CASES = [...SLACK_PREVIEW_EVENT_CASES, "thread"] as const;
+export const SLACK_PREVIEW_CATEGORIES = ["post", "thread"] as const;
+export const SLACK_PREVIEW_TYPES = ["start", "update", "retry", "block", "end", "recover"] as const;
 
-export type SlackPreviewCase = (typeof SLACK_PREVIEW_CASES)[number];
-export type SlackPreviewMessage = TaskCard | { text: string };
+type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
+type SlackPreviewType = (typeof SLACK_PREVIEW_TYPES)[number];
+const PREVIEW_EVENT_TYPES: Record<SlackPreviewType, EventType> = {
+  start: "started",
+  update: "updated",
+  retry: "retrying",
+  block: "blocked",
+  end: "ended",
+  recover: "recovered",
+};
+const PREVIEW_THREAD_STATUSES: Record<EventType, [fromStatus: string, toStatus: string]> = {
+  started: ["Todo", "In Progress"],
+  updated: ["In Progress", "In Review"],
+  retrying: ["In Progress", "Rework"],
+  blocked: ["In Progress", "Rework"],
+  ended: ["In Review", "Done"],
+  recovered: ["Rework", "In Progress"],
+};
+export interface SlackPreviewCase {
+  category: SlackPreviewCategory;
+  type: SlackPreviewType;
+}
+export interface SlackThreadPreviewMessage {
+  text: string;
+  blocks?: Array<Record<string, unknown>>;
+}
+export type SlackPreviewMessage = TaskCard | SlackThreadPreviewMessage;
 
 export interface SlackPreviewConfig {
   botToken: string;
@@ -28,16 +51,34 @@ export interface SlackPreviewClient {
   };
 }
 
-export function resolveSlackPreviewCase(value?: string): SlackPreviewCase {
-  if (SLACK_PREVIEW_CASES.some((previewCase) => previewCase === value)) {
-    return value as SlackPreviewCase;
+export function resolveSlackPreviewCase(
+  categoryValue?: string,
+  typeValue?: string,
+  extraValue?: string,
+): SlackPreviewCase {
+  const usage = "Usage: pnpm slack:preview <post|thread> <type>";
+  const category = SLACK_PREVIEW_CATEGORIES.find((candidate) => candidate === categoryValue);
+
+  if (!category) {
+    const detail = categoryValue
+      ? `Unknown Slack preview category: ${categoryValue}.`
+      : "Missing Slack preview category.";
+    throw new Error(
+      `${detail} Available categories: ${SLACK_PREVIEW_CATEGORIES.join(", ")}.\n${usage}`,
+    );
+  }
+  const type = SLACK_PREVIEW_TYPES.find((candidate) => candidate === typeValue);
+  if (!type) {
+    const detail = typeValue
+      ? `Unknown Slack preview type: ${typeValue}.`
+      : "Missing Slack preview type.";
+    throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
+  }
+  if (extraValue !== undefined) {
+    throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
   }
 
-  const detail = value ? `Unknown Slack preview case: ${value}.` : "Missing Slack preview case.";
-  throw new Error(
-    `${detail} Available cases: ${SLACK_PREVIEW_CASES.join(", ")}.\n` +
-      "Usage: pnpm slack:preview <case>",
-  );
+  return { category, type };
 }
 
 export function resolveSlackPreviewConfig(
@@ -58,30 +99,40 @@ export function resolveSlackPreviewConfig(
 }
 
 export function buildSlackPreviewMessage(
+  previewCase: SlackPreviewCase & { category: "post" },
+  now?: Date,
+): TaskCard;
+export function buildSlackPreviewMessage(
+  previewCase: SlackPreviewCase & { category: "thread" },
+  now?: Date,
+): SlackThreadPreviewMessage;
+export function buildSlackPreviewMessage(
   previewCase: SlackPreviewCase,
+  now?: Date,
+): SlackPreviewMessage;
+export function buildSlackPreviewMessage(
+  { category, type }: SlackPreviewCase,
   now: Date = new Date(),
 ): SlackPreviewMessage {
   const updatedAt = now.toISOString();
   const service = "preview-service";
   const issueIdentifier = "PREVIEW-123";
+  const eventType = PREVIEW_EVENT_TYPES[type];
+  const status = previewStatus(eventType);
+  const event = previewEvent(eventType, service, issueIdentifier, status);
 
-  if (previewCase === "thread") {
+  if (category === "thread") {
+    const context = previewThreadContext(eventType, updatedAt);
+    const blocks = buildThreadMessageBlocks(event, undefined, context);
     return {
-      text: buildThreadMessage(
-        previewEvent("started", service, issueIdentifier, "In Review"),
-        undefined,
-        {
-          fromStatus: "In Progress",
-          toStatus: "In Review",
-          updatedAt,
-        },
-      ),
+      text: buildThreadMessage(event, undefined, context),
+      ...(blocks ? { blocks } : {}),
     };
   }
 
-  const recovered = previewCase === "recovered";
+  const recovered = eventType === "recovered";
   const taskIssueIdentifier = recovered ? `watcher:${service}` : issueIdentifier;
-  const status = recovered ? "available" : previewStatus(previewCase);
+  const taskStatus = recovered ? "available" : status;
 
   return buildTaskCard(
     {
@@ -89,11 +140,11 @@ export function buildSlackPreviewMessage(
       serviceName: service,
       issueIdentifier: taskIssueIdentifier,
       title: recovered ? taskIssueIdentifier : "Confirm the watcher Slack output",
-      status,
+      status: taskStatus,
       updatedAt,
     },
     PREVIEW_STATUSES,
-    previewEvent(previewCase, service, taskIssueIdentifier, status),
+    previewEvent(eventType, service, taskIssueIdentifier, taskStatus),
     undefined,
     { interactive: false },
   );
@@ -116,6 +167,14 @@ function previewStatus(previewCase: EventType): string {
   if (previewCase === "ended") return "Done";
   if (previewCase === "updated") return "In Review";
   return "In Progress";
+}
+
+function previewThreadContext(
+  eventType: EventType,
+  updatedAt: string,
+): { fromStatus: string; toStatus: string; updatedAt: string } {
+  const [fromStatus, toStatus] = PREVIEW_THREAD_STATUSES[eventType];
+  return { fromStatus, toStatus, updatedAt };
 }
 
 function previewEvent(

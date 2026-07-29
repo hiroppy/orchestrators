@@ -97,19 +97,24 @@ database. Omit `watcher.reviewReaction` to disable this behavior.
 
 ## Preview Slack output
 
-Post a representative watcher card to Slack without starting the watcher or
-connecting to Linear. Specify the event case to preview:
+Post a representative watcher message to Slack without starting the watcher or
+connecting to Linear. Specify whether to preview a parent post or thread update,
+followed by the event type:
 
 ```sh
 SLACK_BOT_TOKEN=xoxb-... \
 SLACK_CHANNEL_ID=C0123456789 \
-pnpm slack:preview blocked
+pnpm slack:preview post start
+
+SLACK_BOT_TOKEN=xoxb-... \
+SLACK_CHANNEL_ID=C0123456789 \
+pnpm slack:preview thread update
 ```
 
-Available cases are `started`, `updated`, `retrying`, `blocked`, `ended`,
-`recovered`, and `thread`. The `thread` case posts a representative status
-update as a new parent message so its formatting can be inspected without an
-existing watcher thread.
+The first argument is `post` or `thread`. Available event types are `start`,
+`update`, `retry`, `block`, `end`, and `recover`. A `thread` preview is posted as
+a new parent message so its formatting can be inspected without an existing
+watcher thread.
 
 Run the command from the repository root. It uses the same card builder as the
 watcher and requires only a bot token with permission to post to the destination
