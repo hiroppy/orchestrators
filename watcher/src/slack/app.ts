@@ -69,7 +69,7 @@ export async function handleThreadReply(
   const task = store.getTaskBySlackThread(message.channel, message.thread_ts);
   if (!task) return;
 
-  const queueKey = `${message.channel}:${message.ts}`;
+  const queueKey = `${message.channel}:${message.thread_ts}`;
   await withQueue(threadReplyQueues, queueKey, async () => {
     if (store.hasRecordedSlackMessage(task.id, message.ts)) return;
 
@@ -499,7 +499,9 @@ function isUserThreadReply(message: unknown): message is UserThreadReply {
     typeof event.user === "string" &&
     typeof event.text === "string" &&
     event.text.trim().length > 0 &&
-    (event.subtype === undefined || event.subtype === "thread_broadcast") &&
+    (event.subtype === undefined ||
+      event.subtype === "thread_broadcast" ||
+      event.subtype === "file_share") &&
     event.bot_id === undefined
   );
 }

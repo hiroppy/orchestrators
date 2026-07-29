@@ -91,6 +91,38 @@ describe("createLinearWorkpadReply", () => {
     assert.equal(requestCount, 1);
   });
 
+  it("retries transient Linear failures", async (context) => {
+    let requestCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      requestCount += 1;
+      if (requestCount === 1) return new Response(null, { status: 429 });
+
+      const request = JSON.parse(String(options?.body));
+      return request.query.includes("IssueWorkpad")
+        ? Response.json({
+            data: {
+              issue: {
+                id: "issue-uuid",
+                comments: {
+                  nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+                },
+              },
+            },
+          })
+        : Response.json({
+            data: { commentCreate: { success: true } },
+          });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Retry this reply.", {
+      apiKey: "lin_test",
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(requestCount, 3);
+  });
+
   it("rejects failed comment mutations", async (context) => {
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));

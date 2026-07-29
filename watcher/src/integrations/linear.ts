@@ -123,6 +123,13 @@ interface FetchLinearOptions extends LinearRequestOptions {
   retryDelayMs?: number;
 }
 
+interface WorkpadRequestOptions {
+  apiKey: string;
+  timeoutMs: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+}
+
 interface LinearIssueState {
   identifier: string;
   title: string | null;
@@ -234,24 +241,34 @@ export async function updateLinearIssueStatus(
 export async function createLinearWorkpadReply(
   issueIdentifier: string,
   body: string,
-  { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
+  {
+    apiKey,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+    retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+  }: FetchLinearOptions,
 ): Promise<boolean> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
 
-  const workpad = await findLinearWorkpad(issueIdentifier, apiKey, timeoutMs);
+  const requestOptions = { apiKey, timeoutMs, maxAttempts, retryDelayMs };
+  const workpad = await findLinearWorkpad(issueIdentifier, requestOptions);
   if (!workpad) return false;
 
-  const result = await linearRequest<{
-    commentCreate?: { success?: boolean };
-  }>(
-    apiKey,
-    COMMENT_REPLY_CREATE_MUTATION,
-    {
-      issueId: workpad.issueId,
-      parentId: workpad.commentId,
-      body,
-    },
-    timeoutMs,
+  const result = await retryLinearRequest(
+    () =>
+      linearRequest<{
+        commentCreate?: { success?: boolean };
+      }>(
+        apiKey,
+        COMMENT_REPLY_CREATE_MUTATION,
+        {
+          issueId: workpad.issueId,
+          parentId: workpad.commentId,
+          body,
+        },
+        timeoutMs,
+      ),
+    requestOptions,
   );
   if (!result.commentCreate?.success) {
     throw new Error(`Linear rejected Workpad reply for ${issueIdentifier}.`);
@@ -261,35 +278,38 @@ export async function createLinearWorkpadReply(
 
 async function findLinearWorkpad(
   issueIdentifier: string,
-  apiKey: string,
-  timeoutMs: number,
+  options: WorkpadRequestOptions,
 ): Promise<{ issueId: string; commentId: string } | null> {
   let after: string | undefined;
 
   while (true) {
-    const data = await linearRequest<{
-      issue?: {
-        id: string;
-        comments?: {
-          nodes?: Array<{
+    const data = await retryLinearRequest(
+      () =>
+        linearRequest<{
+          issue?: {
             id: string;
-            body?: string | null;
-            resolvedAt?: string | null;
-          }>;
-          pageInfo?: {
-            hasNextPage?: boolean;
-            endCursor?: string | null;
+            comments?: {
+              nodes?: Array<{
+                id: string;
+                body?: string | null;
+                resolvedAt?: string | null;
+              }>;
+              pageInfo?: {
+                hasNextPage?: boolean;
+                endCursor?: string | null;
+              };
+            };
           };
-        };
-      };
-    }>(
-      apiKey,
-      ISSUE_WORKPAD_QUERY,
-      {
-        id: issueIdentifier,
-        ...(after ? { after } : {}),
-      },
-      timeoutMs,
+        }>(
+          options.apiKey,
+          ISSUE_WORKPAD_QUERY,
+          {
+            id: issueIdentifier,
+            ...(after ? { after } : {}),
+          },
+          options.timeoutMs,
+        ),
+      options,
     );
     if (!data.issue) throw new Error(`Linear issue not found: ${issueIdentifier}`);
 
@@ -304,6 +324,20 @@ async function findLinearWorkpad(
       throw new Error(`Linear comment pagination omitted a cursor for ${issueIdentifier}.`);
     }
     after = pageInfo.endCursor;
+  }
+}
+
+async function retryLinearRequest<T>(
+  request: () => Promise<T>,
+  options: Pick<WorkpadRequestOptions, "maxAttempts" | "retryDelayMs">,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      if (attempt >= options.maxAttempts || !isTransientLinearError(error)) throw error;
+      await sleep(options.retryDelayMs);
+    }
   }
 }
 
@@ -431,7 +465,12 @@ async function linearRequest<T>(
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`Linear returned HTTP ${response.status}.`);
+  if (!response.ok) {
+    throw new LinearHttpError(
+      `Linear returned HTTP ${response.status}.`,
+      shouldRetryResponse(response.status),
+    );
+  }
 
   const body = (await response.json()) as {
     data?: T;
@@ -442,6 +481,23 @@ async function linearRequest<T>(
   }
   if (!body.data) throw new Error("Linear response did not include data.");
   return body.data;
+}
+
+class LinearHttpError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
+function isTransientLinearError(error: unknown): boolean {
+  if (error instanceof LinearHttpError) return error.retryable;
+  if (error instanceof TypeError) return true;
+  return (
+    error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")
+  );
 }
 
 function sleep(ms: number): Promise<void> {

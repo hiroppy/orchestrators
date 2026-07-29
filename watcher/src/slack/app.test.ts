@@ -616,7 +616,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("copies a user thread reply to Linear once when Slack redelivers the event", async () => {
+  it("copies user thread and file-share replies once when Slack redelivers an event", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       await publishWatcherEvent(fakeClient(calls), store, "C123", {
@@ -646,14 +646,74 @@ describe("Slack app behavior", () => {
         handleThreadReply(args, store, reply),
         handleThreadReply(args, store, reply),
       ]);
+      await handleThreadReply(
+        {
+          ...args,
+          message: {
+            ...args.message,
+            ts: "3.000",
+            text: "Screenshot attached.",
+            subtype: "file_share",
+          },
+        },
+        store,
+        reply,
+      );
 
       assert.deepEqual(replies, [
         {
           issueIdentifier: "ENG-62",
           body: "Please cover the retry path.",
         },
+        {
+          issueIdentifier: "ENG-62",
+          body: "Screenshot attached.",
+        },
       ]);
-      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 2);
+    });
+  });
+
+  it("preserves the order of concurrent replies in the same thread", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      let releaseFirst!: () => void;
+      const firstReply = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const replies: string[] = [];
+      const reply = async (_task: unknown, body: string) => {
+        replies.push(body);
+        if (body === "first") await firstReply;
+        return true;
+      };
+      const args = (ts: string, text: string) => ({
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts,
+          user: "U123",
+          text,
+        },
+        logger: { error: (error: unknown) => assert.fail(String(error)) },
+      });
+
+      const first = handleThreadReply(args("2.000", "first"), store, reply);
+      await waitFor(() => replies.length === 1);
+      const second = handleThreadReply(args("3.000", "second"), store, reply);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      assert.deepEqual(replies, ["first"]);
+
+      releaseFirst();
+      await Promise.all([first, second]);
+
+      assert.deepEqual(replies, ["first", "second"]);
     });
   });
 
