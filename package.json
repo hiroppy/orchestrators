@@ -5,6 +5,7 @@
     "setup": "corepack enable",
     "start:watcher": "pnpm --filter orchestrator-slack-watcher start:watcher",
     "start:symphonies": "pnpm --filter orchestrator-slack-watcher start:symphonies",
+    "slack:preview": "pnpm --filter orchestrator-slack-watcher slack:preview",
     "test": "pnpm --filter orchestrator-slack-watcher test",
     "typecheck": "pnpm --filter orchestrator-slack-watcher typecheck",
     "lint": "oxlint .",
