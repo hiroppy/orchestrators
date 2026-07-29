@@ -326,7 +326,7 @@ describe("Slack app behavior", () => {
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 2);
-      assert.match(threadTexts[0], /\| <!subteam\^S123>/);
+      assert.match(threadTexts[0], /\| Attention: <!subteam\^S123>/);
       assert.match(threadTexts[1], /\| <!subteam\^S123>/);
     });
   });
@@ -396,11 +396,16 @@ describe("Slack app behavior", () => {
       const threadTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
-      assert.deepEqual(threadTexts, [
-        "*Todo* → *In Progress*",
+      assert.equal(threadTexts.length, 3);
+      assert.match(threadTexts[0], /^Event: Updated \| UpdatedAt: <!date[^\n]+>$/);
+      assert.equal(
+        threadTexts[1],
         "*PR created* | <https://github.com/acme/example/pull/42|PR#42>",
-        "*In Progress* → *In Review* | <@UHIROPPY> | <https://github.com/acme/example/pull/42|PR#42>",
-      ]);
+      );
+      assert.match(
+        threadTexts[2],
+        /^Event: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+      );
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,
         "https://linear.app/acme/issue/ENG-62/example",
