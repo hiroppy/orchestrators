@@ -1,13 +1,14 @@
 import { App } from "@slack/bolt";
-import type {
-  ChatGetPermalinkArguments,
-  ChatGetPermalinkResponse,
-  ChatPostMessageArguments,
-  ChatPostMessageResponse,
-  ChatUpdateArguments,
-  ChatUpdateResponse,
-  UsersInfoArguments,
-  UsersInfoResponse,
+import {
+  ErrorCode,
+  type ChatGetPermalinkArguments,
+  type ChatGetPermalinkResponse,
+  type ChatPostMessageArguments,
+  type ChatPostMessageResponse,
+  type ChatUpdateArguments,
+  type ChatUpdateResponse,
+  type UsersInfoArguments,
+  type UsersInfoResponse,
 } from "@slack/web-api";
 
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
@@ -94,11 +95,7 @@ export async function handleThreadReply(
       });
 
       try {
-        await client.reactions.add({
-          channel: message.channel,
-          name: "white_check_mark",
-          timestamp: message.ts,
-        });
+        await addCopiedReplyReaction(client, message);
       } catch (error) {
         logger.error(error);
       }
@@ -509,6 +506,48 @@ interface UserThreadReply {
   ts: string;
   user: string;
   text: string;
+}
+
+async function addCopiedReplyReaction(
+  client: MessageArguments["client"],
+  message: UserThreadReply,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await client.reactions.add({
+        channel: message.channel,
+        name: "white_check_mark",
+        timestamp: message.ts,
+      });
+      return;
+    } catch (error) {
+      if (slackError(error) === "already_reacted") return;
+      if (attempt >= 3 || !isTransientSlackError(error)) throw error;
+    }
+  }
+}
+
+function slackError(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { data?: { error?: unknown } }).data;
+  return typeof data?.error === "string" ? data.error : undefined;
+}
+
+function isTransientSlackError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = error as { code?: unknown; statusCode?: unknown };
+  if (details.code === ErrorCode.RequestError || details.code === ErrorCode.RateLimitedError) {
+    return true;
+  }
+  if (details.code === ErrorCode.HTTPError) {
+    return typeof details.statusCode !== "number" || details.statusCode >= 500;
+  }
+  return (
+    details.code === ErrorCode.PlatformError &&
+    ["fatal_error", "internal_error", "request_timeout", "service_unavailable"].includes(
+      slackError(error) ?? "",
+    )
+  );
 }
 
 function isUserThreadReply(message: unknown): message is UserThreadReply {

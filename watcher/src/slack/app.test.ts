@@ -865,6 +865,51 @@ describe("Slack app behavior", () => {
       assert.match(String(errors[0]), /Slack unavailable/);
     });
   });
+
+  it("retries transient failures while adding the copied-reply reaction", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      let reactionAttempts = 0;
+      const args = {
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "2.000",
+          user: "U123",
+          text: "Please update the Workpad.",
+        },
+        client: {
+          reactions: {
+            async add() {
+              reactionAttempts += 1;
+              if (reactionAttempts < 3) {
+                throw Object.assign(new Error("Slack unavailable"), {
+                  code: "slack_webapi_request_error",
+                });
+              }
+            },
+          },
+        },
+        logger: { error: (error: unknown) => assert.fail(String(error)) },
+      };
+      let replyCount = 0;
+
+      await handleThreadReply(args, store, async () => {
+        replyCount += 1;
+        return true;
+      });
+
+      assert.equal(replyCount, 1);
+      assert.equal(reactionAttempts, 3);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+    });
+  });
 });
 
 function fakeClient(calls: Array<{ method: string; args: Record<string, unknown> }>) {
