@@ -69,14 +69,18 @@ const ISSUE_STATUS_UPDATE_MUTATION = `
 `;
 
 const ISSUE_WORKPAD_QUERY = `
-  query OrchestratorWatcherIssueWorkpad($id: String!) {
+  query OrchestratorWatcherIssueWorkpad($id: String!, $after: String) {
     issue(id: $id) {
       id
-      comments(first: 250) {
+      comments(first: 250, after: $after) {
         nodes {
           id
           body
           resolvedAt
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
@@ -234,23 +238,7 @@ export async function createLinearWorkpadReply(
 ): Promise<boolean> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
 
-  const data = await linearRequest<{
-    issue?: {
-      id: string;
-      comments?: {
-        nodes?: Array<{
-          id: string;
-          body?: string | null;
-          resolvedAt?: string | null;
-        }>;
-      };
-    };
-  }>(apiKey, ISSUE_WORKPAD_QUERY, { id: issueIdentifier }, timeoutMs);
-  if (!data.issue) throw new Error(`Linear issue not found: ${issueIdentifier}`);
-
-  const workpad = data.issue.comments?.nodes?.find(
-    (comment) => !comment.resolvedAt && comment.body?.trimStart().startsWith("## Codex Workpad"),
-  );
+  const workpad = await findLinearWorkpad(issueIdentifier, apiKey, timeoutMs);
   if (!workpad) return false;
 
   const result = await linearRequest<{
@@ -259,8 +247,8 @@ export async function createLinearWorkpadReply(
     apiKey,
     COMMENT_REPLY_CREATE_MUTATION,
     {
-      issueId: data.issue.id,
-      parentId: workpad.id,
+      issueId: workpad.issueId,
+      parentId: workpad.commentId,
       body,
     },
     timeoutMs,
@@ -269,6 +257,54 @@ export async function createLinearWorkpadReply(
     throw new Error(`Linear rejected Workpad reply for ${issueIdentifier}.`);
   }
   return true;
+}
+
+async function findLinearWorkpad(
+  issueIdentifier: string,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<{ issueId: string; commentId: string } | null> {
+  let after: string | undefined;
+
+  while (true) {
+    const data = await linearRequest<{
+      issue?: {
+        id: string;
+        comments?: {
+          nodes?: Array<{
+            id: string;
+            body?: string | null;
+            resolvedAt?: string | null;
+          }>;
+          pageInfo?: {
+            hasNextPage?: boolean;
+            endCursor?: string | null;
+          };
+        };
+      };
+    }>(
+      apiKey,
+      ISSUE_WORKPAD_QUERY,
+      {
+        id: issueIdentifier,
+        ...(after ? { after } : {}),
+      },
+      timeoutMs,
+    );
+    if (!data.issue) throw new Error(`Linear issue not found: ${issueIdentifier}`);
+
+    const workpad = data.issue.comments?.nodes?.find(
+      (comment) => !comment.resolvedAt && comment.body?.trimStart().startsWith("## Codex Workpad"),
+    );
+    if (workpad) return { issueId: data.issue.id, commentId: workpad.id };
+
+    const pageInfo = data.issue.comments?.pageInfo;
+    if (!pageInfo?.hasNextPage) return null;
+    if (!pageInfo.endCursor) {
+      throw new Error(`Linear comment pagination omitted a cursor for ${issueIdentifier}.`);
+    }
+    after = pageInfo.endCursor;
+  }
 }
 
 export async function fetchLinearIssueState(

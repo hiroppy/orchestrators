@@ -73,6 +73,10 @@ used by the watcher:
   private task threads
 - `users:read` — resolve the display name of a user who changes a status
 
+For an existing Slack app, apply the updated manifest in **App Manifest**,
+save it, and reinstall the app to the workspace so the new event subscriptions
+and history scopes are authorized before restarting the watcher.
+
 The manifest cannot issue an app-level token. In **Basic Information →
 App-Level Tokens**, choose **Generate Token and Scopes**, add
 `connections:write`, and copy the resulting `xapp-...` token to

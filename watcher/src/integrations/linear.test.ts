@@ -21,10 +21,22 @@ describe("createLinearWorkpadReply", () => {
             issue: {
               id: "issue-uuid",
               comments: {
-                nodes: [
-                  { id: "resolved", body: "## Codex Workpad", resolvedAt: "2026-07-01" },
-                  { id: "active", body: "\n## Codex Workpad\n", resolvedAt: null },
-                ],
+                nodes: [{ id: "resolved", body: "## Codex Workpad", resolvedAt: "2026-07-01" }],
+                pageInfo: { hasNextPage: true, endCursor: "next-page" },
+              },
+            },
+          },
+        });
+      }
+
+      if (requests.length === 2) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "\n## Codex Workpad\n", resolvedAt: null }],
+                pageInfo: { hasNextPage: false, endCursor: null },
               },
             },
           },
@@ -42,6 +54,10 @@ describe("createLinearWorkpadReply", () => {
 
     assert.equal(created, true);
     assert.deepEqual(requests[1].variables, {
+      id: "ENG-62",
+      after: "next-page",
+    });
+    assert.deepEqual(requests[2].variables, {
       issueId: "issue-uuid",
       parentId: "active",
       body: "Please add a test.",
