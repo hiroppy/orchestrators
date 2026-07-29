@@ -60,7 +60,7 @@ export function createSlackApp({
 }
 
 export async function handleThreadReply(
-  { message, logger }: MessageArguments,
+  { message, client, logger }: MessageArguments,
   store: WatcherStore,
   createLinearWorkpadReply: LinearWorkpadReplier,
 ): Promise<void> {
@@ -84,6 +84,16 @@ export async function handleThreadReply(
         body: message.text,
         slackThreadTs: message.ts,
       });
+
+      try {
+        await client.reactions.add({
+          channel: message.channel,
+          name: "white_check_mark",
+          timestamp: message.ts,
+        });
+      } catch (error) {
+        logger.error(error);
+      }
     } catch (error) {
       logger.error(error);
     }
@@ -477,6 +487,11 @@ interface StatusActionArguments {
 
 interface MessageArguments {
   message: unknown;
+  client: {
+    reactions: {
+      add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
+    };
+  };
   logger: { error(error: unknown): void };
 }
 

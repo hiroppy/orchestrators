@@ -626,6 +626,7 @@ describe("Slack app behavior", () => {
         state: "In Progress",
       });
       const replies: Array<{ issueIdentifier: string; body: string }> = [];
+      const reactions: Array<Record<string, unknown>> = [];
       const args = {
         message: {
           channel: "C123",
@@ -635,6 +636,7 @@ describe("Slack app behavior", () => {
           text: "Please cover the retry path.",
           subtype: "thread_broadcast",
         },
+        client: reactionClient(reactions),
         logger: { error: (error: unknown) => assert.fail(String(error)) },
       };
       const reply = async (task: { issueIdentifier: string }, body: string) => {
@@ -670,6 +672,10 @@ describe("Slack app behavior", () => {
           body: "Screenshot attached.",
         },
       ]);
+      assert.deepEqual(reactions, [
+        { channel: "C123", name: "white_check_mark", timestamp: "2.000" },
+        { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
+      ]);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 2);
     });
   });
@@ -701,6 +707,7 @@ describe("Slack app behavior", () => {
           user: "U123",
           text,
         },
+        client: reactionClient([]),
         logger: { error: (error: unknown) => assert.fail(String(error)) },
       });
 
@@ -759,6 +766,7 @@ describe("Slack app behavior", () => {
         await handleThreadReply(
           {
             message,
+            client: reactionClient([]),
             logger: { error: (error) => assert.fail(String(error)) },
           },
           store,
@@ -784,6 +792,7 @@ describe("Slack app behavior", () => {
         state: "In Progress",
       });
       const errors: unknown[] = [];
+      const reactions: Array<Record<string, unknown>> = [];
       const args = {
         message: {
           channel: "C123",
@@ -792,6 +801,7 @@ describe("Slack app behavior", () => {
           user: "U123",
           text: "Please update the Workpad.",
         },
+        client: reactionClient(reactions),
         logger: { error: (error: unknown) => errors.push(error) },
       };
 
@@ -801,8 +811,52 @@ describe("Slack app behavior", () => {
       });
 
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
+      assert.deepEqual(reactions, []);
       assert.equal(errors.length, 1);
       assert.match(String(errors[0]), /Linear unavailable/);
+    });
+  });
+
+  it("does not duplicate a copied reply when adding the check reaction fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const errors: unknown[] = [];
+      const args = {
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "2.000",
+          user: "U123",
+          text: "Please update the Workpad.",
+        },
+        client: {
+          reactions: {
+            async add() {
+              throw new Error("Slack unavailable");
+            },
+          },
+        },
+        logger: { error: (error: unknown) => errors.push(error) },
+      };
+      let replyCount = 0;
+      const reply = async () => {
+        replyCount += 1;
+        return true;
+      };
+
+      await handleThreadReply(args, store, reply);
+      await handleThreadReply(args, store, reply);
+
+      assert.equal(replyCount, 1);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Slack unavailable/);
     });
   });
 });
@@ -831,6 +885,17 @@ function fakeClient(calls: Array<{ method: string; args: Record<string, unknown>
       },
     },
   } as never;
+}
+
+function reactionClient(calls: Array<Record<string, unknown>>) {
+  return {
+    reactions: {
+      async add(args: Record<string, unknown>) {
+        calls.push(args);
+        return { ok: true };
+      },
+    },
+  };
 }
 
 async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {

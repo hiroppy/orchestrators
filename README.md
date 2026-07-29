@@ -71,6 +71,7 @@ used by the watcher:
 - `chat:write` — post and update task messages
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
+- `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
 
 For an existing Slack app, apply the updated manifest in **App Manifest**,
