@@ -1,12 +1,13 @@
 import type { ChatPostMessageArguments, ChatPostMessageResponse } from "@slack/web-api";
+import { WebClient } from "@slack/web-api";
 
-import type { EventType, WatcherEvent } from "../domain/types.ts";
+import type { EventType, WatcherEvent } from "../src/domain/types.ts";
 import {
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
   type TaskCard,
-} from "./views.ts";
+} from "../src/slack/views.ts";
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 export const SLACK_PREVIEW_CATEGORIES = ["post", "thread"] as const;
@@ -22,8 +23,10 @@ const PREVIEW_EVENT_TYPES: Record<SlackPreviewType, EventType> = {
   end: "ended",
   recover: "recovered",
 };
-const PREVIEW_THREAD_STATUSES: Record<EventType, [fromStatus: string, toStatus: string]> = {
-  started: ["Todo", "In Progress"],
+const PREVIEW_THREAD_STATUSES: Record<
+  Exclude<EventType, "started">,
+  [fromStatus: string, toStatus: string]
+> = {
   updated: ["In Progress", "In Review"],
   retrying: ["In Progress", "Rework"],
   blocked: ["In Progress", "Rework"],
@@ -170,7 +173,9 @@ function previewStatus(previewCase: EventType): string {
 function previewThreadContext(
   eventType: EventType,
   updatedAt: string,
-): { fromStatus: string; toStatus: string; updatedAt: string } {
+): { fromStatus: string; toStatus: string; updatedAt: string } | undefined {
+  if (eventType === "started") return undefined;
+
   const [fromStatus, toStatus] = PREVIEW_THREAD_STATUSES[eventType];
   return { fromStatus, toStatus, updatedAt };
 }
@@ -207,5 +212,18 @@ function previewEvent(
       return { ...resolvedEvent, turnCount: 24, tokens: { total: 98_765 } };
     case "recovered":
       return { ...event, state: "available", activity: "Watcher connection restored" };
+  }
+}
+
+if (import.meta.main) {
+  try {
+    const [category, type, extra] = process.argv.slice(2).filter((value) => value !== "--");
+    const previewCase = resolveSlackPreviewCase(category, type, extra);
+    const { botToken, channelId } = resolveSlackPreviewConfig();
+    const response = await postSlackPreview(new WebClient(botToken), channelId, previewCase);
+    console.log(`Slack preview posted to ${response.channel ?? channelId} (ts: ${response.ts}).`);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
   }
 }

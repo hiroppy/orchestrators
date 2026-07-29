@@ -13,7 +13,7 @@
   "scripts": {
     "start:watcher": "node src/entrypoints/watcher.ts",
     "start:symphonies": "node src/entrypoints/symphonies.ts",
-    "slack:preview": "node src/entrypoints/slack-preview.ts",
+    "slack:preview": "node scripts/slack-preview.ts",
     "test": "node --conditions=test --test",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",

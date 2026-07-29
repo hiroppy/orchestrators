@@ -9,7 +9,7 @@ import {
   SLACK_PREVIEW_CATEGORIES,
   SLACK_PREVIEW_TYPES,
   type SlackPreviewClient,
-} from "./preview.ts";
+} from "./slack-preview.ts";
 
 describe("Slack preview", () => {
   it("builds a representative watcher card for every event case", () => {
@@ -71,8 +71,15 @@ describe("Slack preview", () => {
     for (const call of calls) {
       assert.equal(call.channel, "C123");
       assert.equal("thread_ts" in call, false);
+    }
+    assert.equal("blocks" in calls[0], false);
+    for (const call of calls.slice(1)) {
       assert.ok(Array.isArray(call.blocks));
     }
+    assert.equal(
+      calls[0].text,
+      "*PR created* | <https://github.com/example/preview/pull/123|PR#123>",
+    );
     assert.match(
       String(calls[1].text),
       /^\*In Progress\* → \*In Review\*\nEvent: Updated \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+>\nTurns: 12 \| Tokens: 12\.3k$/,
