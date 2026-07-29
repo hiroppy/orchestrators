@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
@@ -89,12 +91,21 @@ const ISSUE_WORKPAD_QUERY = `
 
 const COMMENT_REPLY_CREATE_MUTATION = `
   mutation OrchestratorWatcherCommentReplyCreate(
+    $id: String!
     $issueId: String!
     $parentId: String!
     $body: String!
   ) {
-    commentCreate(input: { issueId: $issueId, parentId: $parentId, body: $body }) {
+    commentCreate(input: { id: $id, issueId: $issueId, parentId: $parentId, body: $body }) {
       success
+    }
+  }
+`;
+
+const COMMENT_BY_ID_QUERY = `
+  query OrchestratorWatcherCommentById($id: String!) {
+    comment(id: $id) {
+      id
     }
   }
 `;
@@ -121,6 +132,10 @@ interface LinearRequestOptions {
 interface FetchLinearOptions extends LinearRequestOptions {
   maxAttempts?: number;
   retryDelayMs?: number;
+}
+
+interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
+  idempotencyKey: string;
 }
 
 interface WorkpadRequestOptions {
@@ -243,10 +258,11 @@ export async function createLinearWorkpadReply(
   body: string,
   {
     apiKey,
+    idempotencyKey,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     retryDelayMs = DEFAULT_RETRY_DELAY_MS,
-  }: FetchLinearOptions,
+  }: CreateLinearWorkpadReplyOptions,
 ): Promise<boolean> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
 
@@ -254,26 +270,54 @@ export async function createLinearWorkpadReply(
   const workpad = await findLinearWorkpad(issueIdentifier, requestOptions);
   if (!workpad) return false;
 
-  const result = await retryLinearRequest(
-    () =>
-      linearRequest<{
+  const commentId = stableUuid(idempotencyKey);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const result = await linearRequest<{
         commentCreate?: { success?: boolean };
       }>(
         apiKey,
         COMMENT_REPLY_CREATE_MUTATION,
         {
+          id: commentId,
           issueId: workpad.issueId,
           parentId: workpad.commentId,
           body,
         },
         timeoutMs,
-      ),
-    requestOptions,
-  );
-  if (!result.commentCreate?.success) {
-    throw new Error(`Linear rejected Workpad reply for ${issueIdentifier}.`);
+      );
+      if (!result.commentCreate?.success) {
+        throw new Error(`Linear rejected Workpad reply for ${issueIdentifier}.`);
+      }
+      return true;
+    } catch (error) {
+      if (await linearCommentExists(commentId, requestOptions)) return true;
+      if (attempt >= maxAttempts || !isTransientLinearError(error)) throw error;
+      await sleep(retryDelayMs);
+    }
   }
-  return true;
+}
+
+async function linearCommentExists(
+  commentId: string,
+  options: WorkpadRequestOptions,
+): Promise<boolean> {
+  const result = await retryLinearRequest(
+    () =>
+      linearRequest<{ comment?: { id: string } | null }>(
+        options.apiKey,
+        COMMENT_BY_ID_QUERY,
+        { id: commentId },
+        options.timeoutMs,
+      ),
+    options,
+  );
+  return result.comment?.id === commentId;
+}
+
+function stableUuid(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 async function findLinearWorkpad(

@@ -369,6 +369,12 @@ describe("Slack app behavior", () => {
         state: "running",
         resolvedState: "In Progress",
       });
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "workpad_replied",
+        actor: "U123",
+        body: "Please review https://github.com/acme/example/pull/42",
+      });
       await publishWatcherEvent(client, store, "C123", {
         type: "updated",
         service: "service-a",

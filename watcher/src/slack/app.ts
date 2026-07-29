@@ -25,7 +25,11 @@ import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
-export type LinearWorkpadReplier = (task: Task, body: string) => Promise<boolean>;
+export type LinearWorkpadReplier = (
+  task: Task,
+  body: string,
+  idempotencyKey: string,
+) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
 const threadReplyQueues = new Map<string, Promise<void>>();
 
@@ -74,7 +78,11 @@ export async function handleThreadReply(
     if (store.hasRecordedSlackMessage(task.id, message.ts)) return;
 
     try {
-      const created = await createLinearWorkpadReply(task, message.text);
+      const created = await createLinearWorkpadReply(
+        task,
+        message.text,
+        `${message.channel}:${message.ts}`,
+      );
       if (!created) return;
 
       store.addEvent({

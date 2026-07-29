@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, notInArray, or } from "drizzle-orm";
+import { and, asc, count, eq, isNull, ne, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -451,7 +451,7 @@ export class WatcherStore {
     return this.db
       .select({ body: taskEvents.body })
       .from(taskEvents)
-      .where(eq(taskEvents.taskId, taskId))
+      .where(and(eq(taskEvents.taskId, taskId), ne(taskEvents.type, "workpad_replied")))
       .all()
       .some(({ body }) => body?.includes(url));
   }

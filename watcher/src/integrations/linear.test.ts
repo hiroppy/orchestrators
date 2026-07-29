@@ -50,6 +50,7 @@ describe("createLinearWorkpadReply", () => {
 
     const created = await createLinearWorkpadReply("ENG-62", "Please add a test.", {
       apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
     });
 
     assert.equal(created, true);
@@ -58,10 +59,12 @@ describe("createLinearWorkpadReply", () => {
       after: "next-page",
     });
     assert.deepEqual(requests[2].variables, {
+      id: requests[2].variables.id,
       issueId: "issue-uuid",
       parentId: "active",
       body: "Please add a test.",
     });
+    assert.match(requests[2].variables.id, /^[0-9a-f-]{36}$/);
   });
 
   it("does not create a comment when the issue has no active Workpad", async (context) => {
@@ -85,6 +88,7 @@ describe("createLinearWorkpadReply", () => {
 
     const created = await createLinearWorkpadReply("ENG-62", "No destination", {
       apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
     });
 
     assert.equal(created, false);
@@ -116,6 +120,7 @@ describe("createLinearWorkpadReply", () => {
 
     const created = await createLinearWorkpadReply("ENG-62", "Retry this reply.", {
       apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
       retryDelayMs: 0,
     });
 
@@ -145,9 +150,48 @@ describe("createLinearWorkpadReply", () => {
     await assert.rejects(
       createLinearWorkpadReply("ENG-62", "Please add a test.", {
         apiKey: "lin_test",
+        idempotencyKey: "C123:2.000",
       }),
       /rejected Workpad reply/,
     );
+  });
+
+  it("reconciles an ambiguously successful comment creation without resubmitting it", async (context) => {
+    let createdCommentId: string | undefined;
+    let mutationCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({
+          data: { comment: createdCommentId ? { id: createdCommentId } : null },
+        });
+      }
+
+      mutationCount += 1;
+      createdCommentId = request.variables.id;
+      throw new DOMException("Response was lost", "TimeoutError");
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Copy once.", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(mutationCount, 1);
   });
 });
 
