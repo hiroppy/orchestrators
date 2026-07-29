@@ -98,13 +98,16 @@ database. Omit `watcher.reviewReaction` to disable this behavior.
 ## Preview Slack output
 
 Post a representative watcher card to Slack without starting the watcher or
-connecting to Linear:
+connecting to Linear. Specify the event case to preview:
 
 ```sh
 SLACK_BOT_TOKEN=xoxb-... \
 SLACK_CHANNEL_ID=C0123456789 \
-pnpm slack:preview
+pnpm slack:preview blocked
 ```
+
+Available cases are `started`, `updated`, `retrying`, `blocked`, `ended`, and
+`recovered`.
 
 Run the command from the repository root. It uses the same card builder as the
 watcher and requires only a bot token with permission to post to the destination

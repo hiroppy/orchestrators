@@ -190,17 +190,6 @@ To also monitor the instances from Slack, start the watcher in another terminal:
 pnpm start:watcher
 ```
 
-To post a representative watcher card without starting the watcher or connecting
-to Linear, provide a Slack bot token and destination channel:
-
-```sh
-SLACK_BOT_TOKEN=xoxb-... \
-SLACK_CHANNEL_ID=C0123456789 \
-pnpm slack:preview
-```
-
-See [`watcher/README.md`](watcher/README.md#preview-slack-output) for details.
-
 ## Update Symphony
 
 Pull the latest `openai/symphony` `main` branch into `symphony_template/`:
