@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildTaskCard,
   buildThreadMessage,
-  TASK_STATUS_ACTION_ID,
-  taskIdFromBlockId,
-} from "./messages.ts";
+  buildThreadMessageBlocks,
+} from "./views.ts";
 
 describe("Slack rendering", () => {
   const task = {
@@ -212,9 +212,31 @@ describe("Slack rendering", () => {
 
     assert.match(
       body,
-      /^Event: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
     );
-    assert.doesNotMatch(body, /In Progress|In Review|Attempt:|Due:/);
+    assert.doesNotMatch(body, /Attempt:|Due:/);
+
+    assert.deepEqual(
+      buildThreadMessageBlocks(
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          pullRequest: {
+            url: "https://github.com/acme/example/pull/4",
+            number: 4,
+          },
+          turnCount: 1,
+        },
+        "<@UHIROPPY>",
+        {
+          fromStatus: "In Progress",
+          toStatus: "In Review",
+          updatedAt: "2026-07-29T07:56:00.000Z",
+        },
+      )?.map(({ type }) => type),
+      ["section", "context"],
+    );
   });
 
   it("renders a precomputed attention mention in cards and threads", () => {
