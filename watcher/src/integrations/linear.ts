@@ -78,6 +78,7 @@ const ISSUE_WORKPAD_QUERY = `
         nodes {
           id
           body
+          createdAt
           resolvedAt
         }
         pageInfo {
@@ -294,7 +295,11 @@ export async function createLinearWorkpadReply(
       return true;
     } catch (error) {
       if (!isTransientLinearError(error)) throw error;
-      if (await linearCommentExists(commentId, requestOptions)) return true;
+      try {
+        if (await linearCommentExists(commentId, requestOptions)) return true;
+      } catch {
+        // Reconciliation is best-effort; retry based on the original mutation error.
+      }
       if (attempt >= maxAttempts) throw error;
       await sleep(retryDelayMs);
     }
@@ -328,6 +333,7 @@ async function findLinearWorkpad(
   options: WorkpadRequestOptions,
 ): Promise<{ issueId: string; commentId: string } | null> {
   let after: string | undefined;
+  let latestWorkpad: { id: string; createdAt: string } | undefined;
 
   while (true) {
     const data = await retryLinearRequest(
@@ -339,6 +345,7 @@ async function findLinearWorkpad(
               nodes?: Array<{
                 id: string;
                 body?: string | null;
+                createdAt: string;
                 resolvedAt?: string | null;
               }>;
               pageInfo?: {
@@ -360,13 +367,18 @@ async function findLinearWorkpad(
     );
     if (!data.issue) throw new Error(`Linear issue not found: ${issueIdentifier}`);
 
-    const workpad = data.issue.comments?.nodes?.find(
-      (comment) => !comment.resolvedAt && comment.body?.trimStart().startsWith("## Codex Workpad"),
-    );
-    if (workpad) return { issueId: data.issue.id, commentId: workpad.id };
+    for (const comment of data.issue.comments?.nodes ?? []) {
+      const isActiveWorkpad =
+        !comment.resolvedAt && comment.body?.trimStart().startsWith("## Codex Workpad");
+      if (isActiveWorkpad && (!latestWorkpad || comment.createdAt > latestWorkpad.createdAt)) {
+        latestWorkpad = comment;
+      }
+    }
 
     const pageInfo = data.issue.comments?.pageInfo;
-    if (!pageInfo?.hasNextPage) return null;
+    if (!pageInfo?.hasNextPage) {
+      return latestWorkpad ? { issueId: data.issue.id, commentId: latestWorkpad.id } : null;
+    }
     if (!pageInfo.endCursor) {
       throw new Error(`Linear comment pagination omitted a cursor for ${issueIdentifier}.`);
     }

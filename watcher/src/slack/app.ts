@@ -536,8 +536,17 @@ async function addCopiedReplyReaction(
     } catch (error) {
       if (slackError(error) === "already_reacted") return;
       if (attempt >= 3 || !isTransientSlackError(error)) throw error;
+      await sleep(slackRetryDelayMs(error));
     }
   }
+}
+
+function slackRetryDelayMs(error: unknown): number {
+  if (!error || typeof error !== "object") return 100;
+  const details = error as { code?: unknown; retryAfter?: unknown };
+  return details.code === ErrorCode.RateLimitedError && typeof details.retryAfter === "number"
+    ? details.retryAfter * 1000
+    : 100;
 }
 
 function slackError(error: unknown): string | undefined {
@@ -561,6 +570,10 @@ function isTransientSlackError(error: unknown): boolean {
       slackError(error) ?? "",
     )
   );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isUserThreadReply(message: unknown): message is UserThreadReply {

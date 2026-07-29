@@ -700,8 +700,10 @@ describe("Slack app behavior", () => {
       const firstReply = new Promise<void>((resolve) => {
         releaseFirst = resolve;
       });
+      let firstPending = true;
       const replies: string[] = [];
       const reply = async (_task: unknown, body: string) => {
+        if (body === "second") assert.equal(firstPending, false);
         replies.push(body);
         if (body === "first") await firstReply;
         return true;
@@ -721,9 +723,8 @@ describe("Slack app behavior", () => {
       const first = handleThreadReply(args("2.000", "first"), store, reply);
       await waitFor(() => replies.length === 1);
       const second = handleThreadReply(args("3.000", "second"), store, reply);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      assert.deepEqual(replies, ["first"]);
 
+      firstPending = false;
       releaseFirst();
       await Promise.all([first, second]);
 
@@ -834,6 +835,7 @@ describe("Slack app behavior", () => {
         state: "In Progress",
       });
       const errors: unknown[] = [];
+      let reactionAttempts = 0;
       const args = {
         message: {
           channel: "C123",
@@ -845,23 +847,19 @@ describe("Slack app behavior", () => {
         client: {
           reactions: {
             async add() {
-              throw new Error("Slack unavailable");
+              reactionAttempts += 1;
+              if (reactionAttempts === 1) {
+                throw new Error("Slack unavailable");
+              }
             },
           },
         },
         logger: { error: (error: unknown) => errors.push(error) },
       };
       let replyCount = 0;
-      let reactionAttempts = 0;
       const reply = async () => {
         replyCount += 1;
         return true;
-      };
-      args.client.reactions.add = async () => {
-        reactionAttempts += 1;
-        if (reactionAttempts === 1) {
-          throw new Error("Slack unavailable");
-        }
       };
 
       await handleThreadReply(args, store, reply);
@@ -918,6 +916,50 @@ describe("Slack app behavior", () => {
       assert.equal(replyCount, 1);
       assert.equal(reactionAttempts, 3);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 1);
+    });
+  });
+
+  it("honors Slack retry-after guidance while adding the copied-reply reaction", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      let reactionAttempts = 0;
+
+      await handleThreadReply(
+        {
+          message: {
+            channel: "C123",
+            thread_ts: "1.000",
+            ts: "2.000",
+            user: "U123",
+            text: "Please update the Workpad.",
+          },
+          client: {
+            reactions: {
+              async add() {
+                reactionAttempts += 1;
+                if (reactionAttempts === 1) {
+                  throw Object.assign(new Error("Slack rate limited"), {
+                    code: "slack_webapi_rate_limited_error",
+                    retryAfter: 0,
+                  });
+                }
+              },
+            },
+          },
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        async () => true,
+      );
+
+      assert.equal(reactionAttempts, 2);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 1);
     });
   });

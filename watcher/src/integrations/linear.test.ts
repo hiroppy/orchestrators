@@ -21,7 +21,14 @@ describe("createLinearWorkpadReply", () => {
             issue: {
               id: "issue-uuid",
               comments: {
-                nodes: [{ id: "resolved", body: "## Codex Workpad", resolvedAt: "2026-07-01" }],
+                nodes: [
+                  {
+                    id: "older-active",
+                    body: "## Codex Workpad",
+                    createdAt: "2026-07-01T00:00:00Z",
+                    resolvedAt: null,
+                  },
+                ],
                 pageInfo: { hasNextPage: true, endCursor: "next-page" },
               },
             },
@@ -35,7 +42,14 @@ describe("createLinearWorkpadReply", () => {
             issue: {
               id: "issue-uuid",
               comments: {
-                nodes: [{ id: "active", body: "\n## Codex Workpad\n", resolvedAt: null }],
+                nodes: [
+                  {
+                    id: "active",
+                    body: "\n## Codex Workpad\n",
+                    createdAt: "2026-07-02T00:00:00Z",
+                    resolvedAt: null,
+                  },
+                ],
                 pageInfo: { hasNextPage: false, endCursor: null },
               },
             },
@@ -233,6 +247,52 @@ describe("createLinearWorkpadReply", () => {
 
     assert.equal(created, true);
     assert.equal(mutationCount, 2);
+  });
+
+  it("keeps retrying the mutation when comment reconciliation also fails", async (context) => {
+    let mutationCount = 0;
+    let reconciliationCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [
+                  {
+                    id: "active",
+                    body: "## Codex Workpad",
+                    createdAt: "2026-07-01T00:00:00Z",
+                    resolvedAt: null,
+                  },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        reconciliationCount += 1;
+        return new Response(null, { status: 503 });
+      }
+
+      mutationCount += 1;
+      if (mutationCount === 1) throw new DOMException("Request timed out", "TimeoutError");
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "Retry the mutation.", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      maxAttempts: 2,
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(mutationCount, 2);
+    assert.equal(reconciliationCount, 2);
   });
 });
 
