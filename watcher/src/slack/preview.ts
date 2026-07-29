@@ -28,7 +28,7 @@ const PREVIEW_THREAD_STATUSES: Record<EventType, [fromStatus: string, toStatus: 
   retrying: ["In Progress", "Rework"],
   blocked: ["In Progress", "Rework"],
   ended: ["In Review", "Done"],
-  recovered: ["Rework", "In Progress"],
+  recovered: ["unavailable", "available"],
 };
 export interface SlackPreviewCase {
   category: SlackPreviewCategory;
@@ -118,8 +118,10 @@ export function buildSlackPreviewMessage(
   const service = "preview-service";
   const issueIdentifier = "PREVIEW-123";
   const eventType = PREVIEW_EVENT_TYPES[type];
-  const status = previewStatus(eventType);
-  const event = previewEvent(eventType, service, issueIdentifier, status);
+  const recovered = eventType === "recovered";
+  const eventIssueIdentifier = recovered ? `watcher:${service}` : issueIdentifier;
+  const status = recovered ? "available" : previewStatus(eventType);
+  const event = previewEvent(eventType, service, eventIssueIdentifier, status);
 
   if (category === "thread") {
     const context = previewThreadContext(eventType, updatedAt);
@@ -130,21 +132,17 @@ export function buildSlackPreviewMessage(
     };
   }
 
-  const recovered = eventType === "recovered";
-  const taskIssueIdentifier = recovered ? `watcher:${service}` : issueIdentifier;
-  const taskStatus = recovered ? "available" : status;
-
   return buildTaskCard(
     {
-      id: `${service}:${taskIssueIdentifier}`,
+      id: `${service}:${eventIssueIdentifier}`,
       serviceName: service,
-      issueIdentifier: taskIssueIdentifier,
-      title: recovered ? taskIssueIdentifier : "Confirm the watcher Slack output",
-      status: taskStatus,
+      issueIdentifier: eventIssueIdentifier,
+      title: recovered ? eventIssueIdentifier : "Confirm the watcher Slack output",
+      status,
       updatedAt,
     },
     PREVIEW_STATUSES,
-    previewEvent(eventType, service, taskIssueIdentifier, taskStatus),
+    event,
     undefined,
     { interactive: false },
   );

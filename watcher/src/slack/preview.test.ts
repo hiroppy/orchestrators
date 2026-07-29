@@ -78,6 +78,10 @@ describe("Slack preview", () => {
       /^\*In Progress\* → \*In Review\*\nEvent: Updated \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+>\nTurns: 12 \| Tokens: 12\.3k$/,
     );
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
+    assert.match(
+      String(calls[5].text),
+      /^\*unavailable\* → \*available\*\nEvent: Recovered \| UpdatedAt:/,
+    );
   });
 
   it("requires a supported category and event type", () => {
