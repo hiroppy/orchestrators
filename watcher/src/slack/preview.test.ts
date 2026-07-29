@@ -37,7 +37,8 @@ describe("Slack preview", () => {
     assert.match(JSON.stringify(messages[2].blocks), /Temporary orchestrator failure/);
     assert.match(JSON.stringify(messages[3].blocks), /Waiting for required credentials/);
     assert.match(JSON.stringify(messages[4].blocks), /Tokens: 98\.8k/);
-    assert.equal(messages[5].text, "[preview-service]");
+    assert.equal(messages[5].text, "[preview-service] Symphony connection");
+    assert.match(JSON.stringify(messages[5].blocks), /Status: Available/);
     assert.equal(
       messages[5].metadata.event_payload.task_id,
       "preview-service:watcher:preview-service",

@@ -126,7 +126,9 @@ channel. It does not require `watcher/config.ts` or `SLACK_APP_TOKEN`.
 - A normal task card contains a service-tagged Linear issue title when one is
   available, linked when an issue URL is available, followed by the service's
   Linear status selector and event context. Context details are pipe-delimited.
-  Synthetic service availability cards do not include a status selector.
+  Synthetic service availability cards are titled `Symphony connection`, show
+  the current availability status in their context, and do not include a
+  status selector.
 - When Linear moves an issue into a `completed`, `canceled`, or `duplicate`
   state type, the permalink URL of an existing parent card is posted to the
   same channel below a `Task closed` line containing the current Linear status.

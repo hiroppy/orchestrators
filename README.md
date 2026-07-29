@@ -1,14 +1,24 @@
 # Orchestrators
 
-Runs one [Symphony](https://github.com/openai/symphony) instance per project and
-optionally monitors all instances from Slack.
+[Symphony](https://github.com/openai/symphony) is a powerful orchestrator, but
+managing it outside its dashboard can be difficult. Orchestrators runs one
+Symphony instance per project, brings notifications from every instance into
+Slack, and makes it easy to update Linear issue statuses. This lets you
+efficiently keep many tasks moving, even while away from your desk.
+
+![Task monitoring and Linear status updates in Slack](.github/assets/task.png)
 
 ## What it does
 
-- Creates isolated Symphony instances from `symphony_template/`
-- Runs all enabled instances with one command
-- Keeps each instance's workspaces and logs under `data/`
-- Shows task state in Slack and lets users update Linear statuses
+- Monitor tasks across all your Symphony projects from one Slack channel
+- Get notified when tasks change state, open pull requests, become blocked, or
+  finish
+- Update Linear issue statuses directly from Slack
+- Keep work moving during automated code review by requeuing Linear issues when
+  a configured emoji reaction (for example, Codex's 👀) appears on a linked
+  pull request
+- Run multiple isolated Symphony instances with one command while keeping each
+  project's workspace and logs separate
 
 Generated instances, runtime data, and private configuration are gitignored.
 
@@ -112,14 +122,33 @@ During setup, you will configure the following values:
 - `<repository-url>` — repository cloned into each issue workspace
 - `<linear-project-slug>` — Linear project slug
 
-Copy and configure Symphony:
+Create and configure Symphony:
 
 ```sh
-instance_name="<instance-name>"
-
-test ! -e "symphonies/${instance_name}"
-cp -R symphony_template "symphonies/${instance_name}"
+./scripts/setup-symphony.sh "<instance-name>"
 ```
+
+The setup command asks which workflow profile to use:
+
+- `customize` (default) — applies the repository's Japanese Linear, pull request, review
+  quiet-window, and Docker cleanup conventions
+- `official` — copies the upstream Symphony workflow unchanged
+
+For non-interactive setup, pass the profile explicitly:
+
+```sh
+./scripts/setup-symphony.sh "<instance-name>" official
+./scripts/setup-symphony.sh "<instance-name>" customize
+```
+
+The `customize` profile is maintained separately in
+[`overlays/customize/workflow.patch`](overlays/customize/workflow.patch), keeping
+the `symphony_template/` Git subtree identical to upstream.
+
+The watcher example configuration uses `In Review`, matching the default
+`customize` profile. The `official` profile uses Symphony's upstream
+`Human Review` status; when selecting it, set `watcher.reviewReaction.inReviewStatus`
+and any matching `slack.mention.statuses` entries to `Human Review`.
 
 Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
 workflow and can customize it independently. Since `symphonies/` is gitignored,
@@ -158,7 +187,7 @@ directory.
 Build the copied instance:
 
 ```sh
-cd "symphonies/${instance_name}/elixir"
+cd "symphonies/<instance-name>/elixir"
 mise trust
 mise install
 mise exec -- mix setup
