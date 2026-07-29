@@ -1,0 +1,9 @@
+{
+  "ignoreWorkspaces": ["."],
+  "workspaces": {
+    "watcher": {
+      "entry": ["config.example.ts", "src/entrypoints/*.ts", "src/**/*.test.ts"],
+      "project": ["*.ts", "src/**/*.ts"]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "orchestrators",
+  "private": true,
+  "scripts": {
+    "setup": "corepack enable",
+    "start:watcher": "pnpm --filter orchestrator-slack-watcher start:watcher",
+    "start:symphonies": "pnpm --filter orchestrator-slack-watcher start:symphonies",
+    "test": "pnpm --filter orchestrator-slack-watcher test",
+    "typecheck": "pnpm --filter orchestrator-slack-watcher typecheck",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "knip": "knip",
+    "db:generate": "pnpm --filter orchestrator-slack-watcher db:generate",
+    "db:studio": "pnpm --filter orchestrator-slack-watcher db:studio"
+  },
+  "devDependencies": {
+    "knip": "^6.29.0",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.17.0"
+}

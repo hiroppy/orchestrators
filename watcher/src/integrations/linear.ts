@@ -1,0 +1,293 @@
+const LINEAR_ENDPOINT = "https://api.linear.app/graphql";
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 1_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
+const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
+
+import type { PullRequest } from "../domain/types.ts";
+
+const ISSUE_STATE_QUERY = `
+  query OrchestratorWatcherIssueState($id: String!) {
+    issue(id: $id) {
+      identifier
+      title
+      state {
+        name
+        type
+      }
+      attachments {
+        nodes {
+          url
+        }
+      }
+      url
+    }
+  }
+`;
+
+const ISSUE_STATUS_TARGET_QUERY = `
+  query OrchestratorWatcherIssueStatusTarget($id: String!) {
+    issue(id: $id) {
+      id
+      team {
+        states {
+          nodes {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ISSUE_STATUS_UPDATE_MUTATION = `
+  mutation OrchestratorWatcherIssueStatusUpdate($id: String!, $stateId: String!) {
+    issueUpdate(id: $id, input: { stateId: $stateId }) {
+      success
+      issue {
+        state {
+          name
+        }
+      }
+    }
+  }
+`;
+
+const TEAM_WORKFLOW_STATES_QUERY = `
+  query OrchestratorWatcherTeamWorkflowStates($id: String!) {
+    team(id: $id) {
+      states {
+        nodes {
+          name
+          type
+          position
+        }
+      }
+    }
+  }
+`;
+
+interface LinearRequestOptions {
+  apiKey?: string;
+  timeoutMs?: number;
+}
+
+interface FetchLinearOptions extends LinearRequestOptions {
+  maxAttempts?: number;
+  retryDelayMs?: number;
+}
+
+interface LinearIssueState {
+  identifier: string;
+  title: string | null;
+  state: string | null;
+  stateType: string | null;
+  url: string | null;
+  pullRequest?: PullRequest;
+}
+
+interface LinearIssueResponse {
+  data?: {
+    issue?: {
+      identifier: string;
+      title?: string | null;
+      state?: { name?: string | null; type?: string | null } | null;
+      attachments?: { nodes?: Array<{ url?: string | null }> | null } | null;
+      url?: string | null;
+    } | null;
+  };
+}
+
+export async function fetchLinearWorkflowStates(
+  teamId: string,
+  { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
+): Promise<string[]> {
+  if (!apiKey) throw new Error("Linear API key is not configured.");
+
+  const data = await linearRequest<{
+    team?: {
+      states?: {
+        nodes?: Array<{ name: string; type: string; position: number }>;
+      };
+    };
+  }>(apiKey, TEAM_WORKFLOW_STATES_QUERY, { id: teamId }, timeoutMs);
+  if (!data.team) throw new Error(`Linear team not found: ${teamId}`);
+
+  const states = [...(data.team.states?.nodes ?? [])]
+    .sort(
+      (left, right) =>
+        workflowStateTypeOrder(left.type) - workflowStateTypeOrder(right.type) ||
+        left.position - right.position,
+    )
+    .map(({ name }) => name);
+  if (states.length === 0) {
+    throw new Error(`Linear team has no workflow states: ${teamId}`);
+  }
+  return states;
+}
+
+function workflowStateTypeOrder(type: string): number {
+  const index = WORKFLOW_STATE_TYPES.indexOf(type);
+  return index === -1 ? WORKFLOW_STATE_TYPES.length : index;
+}
+
+export async function updateLinearIssueStatus(
+  issueIdentifier: string,
+  statusName: string,
+  { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
+): Promise<void> {
+  if (!apiKey) throw new Error("Linear API key is not configured.");
+
+  const target = await linearRequest<{
+    issue?: {
+      id: string;
+      team?: {
+        states?: { nodes?: Array<{ id: string; name: string }> };
+      };
+    };
+  }>(apiKey, ISSUE_STATUS_TARGET_QUERY, { id: issueIdentifier }, timeoutMs);
+  const issue = target.issue;
+  if (!issue) throw new Error(`Linear issue not found: ${issueIdentifier}`);
+
+  const normalizedStatus = statusName.trim().toLowerCase();
+  const state = issue.team?.states?.nodes?.find(
+    ({ name }) => name.trim().toLowerCase() === normalizedStatus,
+  );
+  if (!state) {
+    throw new Error(`Linear status not found for ${issueIdentifier}: ${statusName}`);
+  }
+
+  const updated = await linearRequest<{
+    issueUpdate?: { success?: boolean };
+  }>(
+    apiKey,
+    ISSUE_STATUS_UPDATE_MUTATION,
+    {
+      id: issue.id,
+      stateId: state.id,
+    },
+    timeoutMs,
+  );
+  if (!updated.issueUpdate?.success) {
+    throw new Error(`Linear rejected status update for ${issueIdentifier}.`);
+  }
+}
+
+export async function fetchLinearIssueState(
+  issueIdentifier?: string,
+  options: FetchLinearOptions = {},
+): Promise<LinearIssueState | null> {
+  const apiKey = options.apiKey;
+  const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  if (!apiKey || !issueIdentifier) return null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(LINEAR_ENDPOINT, {
+        method: "POST",
+        headers: {
+          authorization: apiKey,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          query: ISSUE_STATE_QUERY,
+          variables: { id: issueIdentifier },
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) {
+        if (shouldRetryResponse(response.status) && attempt < maxAttempts) {
+          await sleep(retryDelayMs);
+          continue;
+        }
+
+        return null;
+      }
+
+      const body = (await response.json()) as LinearIssueResponse;
+      const issue = body?.data?.issue;
+
+      if (!issue) return null;
+
+      const pullRequest = findPullRequestAttachment(issue.attachments?.nodes);
+
+      return {
+        identifier: issue.identifier,
+        title: issue.title ?? null,
+        state: issue.state?.name ?? null,
+        stateType: issue.state?.type ?? null,
+        url: issue.url ?? null,
+        ...(pullRequest ? { pullRequest } : {}),
+      };
+    } catch {
+      if (attempt >= maxAttempts) return null;
+      await sleep(retryDelayMs);
+    }
+  }
+
+  return null;
+}
+
+function findPullRequestAttachment(
+  attachments?: Array<{ url?: string | null }> | null,
+): PullRequest | null {
+  if (!Array.isArray(attachments)) return null;
+
+  for (const attachment of attachments) {
+    const url = attachment?.url;
+    if (!url) continue;
+
+    const match = url.match(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)(?:$|[/?#])/i);
+
+    if (match) {
+      return {
+        url,
+        number: Number(match[1]),
+      };
+    }
+  }
+
+  return null;
+}
+
+function shouldRetryResponse(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+async function linearRequest<T>(
+  apiKey: string,
+  query: string,
+  variables: Record<string, string>,
+  timeoutMs: number,
+): Promise<T> {
+  const response = await fetch(LINEAR_ENDPOINT, {
+    method: "POST",
+    headers: {
+      authorization: apiKey,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) throw new Error(`Linear returned HTTP ${response.status}.`);
+
+  const body = (await response.json()) as {
+    data?: T;
+    errors?: Array<{ message?: string }>;
+  };
+  if (body.errors?.length) {
+    throw new Error(`Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`);
+  }
+  if (!body.data) throw new Error("Linear response did not include data.");
+  return body.data;
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

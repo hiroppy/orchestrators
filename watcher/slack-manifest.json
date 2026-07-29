@@ -1,0 +1,26 @@
+{
+  "display_information": {
+    "name": "Orchestrators",
+    "description": "Updates task cards and records orchestrator events in Slack threads.",
+    "background_color": "#1F2937"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Orchestrators",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["chat:write", "users:read"]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}

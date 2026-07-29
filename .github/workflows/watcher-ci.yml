@@ -1,0 +1,72 @@
+name: Watcher CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/watcher-ci.yml"
+      - ".oxfmtrc.json"
+      - ".oxlintrc.json"
+      - ".node-version"
+      - "knip.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "watcher/**"
+  pull_request:
+    paths:
+      - ".github/workflows/watcher-ci.yml"
+      - ".oxfmtrc.json"
+      - ".oxlintrc.json"
+      - ".node-version"
+      - "knip.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "watcher/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watcher-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm exec oxfmt --check watcher
+
+      - name: Lint
+        run: pnpm exec oxlint watcher
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Check unused code
+        run: pnpm knip
+
+      - name: Test
+        run: pnpm test

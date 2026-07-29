@@ -1,0 +1,3 @@
+{
+  "ignorePatterns": ["data/**", "symphonies/**", "symphony_template/**"]
+}
