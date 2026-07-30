@@ -26,6 +26,7 @@ describe("Slack rendering", () => {
       issueIdentifier: "ENG-62",
       issueUrl: "https://linear.app/acme/issue/ENG-62/example",
       state: "In Progress",
+      activity: "Running tests",
       turnCount: 1,
       tokens: { total: 74_400 },
       pullRequest: {
@@ -57,7 +58,7 @@ describe("Slack rendering", () => {
     };
     assert.match(
       context.elements[0].text,
-      /^Event: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42> \| Turns: 1 \| Tokens: 74\.4k$/,
+      /^Event: Started\nActivity: Running tests\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42> \| Turns: 1 \| Tokens: 74\.4k$/,
     );
     assert.equal(actions.elements.length, 1);
     assert.equal(card.metadata.event_payload.task_id, task.id);
@@ -102,6 +103,22 @@ describe("Slack rendering", () => {
     assert.doesNotMatch(card.text, /Awaiting Customer/);
   });
 
+  it("keeps parent activity concise and Slack-safe", () => {
+    const card = buildTaskCard(task, ["In Progress"], {
+      type: "updated",
+      service: "service-a",
+      issueIdentifier: "ENG-62",
+      activity: `<unsafe> & ${"x".repeat(200)}`,
+    });
+    const context = card.blocks.find((block) => block.type === "context") as {
+      elements: Array<{ text: string }>;
+    };
+
+    assert.match(context.elements[0].text, /Activity: &lt;unsafe&gt; &amp; /);
+    assert.doesNotMatch(context.elements[0].text, /<unsafe>/);
+    assert.match(context.elements[0].text, /…$/);
+  });
+
   it("does not render a status select for watcher fetch errors", () => {
     const card = buildTaskCard(
       {
@@ -135,7 +152,7 @@ describe("Slack rendering", () => {
     };
     assert.match(
       context.elements[0].text,
-      /^Status: Unavailable \| Event: Retrying \| UpdatedAt: /,
+      /^Status: Unavailable \| Event: Retrying\nError: fetch failed$/,
     );
   });
 
@@ -161,7 +178,7 @@ describe("Slack rendering", () => {
     };
 
     assert.equal(card.text, "[service-a] Symphony connection");
-    assert.match(context.elements[0].text, /^Status: Available \| Event: Recovered \| UpdatedAt: /);
+    assert.equal(context.elements[0].text, "Status: Available | Event: Recovered");
   });
 
   it("keeps thread output bounded and records Slack status actors", () => {
@@ -175,7 +192,7 @@ describe("Slack rendering", () => {
     assert.ok(body.length <= 2_500);
     assert.equal(
       buildStatusChangedMessage("Example User", "In Review", "Rework"),
-      "*In Review* → *Rework* | Example User",
+      "*In Review* → *Rework* by Example User",
     );
 
     const pullRequestBody = buildThreadMessage({
@@ -194,6 +211,7 @@ describe("Slack rendering", () => {
         type: "started",
         service: "service-a",
         issueIdentifier: "ENG-62",
+        startedAt: "2026-07-29T05:00:00.000Z",
         pullRequest: {
           url: "https://github.com/acme/example/pull/4",
           number: 4,
@@ -206,13 +224,12 @@ describe("Slack rendering", () => {
       {
         fromStatus: "In Progress",
         toStatus: "In Review",
-        updatedAt: "2026-07-29T07:56:00.000Z",
       },
     );
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Started: <!date\^\d+\^\{ago\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -232,7 +249,6 @@ describe("Slack rendering", () => {
         {
           fromStatus: "In Progress",
           toStatus: "In Review",
-          updatedAt: "2026-07-29T07:56:00.000Z",
         },
       )?.map(({ type }) => type),
       ["section", "context"],
@@ -269,12 +285,12 @@ describe("Slack rendering", () => {
     };
     assert.match(
       context.elements[0].text,
-      /^Event: Ended \| UpdatedAt: <!date[^\n]+> \| Attention: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
+      /^Event: Ended \| Attention: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
     );
     assert.match(thread, /\*Updated\* \| <!subteam\^SXXXXXXXX>/);
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
-      /\*Rework\* → \*In Review\* \| Example User/,
+      /\*Rework\* → \*In Review\* by Example User/,
     );
     assert.doesNotMatch(
       buildStatusChangedMessage("Example User", "In Review", "Done"),

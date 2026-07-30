@@ -413,17 +413,14 @@ describe("Slack app behavior", () => {
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 3);
-      assert.match(
-        threadTexts[0],
-        /^\*Todo\* → \*In Progress\*\nEvent: Updated \| UpdatedAt: <!date[^\n]+>$/,
-      );
+      assert.match(threadTexts[0], /^\*Todo\* → \*In Progress\*\nEvent: Updated$/);
       assert.equal(
         threadTexts[1],
         "*PR created* | <https://github.com/acme/example/pull/42|PR#42>",
       );
       assert.match(
         threadTexts[2],
-        /^\*In Progress\* → \*In Review\*\nEvent: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^\*In Progress\* → \*In Review\*\nEvent: Updated \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       const statusTransitionBlocks = calls.filter(
         ({ method, args }) => method === "postMessage" && args.thread_ts,
@@ -438,7 +435,7 @@ describe("Slack app behavior", () => {
       );
       assert.match(
         (statusTransitionBlocks[1].elements as Array<{ text: string }>)[0].text,
-        /^Event: Updated \| UpdatedAt: <!date[^\n]+>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^Event: Updated \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,
@@ -517,7 +514,7 @@ describe("Slack app behavior", () => {
       );
       assert.match(
         String(calls.find(({ method }) => method === "postMessage")?.args.text),
-        /\*In Review\* → \*Rework\* \| Example User/,
+        /\*In Review\* → \*Rework\* by Example User/,
       );
     });
   });

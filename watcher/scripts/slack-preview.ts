@@ -4,18 +4,29 @@ import { WebClient } from "@slack/web-api";
 import type { EventType, WatcherEvent } from "../src/domain/types.ts";
 import {
   buildTaskCard,
+  buildStatusChangedMessage,
   buildThreadMessage,
   buildThreadMessageBlocks,
   type TaskCard,
 } from "../src/slack/views.ts";
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
+const DEFAULT_ATTENTION_TARGET = "@attention-target";
 export const SLACK_PREVIEW_CATEGORIES = ["post", "thread"] as const;
-export const SLACK_PREVIEW_TYPES = ["start", "update", "retry", "block", "end", "recover"] as const;
+export const SLACK_PREVIEW_EVENT_TYPES = [
+  "start",
+  "update",
+  "retry",
+  "block",
+  "end",
+  "recover",
+] as const;
+export const SLACK_PREVIEW_TYPES = [...SLACK_PREVIEW_EVENT_TYPES, "manual", "attention"] as const;
 
 type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
 type SlackPreviewType = (typeof SLACK_PREVIEW_TYPES)[number];
-const PREVIEW_EVENT_TYPES: Record<SlackPreviewType, EventType> = {
+type SlackPreviewEventType = (typeof SLACK_PREVIEW_EVENT_TYPES)[number];
+const PREVIEW_EVENT_TYPES: Record<SlackPreviewEventType, EventType> = {
   start: "started",
   update: "updated",
   retry: "retrying",
@@ -48,6 +59,10 @@ export interface SlackPreviewConfig {
   channelId: string;
 }
 
+export interface SlackPreviewOptions {
+  mentionTarget?: string;
+}
+
 export interface SlackPreviewClient {
   chat: {
     postMessage(args: ChatPostMessageArguments): Promise<ChatPostMessageResponse>;
@@ -77,6 +92,9 @@ export function resolveSlackPreviewCase(
       : "Missing Slack preview type.";
     throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
   }
+  if (category === "post" && type === "manual") {
+    throw new Error(`Slack preview type manual is only available for thread previews.\n${usage}`);
+  }
   if (extraValue !== undefined) {
     throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
   }
@@ -104,33 +122,48 @@ export function resolveSlackPreviewConfig(
 export function buildSlackPreviewMessage(
   previewCase: SlackPreviewCase & { category: "post" },
   now?: Date,
+  options?: SlackPreviewOptions,
 ): TaskCard;
 export function buildSlackPreviewMessage(
   previewCase: SlackPreviewCase & { category: "thread" },
   now?: Date,
+  options?: SlackPreviewOptions,
 ): SlackThreadPreviewMessage;
 export function buildSlackPreviewMessage(
   previewCase: SlackPreviewCase,
   now?: Date,
+  options?: SlackPreviewOptions,
 ): SlackPreviewMessage;
 export function buildSlackPreviewMessage(
   { category, type }: SlackPreviewCase,
   now: Date = new Date(),
+  options: SlackPreviewOptions = {},
 ): SlackPreviewMessage {
-  const updatedAt = now.toISOString();
+  if (type === "manual") {
+    if (category !== "thread") {
+      throw new Error("Slack preview type manual is only available for thread previews.");
+    }
+    return {
+      text: buildStatusChangedMessage("Hiroppy", "In Review", "Rework"),
+    };
+  }
+
+  const eventPreviewType = type === "attention" ? "block" : type;
+  const mentionTarget =
+    type === "attention" ? (options.mentionTarget ?? DEFAULT_ATTENTION_TARGET) : undefined;
   const service = "preview-service";
   const issueIdentifier = "PREVIEW-123";
-  const eventType = PREVIEW_EVENT_TYPES[type];
+  const eventType = PREVIEW_EVENT_TYPES[eventPreviewType];
   const recovered = eventType === "recovered";
   const eventIssueIdentifier = recovered ? `watcher:${service}` : issueIdentifier;
   const status = recovered ? "available" : previewStatus(eventType);
-  const event = previewEvent(eventType, service, eventIssueIdentifier, status);
+  const event = previewEvent(eventType, service, eventIssueIdentifier, status, now);
 
   if (category === "thread") {
-    const context = previewThreadContext(eventType, updatedAt);
-    const blocks = buildThreadMessageBlocks(event, undefined, context);
+    const context = previewThreadContext(eventType);
+    const blocks = buildThreadMessageBlocks(event, mentionTarget, context);
     return {
-      text: buildThreadMessage(event, undefined, context),
+      text: buildThreadMessage(event, mentionTarget, context),
       ...(blocks ? { blocks } : {}),
     };
   }
@@ -142,11 +175,11 @@ export function buildSlackPreviewMessage(
       issueIdentifier: eventIssueIdentifier,
       title: recovered ? eventIssueIdentifier : "Confirm the watcher Slack output",
       status,
-      updatedAt,
+      updatedAt: now.toISOString(),
     },
     PREVIEW_STATUSES,
     event,
-    undefined,
+    mentionTarget,
     { interactive: false },
   );
 }
@@ -156,10 +189,11 @@ export function postSlackPreview(
   channelId: string,
   previewCase: SlackPreviewCase,
   now?: Date,
+  options?: SlackPreviewOptions,
 ): Promise<ChatPostMessageResponse> {
   return client.chat.postMessage({
     channel: channelId,
-    ...buildSlackPreviewMessage(previewCase, now),
+    ...buildSlackPreviewMessage(previewCase, now, options),
   });
 }
 
@@ -172,12 +206,11 @@ function previewStatus(previewCase: EventType): string {
 
 function previewThreadContext(
   eventType: EventType,
-  updatedAt: string,
-): { fromStatus: string; toStatus: string; updatedAt: string } | undefined {
+): { fromStatus: string; toStatus: string } | undefined {
   if (eventType === "started") return undefined;
 
   const [fromStatus, toStatus] = PREVIEW_THREAD_STATUSES[eventType];
-  return { fromStatus, toStatus, updatedAt };
+  return { fromStatus, toStatus };
 }
 
 function previewEvent(
@@ -185,34 +218,58 @@ function previewEvent(
   service: string,
   issueIdentifier: string,
   resolvedState: string,
+  now: Date,
 ): WatcherEvent {
   const event: WatcherEvent = { type, service, issueIdentifier };
   const resolvedEvent = { ...event, resolvedState };
+  const startedAt = shiftedIso(now, -15);
 
   switch (type) {
     case "started":
       return {
         ...resolvedEvent,
+        startedAt,
+        activity: "Inspecting the watcher Slack output",
         turnCount: 1,
         tokens: { total: 1_250 },
         pullRequest: { url: "https://github.com/example/preview/pull/123", number: 123 },
       };
     case "updated":
-      return { ...resolvedEvent, turnCount: 12, tokens: { total: 12_345 } };
+      return {
+        ...resolvedEvent,
+        startedAt,
+        activity: "Running tests and reviewing the generated Slack blocks",
+        turnCount: 12,
+        tokens: { total: 12_345 },
+      };
     case "retrying":
       return {
         ...resolvedEvent,
         attempt: 2,
-        dueAt: "2026-07-29T00:05:00.000Z",
+        dueAt: shiftedIso(now, 5),
         error: "Temporary orchestrator failure",
       };
     case "blocked":
-      return { ...resolvedEvent, error: "Waiting for required credentials" };
+      return {
+        ...resolvedEvent,
+        blockedAt: shiftedIso(now, -5),
+        error: "Waiting for required credentials",
+      };
     case "ended":
-      return { ...resolvedEvent, turnCount: 24, tokens: { total: 98_765 } };
+      return {
+        ...resolvedEvent,
+        startedAt,
+        activity: "Finalizing the watcher Slack output",
+        turnCount: 24,
+        tokens: { total: 98_765 },
+      };
     case "recovered":
       return { ...event, state: "available", activity: "Watcher connection restored" };
   }
+}
+
+function shiftedIso(now: Date, minutes: number): string {
+  return new Date(now.getTime() + minutes * 60_000).toISOString();
 }
 
 if (import.meta.main) {

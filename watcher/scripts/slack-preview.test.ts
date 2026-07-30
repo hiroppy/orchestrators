@@ -7,23 +7,22 @@ import {
   resolveSlackPreviewCase,
   resolveSlackPreviewConfig,
   SLACK_PREVIEW_CATEGORIES,
+  SLACK_PREVIEW_EVENT_TYPES,
   SLACK_PREVIEW_TYPES,
   type SlackPreviewClient,
 } from "./slack-preview.ts";
 
 describe("Slack preview", () => {
   it("builds a representative watcher card for every event case", () => {
-    const messages = SLACK_PREVIEW_TYPES.map((type) =>
+    const messages = SLACK_PREVIEW_EVENT_TYPES.map((type) =>
       buildSlackPreviewMessage({ category: "post", type }, new Date("2026-07-29T00:00:00.000Z")),
     );
     const expectedEventLabels = ["Started", "Updated", "Retrying", "Blocked", "Ended", "Recovered"];
+    const blocks = messages.map((message) => JSON.stringify(message.blocks));
 
     for (const [index, message] of messages.entries()) {
       assert.ok("metadata" in message);
-      assert.match(
-        JSON.stringify(message.blocks),
-        new RegExp(`Event: ${expectedEventLabels[index]}`),
-      );
+      assert.match(blocks[index], new RegExp(`Event: ${expectedEventLabels[index]}`));
       assert.equal(
         message.blocks.some((block) => block.type === "actions"),
         false,
@@ -31,16 +30,22 @@ describe("Slack preview", () => {
     }
     assert.equal(messages[0].text, "[preview-service] Confirm the watcher Slack output");
     assert.equal(messages[0].metadata.event_payload.task_id, "preview-service:PREVIEW-123");
-    assert.match(JSON.stringify(messages[0].blocks), /PR#123/);
-    assert.match(JSON.stringify(messages[1].blocks), /Event: Updated/);
-    assert.match(JSON.stringify(messages[1].blocks), /Turns: 12/);
-    assert.match(JSON.stringify(messages[1].blocks), /Tokens: 12\.3k/);
-    assert.match(JSON.stringify(messages[2].blocks), /Attempt: 2/);
-    assert.match(JSON.stringify(messages[2].blocks), /Temporary orchestrator failure/);
-    assert.match(JSON.stringify(messages[3].blocks), /Waiting for required credentials/);
-    assert.match(JSON.stringify(messages[4].blocks), /Tokens: 98\.8k/);
+    assert.match(blocks[0], /PR#123/);
+    assert.match(blocks[0], /Started: <!date\^\d+\^\{ago\}/);
+    assert.match(blocks[1], /Event: Updated/);
+    assert.match(blocks[1], /Turns: 12/);
+    assert.match(blocks[1], /Tokens: 12\.3k/);
+    assert.match(blocks[2], /Attempt: 2/);
+    assert.match(blocks[2], /Retry: <!date\^\d+\^\{date_short_pretty\} \{time\}/);
+    assert.match(blocks[2], /Temporary orchestrator failure/);
+    assert.match(blocks[3], /Waiting for required credentials/);
+    assert.match(blocks[3], /Blocked: <!date\^\d+\^\{ago\}/);
+    for (const blockText of blocks) {
+      assert.doesNotMatch(blockText, /UpdatedAt:/);
+    }
+    assert.match(blocks[4], /Tokens: 98\.8k/);
     assert.equal(messages[5].text, "[preview-service] Symphony connection");
-    assert.match(JSON.stringify(messages[5].blocks), /Status: Available/);
+    assert.match(blocks[5], /Status: Available/);
     assert.equal(
       messages[5].metadata.event_payload.task_id,
       "preview-service:watcher:preview-service",
@@ -58,7 +63,7 @@ describe("Slack preview", () => {
       },
     };
 
-    for (const type of SLACK_PREVIEW_TYPES) {
+    for (const type of SLACK_PREVIEW_EVENT_TYPES) {
       await postSlackPreview(
         client,
         "C123",
@@ -67,7 +72,7 @@ describe("Slack preview", () => {
       );
     }
 
-    assert.equal(calls.length, SLACK_PREVIEW_TYPES.length);
+    assert.equal(calls.length, SLACK_PREVIEW_EVENT_TYPES.length);
     for (const call of calls) {
       assert.equal(call.channel, "C123");
       assert.equal("thread_ts" in call, false);
@@ -82,13 +87,45 @@ describe("Slack preview", () => {
     );
     assert.match(
       String(calls[1].text),
-      /^\*In Progress\* → \*In Review\*\nEvent: Updated \| UpdatedAt: <!date\^\d+\^\{date_short_pretty\} \{time\}\|[^>]+>\nTurns: 12 \| Tokens: 12\.3k$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Updated \| Started: <!date\^\d+\^\{ago\}\|[^>]+>\nTurns: 12 \| Tokens: 12\.3k$/,
     );
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
-    assert.match(
-      String(calls[5].text),
-      /^\*unavailable\* → \*available\*\nEvent: Recovered \| UpdatedAt:/,
+    assert.match(String(calls[5].text), /^\*unavailable\* → \*available\*\nEvent: Recovered$/);
+  });
+
+  it("previews a manual status change with the actor display name", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client: SlackPreviewClient = {
+      chat: {
+        async postMessage(args) {
+          calls.push(args);
+          return { ok: true, channel: args.channel, ts: "1.000" };
+        },
+      },
+    };
+
+    await postSlackPreview(client, "C123", { category: "thread", type: "manual" });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].text, "*In Review* → *Rework* by Hiroppy");
+    assert.equal("blocks" in calls[0], false);
+  });
+
+  it("previews the configured attention target in parent and thread messages", () => {
+    const options = { mentionTarget: "<!subteam^SATTENTION>" };
+    const parent = buildSlackPreviewMessage(
+      { category: "post", type: "attention" },
+      new Date("2026-07-29T00:00:00.000Z"),
+      options,
     );
+    const thread = buildSlackPreviewMessage(
+      { category: "thread", type: "attention" },
+      new Date("2026-07-29T00:00:00.000Z"),
+      options,
+    );
+
+    assert.match(JSON.stringify(parent.blocks), /Attention: <!subteam\^SATTENTION>/);
+    assert.match(thread.text, /Attention: <!subteam\^SATTENTION>/);
   });
 
   it("requires a supported category and event type", () => {
@@ -101,6 +138,16 @@ describe("Slack preview", () => {
       type: "update",
     });
     assert.deepEqual(SLACK_PREVIEW_CATEGORIES, ["post", "thread"]);
+    assert.deepEqual(SLACK_PREVIEW_TYPES, [
+      "start",
+      "update",
+      "retry",
+      "block",
+      "end",
+      "recover",
+      "manual",
+      "attention",
+    ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
       /Missing Slack preview category.*Usage: pnpm slack:preview <post\|thread> <type>/s,
@@ -124,6 +171,10 @@ describe("Slack preview", () => {
     assert.throws(
       () => resolveSlackPreviewCase("post", "start", ""),
       /Unexpected Slack preview argument:/,
+    );
+    assert.throws(
+      () => resolveSlackPreviewCase("post", "manual"),
+      /manual is only available for thread previews/,
     );
   });
 

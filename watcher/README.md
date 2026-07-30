@@ -115,9 +115,13 @@ pnpm slack:preview thread update
 ```
 
 The first argument is `post` or `thread`. Available event types are `start`,
-`update`, `retry`, `block`, `end`, and `recover`. A `thread` preview is posted as
-a new parent message so its formatting can be inspected without an existing
-watcher thread.
+`update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
+a status change made by a Slack user, including the actor's display name. A
+configured attention target can be previewed with `post attention` or
+`thread attention`. Pass the target as `mentionTarget` when using the preview
+helper; the CLI uses a non-notifying placeholder. Thread previews are posted as
+new parent messages so their formatting can be inspected without existing
+watcher threads.
 
 Run the command from the `watcher` directory. It uses the same card builder as
 the watcher and requires only a bot token with permission to post to the

@@ -348,7 +348,6 @@ export async function publishWatcherEvent(
   const threadContext = {
     fromStatus: previousTask?.status,
     toStatus: task.status,
-    updatedAt: task.updatedAt,
   };
   const threadBody = buildThreadMessage(threadEvent, mentionTarget, threadContext);
   const threadBlocks = buildThreadMessageBlocks(threadEvent, mentionTarget, threadContext);

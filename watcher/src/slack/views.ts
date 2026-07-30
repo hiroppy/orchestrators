@@ -2,6 +2,7 @@ import type { EventType, PullRequest, RelatedIssue, Task, WatcherEvent } from ".
 import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 
 const MAX_THREAD_BODY_LENGTH = 2_500;
+const MAX_ACTIVITY_LENGTH = 180;
 
 const EVENT_LABELS: Record<EventType, string> = {
   started: "Started",
@@ -55,11 +56,14 @@ export function buildTaskCard(
     [
       watcherErrorTask ? `Status: ${escapeSlack(capitalize(task.status))}` : null,
       event ? `Event: ${escapeSlack(EVENT_LABELS[event.type])}` : null,
-      updatedAtLabel(task.updatedAt),
+      event ? lifecycleTiming(event) : null,
       mention,
     ]
       .filter(isPresent)
       .join(" | "),
+    event?.activity
+      ? `Activity: ${escapeSlack(truncate(event.activity, MAX_ACTIVITY_LENGTH))}`
+      : "",
     eventDetails.join(" | "),
   ].filter((line) => line.length > 0);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
@@ -112,7 +116,6 @@ export function buildTaskCard(
 export interface ThreadMessageContext {
   fromStatus?: string;
   toStatus?: string;
-  updatedAt?: string;
 }
 
 export function buildThreadMessageBlocks(
@@ -179,7 +182,7 @@ function statusTransitionDetails(
   mentionTarget: string | undefined,
   context: ThreadMessageContext,
 ): { headline: string; details: string[] } | undefined {
-  const { fromStatus, toStatus, updatedAt } = context;
+  const { fromStatus, toStatus } = context;
   if (!fromStatus || !toStatus || normalizeStatus(fromStatus) === normalizeStatus(toStatus)) {
     return undefined;
   }
@@ -187,7 +190,7 @@ function statusTransitionDetails(
   const details = [
     [
       `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
-      updatedAt ? updatedAtLabel(updatedAt) : null,
+      lifecycleTiming(event),
       mentionLabel(mentionTarget),
     ]
       .filter(isPresent)
@@ -206,7 +209,7 @@ export function buildStatusChangedMessage(
   fromStatus: string,
   toStatus: string,
 ): string {
-  return `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}* | ${escapeSlack(
+  return `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}* by ${escapeSlack(
     actorDisplayName,
   )}`;
 }
@@ -230,6 +233,19 @@ function compactEventDetails(event: WatcherEvent, includeAttempt = true): string
       ? `Tokens: ${formatCompactNumber(event.tokens?.total)}`
       : null,
   ].filter(isPresent);
+}
+
+function lifecycleTiming(event: WatcherEvent): string | undefined {
+  if (event.type === "retrying" && event.dueAt) {
+    return slackDateLabel("Retry", event.dueAt, "{date_short_pretty} {time}");
+  }
+  if (event.type === "blocked" && event.blockedAt) {
+    return slackDateLabel("Blocked", event.blockedAt, "{ago}");
+  }
+  if (event.startedAt) {
+    return slackDateLabel("Started", event.startedAt, "{ago}");
+  }
+  return undefined;
 }
 
 function truncateThreadBody(body: string): string {
@@ -258,12 +274,12 @@ function isWatcherErrorTask(task: Task): boolean {
   );
 }
 
-function updatedAtLabel(value: string): string {
+function slackDateLabel(label: string, value: string, format: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return `UpdatedAt: ${escapeSlack(value)}`;
+  if (Number.isNaN(date.getTime())) return `${label}: ${escapeSlack(value)}`;
 
   const timestamp = Math.floor(date.getTime() / 1_000);
-  return `UpdatedAt: <!date^${timestamp}^{date_short_pretty} {time}|${date.toISOString()}>`;
+  return `${label}: <!date^${timestamp}^${format}|${date.toISOString()}>`;
 }
 
 function capitalize(value: string): string {
