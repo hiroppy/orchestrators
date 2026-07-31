@@ -103,6 +103,26 @@ const COMMENT_REPLY_CREATE_MUTATION = `
   }
 `;
 
+const FILE_UPLOAD_MUTATION = `
+  mutation OrchestratorWatcherFileUpload(
+    $filename: String!
+    $contentType: String!
+    $size: Int!
+  ) {
+    fileUpload(filename: $filename, contentType: $contentType, size: $size) {
+      success
+      uploadFile {
+        uploadUrl
+        assetUrl
+        headers {
+          key
+          value
+        }
+      }
+    }
+  }
+`;
+
 const COMMENT_BY_ID_QUERY = `
   query OrchestratorWatcherCommentById($id: ID!) {
     comments(first: 1, filter: { id: { eq: $id } }) {
@@ -139,6 +159,13 @@ interface FetchLinearOptions extends LinearRequestOptions {
 
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
   idempotencyKey: string;
+  images?: LinearReplyImage[];
+}
+
+interface LinearReplyImage {
+  filename: string;
+  contentType: string;
+  loadData(): Promise<ArrayBuffer>;
 }
 
 interface WorkpadRequestOptions {
@@ -262,6 +289,7 @@ export async function createLinearWorkpadReply(
   {
     apiKey,
     idempotencyKey,
+    images,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     retryDelayMs = DEFAULT_RETRY_DELAY_MS,
@@ -273,6 +301,8 @@ export async function createLinearWorkpadReply(
   const workpad = await findLinearWorkpad(issueIdentifier, requestOptions);
   if (!workpad) return false;
 
+  const imageMarkdown = await uploadReplyImages(images ?? [], requestOptions);
+  const replyBody = [body, ...imageMarkdown].filter(Boolean).join("\n\n");
   const commentId = stableUuid(idempotencyKey);
   for (let attempt = 1; ; attempt += 1) {
     try {
@@ -285,7 +315,7 @@ export async function createLinearWorkpadReply(
           id: commentId,
           issueId: workpad.issueId,
           parentId: workpad.commentId,
-          body,
+          body: replyBody,
         },
         timeoutMs,
       );
@@ -303,6 +333,69 @@ export async function createLinearWorkpadReply(
       await sleep(retryDelayMs);
     }
   }
+}
+
+async function uploadReplyImages(
+  images: LinearReplyImage[],
+  options: WorkpadRequestOptions,
+): Promise<string[]> {
+  return Promise.all(
+    images.map(async (image) => {
+      const data = await image.loadData();
+      const result = await retryLinearRequest(
+        () =>
+          linearRequest<{
+            fileUpload?: {
+              success?: boolean;
+              uploadFile?: {
+                uploadUrl: string;
+                assetUrl: string;
+                headers: Array<{ key: string; value: string }>;
+              };
+            };
+          }>(
+            options.apiKey,
+            FILE_UPLOAD_MUTATION,
+            {
+              filename: image.filename,
+              contentType: image.contentType,
+              size: data.byteLength,
+            },
+            options.timeoutMs,
+          ),
+        options,
+      );
+      const upload = result.fileUpload?.uploadFile;
+      if (!result.fileUpload?.success || !upload) {
+        throw new Error(`Linear rejected file upload for ${image.filename}.`);
+      }
+
+      const headers = new Headers({
+        "Cache-Control": "public, max-age=31536000",
+        "Content-Type": image.contentType,
+      });
+      for (const header of upload.headers) headers.set(header.key, header.value);
+
+      const response = await fetch(upload.uploadUrl, {
+        method: "PUT",
+        headers,
+        body: data,
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+      if (!response.ok) {
+        throw new Error(`Linear file upload returned HTTP ${response.status}.`);
+      }
+      return `![${escapeMarkdownLabel(image.filename)}](${upload.assetUrl})`;
+    }),
+  );
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]")
+    .replaceAll(/\r?\n/g, " ");
 }
 
 async function linearCommentExists(
@@ -511,7 +604,7 @@ function shouldRetryResponse(status: number): boolean {
 async function linearRequest<T>(
   apiKey: string,
   query: string,
-  variables: Record<string, string>,
+  variables: Record<string, string | number>,
   timeoutMs: number,
 ): Promise<T> {
   const response = await fetch(LINEAR_ENDPOINT, {

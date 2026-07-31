@@ -26,9 +26,20 @@ import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
+interface SlackReplyImage {
+  filename: string;
+  contentType: string;
+  downloadUrl: string;
+}
+
+export interface SlackThreadReply {
+  text: string;
+  images: SlackReplyImage[];
+}
+
 export type LinearWorkpadReplier = (
   task: Task,
-  body: string,
+  reply: SlackThreadReply,
   idempotencyKey: string,
 ) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
@@ -69,30 +80,38 @@ export async function handleThreadReply(
   store: WatcherStore,
   createLinearWorkpadReply: LinearWorkpadReplier,
 ): Promise<void> {
-  if (!isUserThreadReply(message)) return;
+  const reply = parseUserThreadReply(message);
+  if (!reply) return;
 
-  const task = store.getTaskBySlackThread(message.channel, message.thread_ts);
+  const task = store.getTaskBySlackThread(reply.channel, reply.thread_ts);
   if (!task) return;
 
-  const queueKey = `${message.channel}:${message.thread_ts}`;
+  const queueKey = `${reply.channel}:${reply.thread_ts}`;
   await withQueue(threadReplyQueues, queueKey, async () => {
-    const replyRecorded = store.hasRecordedSlackMessage(task.id, message.ts, "workpad_replied");
+    const replyRecorded = store.hasRecordedSlackMessage(task.id, reply.ts, "workpad_replied");
 
     if (!replyRecorded) {
       try {
         const created = await createLinearWorkpadReply(
           task,
-          message.text,
-          `${message.channel}:${message.ts}`,
+          {
+            text: reply.text,
+            images: reply.files.map((file) => ({
+              filename: file.name,
+              contentType: file.mimetype,
+              downloadUrl: file.url_private_download ?? file.url_private,
+            })),
+          },
+          `${reply.channel}:${reply.ts}`,
         );
         if (!created) return;
 
         store.addEvent({
           taskId: task.id,
           type: "workpad_replied",
-          actor: message.user,
-          body: message.text,
-          slackThreadTs: message.ts,
+          actor: reply.user,
+          body: reply.text,
+          slackThreadTs: reply.ts,
         });
       } catch (error) {
         logger.error(error);
@@ -100,17 +119,17 @@ export async function handleThreadReply(
       }
     }
 
-    if (store.hasRecordedSlackMessage(task.id, message.ts, "workpad_reply_acknowledged")) {
+    if (store.hasRecordedSlackMessage(task.id, reply.ts, "workpad_reply_acknowledged")) {
       return;
     }
 
     try {
-      await addCopiedReplyReaction(client, message);
+      await addCopiedReplyReaction(client, reply);
       store.addEvent({
         taskId: task.id,
         type: "workpad_reply_acknowledged",
-        actor: message.user,
-        slackThreadTs: message.ts,
+        actor: reply.user,
+        slackThreadTs: reply.ts,
       });
     } catch (error) {
       logger.error(error);
@@ -519,6 +538,14 @@ interface UserThreadReply {
   ts: string;
   user: string;
   text: string;
+  files: SlackImageFile[];
+}
+
+interface SlackImageFile {
+  name: string;
+  mimetype: string;
+  url_private: string;
+  url_private_download?: string;
 }
 
 async function addCopiedReplyReaction(
@@ -576,21 +603,48 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isUserThreadReply(message: unknown): message is UserThreadReply {
-  if (!message || typeof message !== "object") return false;
+function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
+  if (!message || typeof message !== "object") return undefined;
 
   const event = message as Record<string, unknown>;
+  const files = Array.isArray(event.files) ? event.files.filter(isSlackImageFile) : [];
+  const isSupportedSubtype =
+    event.subtype === undefined ||
+    event.subtype === "thread_broadcast" ||
+    event.subtype === "file_share";
+  if (
+    typeof event.channel !== "string" ||
+    typeof event.thread_ts !== "string" ||
+    typeof event.ts !== "string" ||
+    typeof event.user !== "string" ||
+    typeof event.text !== "string" ||
+    (event.text.trim().length === 0 && files.length === 0) ||
+    !isSupportedSubtype ||
+    event.bot_id !== undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    channel: event.channel,
+    thread_ts: event.thread_ts,
+    ts: event.ts,
+    user: event.user,
+    text: event.text,
+    files,
+  };
+}
+
+function isSlackImageFile(file: unknown): file is SlackImageFile {
+  if (!file || typeof file !== "object") return false;
+
+  const value = file as Record<string, unknown>;
   return (
-    typeof event.channel === "string" &&
-    typeof event.thread_ts === "string" &&
-    typeof event.ts === "string" &&
-    typeof event.user === "string" &&
-    typeof event.text === "string" &&
-    event.text.trim().length > 0 &&
-    (event.subtype === undefined ||
-      event.subtype === "thread_broadcast" ||
-      event.subtype === "file_share") &&
-    event.bot_id === undefined
+    typeof value.name === "string" &&
+    typeof value.mimetype === "string" &&
+    value.mimetype.startsWith("image/") &&
+    typeof value.url_private === "string" &&
+    (value.url_private_download === undefined || typeof value.url_private_download === "string")
   );
 }
 

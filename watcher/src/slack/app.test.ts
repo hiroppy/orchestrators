@@ -10,6 +10,7 @@ import {
   handleThreadReply,
   publishWatcherStarted,
   publishWatcherEvent,
+  type SlackThreadReply,
 } from "./app.ts";
 import { WatcherStore } from "../persistence/store.ts";
 
@@ -622,7 +623,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("copies user thread and file-share replies once when Slack redelivers an event", async () => {
+  it("copies text, image-with-text, and image-only replies once", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       await publishWatcherEvent(fakeClient(calls), store, "C123", {
@@ -631,7 +632,7 @@ describe("Slack app behavior", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      const replies: Array<{ issueIdentifier: string; body: string }> = [];
+      const replies: Array<{ issueIdentifier: string; reply: SlackThreadReply }> = [];
       const reactions: Array<Record<string, unknown>> = [];
       const args = {
         message: {
@@ -645,8 +646,8 @@ describe("Slack app behavior", () => {
         client: reactionClient(reactions),
         logger: { error: (error: unknown) => assert.fail(String(error)) },
       };
-      const reply = async (task: { issueIdentifier: string }, body: string) => {
-        replies.push({ issueIdentifier: task.issueIdentifier, body });
+      const reply = async (task: { issueIdentifier: string }, reply: SlackThreadReply) => {
+        replies.push({ issueIdentifier: task.issueIdentifier, reply });
         return true;
       };
 
@@ -662,6 +663,39 @@ describe("Slack app behavior", () => {
             ts: "3.000",
             text: "Screenshot attached.",
             subtype: "file_share",
+            files: [
+              {
+                name: "first screenshot.png",
+                mimetype: "image/png",
+                url_private: "https://files.slack.com/files-pri/first",
+                url_private_download: "https://files.slack.com/files-pri/first/download",
+              },
+              {
+                name: "second screenshot.jpg",
+                mimetype: "image/jpeg",
+                url_private: "https://files.slack.com/files-pri/second",
+              },
+            ],
+          },
+        },
+        store,
+        reply,
+      );
+      await handleThreadReply(
+        {
+          ...args,
+          message: {
+            ...args.message,
+            ts: "4.000",
+            text: "",
+            subtype: "file_share",
+            files: [
+              {
+                name: "image only.gif",
+                mimetype: "image/gif",
+                url_private: "https://files.slack.com/files-pri/image-only",
+              },
+            ],
           },
         },
         store,
@@ -671,19 +705,50 @@ describe("Slack app behavior", () => {
       assert.deepEqual(replies, [
         {
           issueIdentifier: "ENG-62",
-          body: "Please cover the retry path.",
+          reply: {
+            text: "Please cover the retry path.",
+            images: [],
+          },
         },
         {
           issueIdentifier: "ENG-62",
-          body: "Screenshot attached.",
+          reply: {
+            text: "Screenshot attached.",
+            images: [
+              {
+                filename: "first screenshot.png",
+                contentType: "image/png",
+                downloadUrl: "https://files.slack.com/files-pri/first/download",
+              },
+              {
+                filename: "second screenshot.jpg",
+                contentType: "image/jpeg",
+                downloadUrl: "https://files.slack.com/files-pri/second",
+              },
+            ],
+          },
+        },
+        {
+          issueIdentifier: "ENG-62",
+          reply: {
+            text: "",
+            images: [
+              {
+                filename: "image only.gif",
+                contentType: "image/gif",
+                downloadUrl: "https://files.slack.com/files-pri/image-only",
+              },
+            ],
+          },
         },
       ]);
       assert.deepEqual(reactions, [
         { channel: "C123", name: "white_check_mark", timestamp: "2.000" },
         { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
+        { channel: "C123", name: "white_check_mark", timestamp: "4.000" },
       ]);
-      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 2);
-      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 2);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 3);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 3);
     });
   });
 
@@ -702,10 +767,10 @@ describe("Slack app behavior", () => {
       });
       let firstPending = true;
       const replies: string[] = [];
-      const reply = async (_task: unknown, body: string) => {
-        if (body === "second") assert.equal(firstPending, false);
-        replies.push(body);
-        if (body === "first") await firstReply;
+      const reply = async (_task: unknown, reply: { text: string }) => {
+        if (reply.text === "second") assert.equal(firstPending, false);
+        replies.push(reply.text);
+        if (reply.text === "first") await firstReply;
         return true;
       };
       const args = (ts: string, text: string) => ({
@@ -743,6 +808,21 @@ describe("Slack app behavior", () => {
       });
       const messages = [
         { channel: "C123", thread_ts: "1.000", ts: "2.000", user: "U123", text: " " },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "2.500",
+          user: "U123",
+          text: "",
+          subtype: "file_share",
+          files: [
+            {
+              name: "notes.pdf",
+              mimetype: "application/pdf",
+              url_private: "https://files.slack.com/files-pri/notes",
+            },
+          ],
+        },
         {
           channel: "C123",
           thread_ts: "1.000",

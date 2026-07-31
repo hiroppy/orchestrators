@@ -17,6 +17,7 @@ import {
   fetchLinearWorkflowStates,
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
+import { downloadSlackFile } from "../integrations/slack.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
@@ -70,10 +71,15 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
             });
           },
-          createLinearWorkpadReply: async (task, body, idempotencyKey) =>
-            createLinearWorkpadReply(task.issueIdentifier, body, {
+          createLinearWorkpadReply: async (task, reply, idempotencyKey) =>
+            createLinearWorkpadReply(task.issueIdentifier, reply.text, {
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
               idempotencyKey,
+              images: reply.images.map((image) => ({
+                filename: image.filename,
+                contentType: image.contentType,
+                loadData: () => downloadSlackFile(image.downloadUrl, slackConfig.botToken),
+              })),
             }),
           store,
         })

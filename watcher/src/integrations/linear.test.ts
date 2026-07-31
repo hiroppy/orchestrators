@@ -84,8 +84,159 @@ describe("createLinearWorkpadReply", () => {
     );
   });
 
+  it("uploads every image and embeds it with the reply text", async (context) => {
+    const uploads: Array<{
+      url: string;
+      contentType: string | null;
+      cacheControl: string | null;
+      body: number[];
+    }> = [];
+    let commentBody: string | undefined;
+    context.mock.method(globalThis, "fetch", async (url, options) => {
+      if (String(url).startsWith("https://uploads.example/")) {
+        uploads.push({
+          url: String(url),
+          contentType: new Headers(options?.headers).get("Content-Type"),
+          cacheControl: new Headers(options?.headers).get("Cache-Control"),
+          body: [...new Uint8Array(options?.body as ArrayBuffer)],
+        });
+        return new Response(null, { status: 200 });
+      }
+
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("FileUpload")) {
+        const filename = String(request.variables.filename);
+        return Response.json({
+          data: {
+            fileUpload: {
+              success: true,
+              uploadFile: {
+                uploadUrl: `https://uploads.example/${encodeURIComponent(filename)}`,
+                assetUrl: `https://uploads.linear.app/${encodeURIComponent(filename)}`,
+                headers: [{ key: "x-upload-token", value: filename }],
+              },
+            },
+          },
+        });
+      }
+
+      commentBody = request.variables.body;
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "See both screenshots.", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      images: [
+        {
+          filename: "first.png",
+          contentType: "image/png",
+          loadData: async () => new Uint8Array([1, 2]).buffer,
+        },
+        {
+          filename: "second].jpg",
+          contentType: "image/jpeg",
+          loadData: async () => new Uint8Array([3, 4, 5]).buffer,
+        },
+      ],
+    });
+
+    assert.equal(created, true);
+    assert.equal(
+      commentBody,
+      [
+        "See both screenshots.",
+        "![first.png](https://uploads.linear.app/first.png)",
+        "![second\\].jpg](https://uploads.linear.app/second%5D.jpg)",
+      ].join("\n\n"),
+    );
+    assert.deepEqual(uploads, [
+      {
+        url: "https://uploads.example/first.png",
+        contentType: "image/png",
+        cacheControl: "public, max-age=31536000",
+        body: [1, 2],
+      },
+      {
+        url: "https://uploads.example/second%5D.jpg",
+        contentType: "image/jpeg",
+        cacheControl: "public, max-age=31536000",
+        body: [3, 4, 5],
+      },
+    ]);
+  });
+
+  it("does not create a reply when a Linear image upload fails", async (context) => {
+    let commentCreateCount = 0;
+    context.mock.method(globalThis, "fetch", async (url, options) => {
+      if (String(url) === "https://uploads.example/failure") {
+        return new Response(null, { status: 500 });
+      }
+
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("FileUpload")) {
+        return Response.json({
+          data: {
+            fileUpload: {
+              success: true,
+              uploadFile: {
+                uploadUrl: "https://uploads.example/failure",
+                assetUrl: "https://uploads.linear.app/failure",
+                headers: [],
+              },
+            },
+          },
+        });
+      }
+
+      commentCreateCount += 1;
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    await assert.rejects(
+      createLinearWorkpadReply("ENG-62", "", {
+        apiKey: "lin_test",
+        idempotencyKey: "C123:2.000",
+        images: [
+          {
+            filename: "failure.png",
+            contentType: "image/png",
+            loadData: async () => new Uint8Array([1]).buffer,
+          },
+        ],
+      }),
+      /HTTP 500/,
+    );
+    assert.equal(commentCreateCount, 0);
+  });
+
   it("does not create a comment when the issue has no active Workpad", async (context) => {
     let requestCount = 0;
+    let imageLoadCount = 0;
     context.mock.method(globalThis, "fetch", async () => {
       requestCount += 1;
       return Response.json({
@@ -106,10 +257,21 @@ describe("createLinearWorkpadReply", () => {
     const created = await createLinearWorkpadReply("ENG-62", "No destination", {
       apiKey: "lin_test",
       idempotencyKey: "C123:2.000",
+      images: [
+        {
+          filename: "ignored.png",
+          contentType: "image/png",
+          loadData: async () => {
+            imageLoadCount += 1;
+            return new ArrayBuffer();
+          },
+        },
+      ],
     });
 
     assert.equal(created, false);
     assert.equal(requestCount, 1);
+    assert.equal(imageLoadCount, 0);
   });
 
   it("retries transient Linear failures", async (context) => {

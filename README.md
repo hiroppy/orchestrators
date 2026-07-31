@@ -73,6 +73,8 @@ used by the watcher:
 - `chat:write` — post and update task messages
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
+- `files:read` — download images attached to task thread replies for copying to
+  Linear
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
 
