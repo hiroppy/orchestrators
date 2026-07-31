@@ -73,8 +73,14 @@ used by the watcher:
 - `chat:write` — post and update task messages
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
+- `files:read` — download images attached to task thread replies for copying to
+  Linear
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
+
+After adding or updating `files:read` for an existing Slack app, reinstall the
+app to the workspace and replace the configured bot token if Slack issues a new
+one. Existing installations do not gain newly declared scopes automatically.
 
 The manifest cannot issue an app-level token. In **Basic Information →
 App-Level Tokens**, choose **Generate Token and Scopes**, add
