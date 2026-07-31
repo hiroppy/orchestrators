@@ -667,12 +667,14 @@ describe("Slack app behavior", () => {
               {
                 name: "first screenshot.png",
                 mimetype: "image/png",
+                size: 2,
                 url_private: "https://files.slack.com/files-pri/first",
                 url_private_download: "https://files.slack.com/files-pri/first/download",
               },
               {
                 name: "second screenshot.jpg",
                 mimetype: "image/jpeg",
+                size: 3,
                 url_private: "https://files.slack.com/files-pri/second",
               },
             ],
@@ -693,6 +695,7 @@ describe("Slack app behavior", () => {
               {
                 name: "image only.gif",
                 mimetype: "image/gif",
+                size: 4,
                 url_private: "https://files.slack.com/files-pri/image-only",
               },
             ],
@@ -719,11 +722,13 @@ describe("Slack app behavior", () => {
                 filename: "first screenshot.png",
                 contentType: "image/png",
                 downloadUrl: "https://files.slack.com/files-pri/first/download",
+                size: 2,
               },
               {
                 filename: "second screenshot.jpg",
                 contentType: "image/jpeg",
                 downloadUrl: "https://files.slack.com/files-pri/second",
+                size: 3,
               },
             ],
           },
@@ -737,6 +742,7 @@ describe("Slack app behavior", () => {
                 filename: "image only.gif",
                 contentType: "image/gif",
                 downloadUrl: "https://files.slack.com/files-pri/image-only",
+                size: 4,
               },
             ],
           },
@@ -819,6 +825,7 @@ describe("Slack app behavior", () => {
             {
               name: "notes.pdf",
               mimetype: "application/pdf",
+              size: 10,
               url_private: "https://files.slack.com/files-pri/notes",
             },
           ],

@@ -78,6 +78,10 @@ used by the watcher:
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
 
+After adding or updating `files:read` for an existing Slack app, reinstall the
+app to the workspace and replace the configured bot token if Slack issues a new
+one. Existing installations do not gain newly declared scopes automatically.
+
 The manifest cannot issue an app-level token. In **Basic Information →
 App-Level Tokens**, choose **Generate Token and Scopes**, add
 `connections:write`, and copy the resulting `xapp-...` token to

@@ -30,6 +30,7 @@ interface SlackReplyImage {
   filename: string;
   contentType: string;
   downloadUrl: string;
+  size: number;
 }
 
 export interface SlackThreadReply {
@@ -100,6 +101,7 @@ export async function handleThreadReply(
               filename: file.name,
               contentType: file.mimetype,
               downloadUrl: file.url_private_download ?? file.url_private,
+              size: file.size,
             })),
           },
           `${reply.channel}:${reply.ts}`,
@@ -544,6 +546,7 @@ interface UserThreadReply {
 interface SlackImageFile {
   name: string;
   mimetype: string;
+  size: number;
   url_private: string;
   url_private_download?: string;
 }
@@ -643,6 +646,9 @@ function isSlackImageFile(file: unknown): file is SlackImageFile {
     typeof value.name === "string" &&
     typeof value.mimetype === "string" &&
     value.mimetype.startsWith("image/") &&
+    typeof value.size === "number" &&
+    Number.isSafeInteger(value.size) &&
+    value.size >= 0 &&
     typeof value.url_private === "string" &&
     (value.url_private_download === undefined || typeof value.url_private_download === "string")
   );

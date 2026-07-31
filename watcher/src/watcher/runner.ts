@@ -78,7 +78,10 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               images: reply.images.map((image) => ({
                 filename: image.filename,
                 contentType: image.contentType,
-                loadData: () => downloadSlackFile(image.downloadUrl, slackConfig.botToken),
+                loadData: () =>
+                  downloadSlackFile(image.downloadUrl, slackConfig.botToken, {
+                    expectedSize: image.size,
+                  }),
               })),
             }),
           store,

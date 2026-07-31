@@ -116,6 +116,9 @@ describe("createLinearWorkpadReply", () => {
           },
         });
       }
+      if (request.query.includes("CommentById")) {
+        return Response.json({ data: { comments: { nodes: [] } } });
+      }
       if (request.query.includes("FileUpload")) {
         const filename = String(request.variables.filename);
         return Response.json({
@@ -148,7 +151,13 @@ describe("createLinearWorkpadReply", () => {
         {
           filename: "second].jpg",
           contentType: "image/jpeg",
-          loadData: async () => new Uint8Array([3, 4, 5]).buffer,
+          loadData: async () => {
+            assert.deepEqual(
+              uploads.map(({ url }) => url),
+              ["https://uploads.example/first.png"],
+            );
+            return new Uint8Array([3, 4, 5]).buffer;
+          },
         },
       ],
     });
@@ -180,8 +189,10 @@ describe("createLinearWorkpadReply", () => {
 
   it("does not create a reply when a Linear image upload fails", async (context) => {
     let commentCreateCount = 0;
+    let uploadAttemptCount = 0;
     context.mock.method(globalThis, "fetch", async (url, options) => {
       if (String(url) === "https://uploads.example/failure") {
+        uploadAttemptCount += 1;
         return new Response(null, { status: 500 });
       }
 
@@ -197,6 +208,9 @@ describe("createLinearWorkpadReply", () => {
             },
           },
         });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({ data: { comments: { nodes: [] } } });
       }
       if (request.query.includes("FileUpload")) {
         return Response.json({
@@ -228,10 +242,72 @@ describe("createLinearWorkpadReply", () => {
             loadData: async () => new Uint8Array([1]).buffer,
           },
         ],
+        retryDelayMs: 0,
       }),
       /HTTP 500/,
     );
+    assert.equal(uploadAttemptCount, 3);
     assert.equal(commentCreateCount, 0);
+  });
+
+  it("retries transient Linear file upload failures", async (context) => {
+    let uploadAttemptCount = 0;
+    context.mock.method(globalThis, "fetch", async (url, options) => {
+      if (String(url) === "https://uploads.example/retry") {
+        uploadAttemptCount += 1;
+        return uploadAttemptCount === 1
+          ? new Response(null, { status: 503 })
+          : new Response(null, { status: 200 });
+      }
+
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({ data: { comments: { nodes: [] } } });
+      }
+      if (request.query.includes("FileUpload")) {
+        return Response.json({
+          data: {
+            fileUpload: {
+              success: true,
+              uploadFile: {
+                uploadUrl: "https://uploads.example/retry",
+                assetUrl: "https://uploads.linear.app/retry",
+                headers: [],
+              },
+            },
+          },
+        });
+      }
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      images: [
+        {
+          filename: "retry.png",
+          contentType: "image/png",
+          loadData: async () => new Uint8Array([1]).buffer,
+        },
+      ],
+      retryDelayMs: 0,
+    });
+
+    assert.equal(created, true);
+    assert.equal(uploadAttemptCount, 2);
   });
 
   it("does not create a comment when the issue has no active Workpad", async (context) => {
@@ -427,6 +503,49 @@ describe("createLinearWorkpadReply", () => {
 
     assert.equal(created, true);
     assert.equal(mutationCount, 1);
+  });
+
+  it("reconciles an existing image reply before loading another copy", async (context) => {
+    let imageLoadCount = 0;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      if (request.query.includes("CommentById")) {
+        return Response.json({
+          data: { comments: { nodes: [{ id: request.variables.id }] } },
+        });
+      }
+      assert.fail("No upload or comment mutation should run after reconciliation.");
+    });
+
+    const created = await createLinearWorkpadReply("ENG-62", "", {
+      apiKey: "lin_test",
+      idempotencyKey: "C123:2.000",
+      images: [
+        {
+          filename: "already-copied.png",
+          contentType: "image/png",
+          loadData: async () => {
+            imageLoadCount += 1;
+            return new Uint8Array([1]).buffer;
+          },
+        },
+      ],
+    });
+
+    assert.equal(created, true);
+    assert.equal(imageLoadCount, 0);
   });
 
   it("retries when an interrupted mutation did not create the comment", async (context) => {
