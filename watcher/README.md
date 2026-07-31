@@ -156,10 +156,11 @@ destination channel. It does not require `watcher/config.ts` or
   enters one of its configured statuses.
 - A user's text and attached images in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
-  Image-only replies are supported. Bot messages, edited/deleted message
-  events, unrelated threads, and issues without an active Workpad are ignored.
-  Images are transferred sequentially and limited to 25 MiB each. A
-  successfully copied Slack reply receives a `white_check_mark` reaction.
+  PNG, JPEG, GIF, and WebP image-only replies are supported. Bot messages,
+  edited/deleted message events, unrelated threads, and issues without an
+  active Workpad are ignored. Images are transferred sequentially and limited
+  to 25 MiB each. A successfully copied Slack reply receives a
+  `white_check_mark` reaction.
 - The Symphony snapshot diff emits task events when an issue first appears,
   changes its reported state, enters retrying or blocked, or disappears.
   Changes only to activity text, timestamps, or counters do not emit an event.

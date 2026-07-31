@@ -189,6 +189,7 @@ describe("createLinearWorkpadReply", () => {
 
   it("does not create a reply when a Linear image upload fails", async (context) => {
     let commentCreateCount = 0;
+    let fileUploadRequestCount = 0;
     let uploadAttemptCount = 0;
     context.mock.method(globalThis, "fetch", async (url, options) => {
       if (String(url) === "https://uploads.example/failure") {
@@ -213,6 +214,7 @@ describe("createLinearWorkpadReply", () => {
         return Response.json({ data: { comments: { nodes: [] } } });
       }
       if (request.query.includes("FileUpload")) {
+        fileUploadRequestCount += 1;
         return Response.json({
           data: {
             fileUpload: {
@@ -246,14 +248,17 @@ describe("createLinearWorkpadReply", () => {
       }),
       /HTTP 500/,
     );
+    assert.equal(fileUploadRequestCount, 3);
     assert.equal(uploadAttemptCount, 3);
     assert.equal(commentCreateCount, 0);
   });
 
   it("retries transient Linear file upload failures", async (context) => {
+    let commentBody: string | undefined;
+    let fileUploadRequestCount = 0;
     let uploadAttemptCount = 0;
     context.mock.method(globalThis, "fetch", async (url, options) => {
-      if (String(url) === "https://uploads.example/retry") {
+      if (String(url).startsWith("https://uploads.example/retry-")) {
         uploadAttemptCount += 1;
         return uploadAttemptCount === 1
           ? new Response(null, { status: 503 })
@@ -277,19 +282,21 @@ describe("createLinearWorkpadReply", () => {
         return Response.json({ data: { comments: { nodes: [] } } });
       }
       if (request.query.includes("FileUpload")) {
+        fileUploadRequestCount += 1;
         return Response.json({
           data: {
             fileUpload: {
               success: true,
               uploadFile: {
-                uploadUrl: "https://uploads.example/retry",
-                assetUrl: "https://uploads.linear.app/retry",
+                uploadUrl: `https://uploads.example/retry-${fileUploadRequestCount}`,
+                assetUrl: `https://uploads.linear.app/retry-${fileUploadRequestCount}`,
                 headers: [],
               },
             },
           },
         });
       }
+      commentBody = request.variables.body;
       return Response.json({ data: { commentCreate: { success: true } } });
     });
 
@@ -307,6 +314,8 @@ describe("createLinearWorkpadReply", () => {
     });
 
     assert.equal(created, true);
+    assert.equal(commentBody, "![retry.png](https://uploads.linear.app/retry-2)");
+    assert.equal(fileUploadRequestCount, 2);
     assert.equal(uploadAttemptCount, 2);
   });
 

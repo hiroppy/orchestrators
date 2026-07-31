@@ -354,6 +354,47 @@ async function uploadReplyImage(
   options: WorkpadRequestOptions,
 ): Promise<string> {
   const data = await image.loadData();
+  let lastTransferError: Error | undefined;
+  for (let attempt = 1; ; attempt += 1) {
+    const upload = await requestLinearFileUpload(image, data.byteLength, options);
+    const headers = new Headers({
+      "Cache-Control": "public, max-age=31536000",
+      "Content-Type": image.contentType,
+    });
+    for (const header of upload.headers) headers.set(header.key, header.value);
+
+    try {
+      const response = await fetch(upload.uploadUrl, {
+        method: "PUT",
+        headers,
+        body: data,
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+      if (response.ok) {
+        return `![${escapeMarkdownLabel(image.filename)}](${upload.assetUrl})`;
+      }
+
+      lastTransferError = new Error(`Linear file upload returned HTTP ${response.status}.`);
+      if (!shouldRetryResponse(response.status)) throw lastTransferError;
+    } catch (error) {
+      if (!isTransientLinearError(error)) throw error;
+      lastTransferError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (attempt >= options.maxAttempts) throw lastTransferError;
+    await sleep(options.retryDelayMs);
+  }
+}
+
+async function requestLinearFileUpload(
+  image: LinearReplyImage,
+  size: number,
+  options: WorkpadRequestOptions,
+): Promise<{
+  uploadUrl: string;
+  assetUrl: string;
+  headers: Array<{ key: string; value: string }>;
+}> {
   const result = await retryLinearRequest(
     () =>
       linearRequest<{
@@ -371,7 +412,7 @@ async function uploadReplyImage(
         {
           filename: image.filename,
           contentType: image.contentType,
-          size: data.byteLength,
+          size,
         },
         options.timeoutMs,
       ),
@@ -381,43 +422,7 @@ async function uploadReplyImage(
   if (!result.fileUpload?.success || !upload) {
     throw new Error(`Linear rejected file upload for ${image.filename}.`);
   }
-
-  const headers = new Headers({
-    "Cache-Control": "public, max-age=31536000",
-    "Content-Type": image.contentType,
-  });
-  for (const header of upload.headers) headers.set(header.key, header.value);
-  await putLinearFile(upload.uploadUrl, headers, data, options);
-
-  return `![${escapeMarkdownLabel(image.filename)}](${upload.assetUrl})`;
-}
-
-async function putLinearFile(
-  uploadUrl: string,
-  headers: Headers,
-  data: ArrayBuffer,
-  options: WorkpadRequestOptions,
-): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      const response = await fetch(uploadUrl, {
-        method: "PUT",
-        headers,
-        body: data,
-        signal: AbortSignal.timeout(options.timeoutMs),
-      });
-      if (!response.ok) {
-        throw new LinearHttpError(
-          `Linear file upload returned HTTP ${response.status}.`,
-          shouldRetryResponse(response.status),
-        );
-      }
-      return;
-    } catch (error) {
-      if (attempt >= options.maxAttempts || !isTransientLinearError(error)) throw error;
-      await sleep(options.retryDelayMs);
-    }
-  }
+  return upload;
 }
 
 function escapeMarkdownLabel(value: string): string {

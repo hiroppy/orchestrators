@@ -45,6 +45,12 @@ export type LinearWorkpadReplier = (
 ) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
 const threadReplyQueues = new Map<string, Promise<void>>();
+const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 export interface SlackAppOptions {
   botToken: string;
@@ -645,7 +651,7 @@ function isSlackImageFile(file: unknown): file is SlackImageFile {
   return (
     typeof value.name === "string" &&
     typeof value.mimetype === "string" &&
-    value.mimetype.startsWith("image/") &&
+    SUPPORTED_IMAGE_CONTENT_TYPES.has(value.mimetype) &&
     typeof value.size === "number" &&
     Number.isSafeInteger(value.size) &&
     value.size >= 0 &&

@@ -833,6 +833,22 @@ describe("Slack app behavior", () => {
         {
           channel: "C123",
           thread_ts: "1.000",
+          ts: "2.750",
+          user: "U123",
+          text: "",
+          subtype: "file_share",
+          files: [
+            {
+              name: "script.svg",
+              mimetype: "image/svg+xml",
+              size: 100,
+              url_private: "https://files.slack.com/files-pri/script",
+            },
+          ],
+        },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
           ts: "3.000",
           user: "U123",
           text: "edited",
