@@ -464,6 +464,14 @@ describe("runOnce", () => {
       store.syncDefinitions(config.services, config.linearTeams);
       const calls: Array<Record<string, unknown>> = [];
       const statusUpdates: string[] = [];
+      let rejectLimitNotification = true;
+      const slackClient = fakeSlackClient(calls, (args) => {
+        if (rejectLimitNotification && String(args.text).includes("review requeue limit reached")) {
+          rejectLimitNotification = false;
+          return true;
+        }
+        return false;
+      });
       const run = async (snapshotStatus: string) => {
         config.services[0].url = dataUrl({
           running: [
@@ -479,7 +487,7 @@ describe("runOnce", () => {
         await runOnce({
           config,
           store,
-          slackClient: fakeSlackClient(calls),
+          slackClient,
           slackChannelId: "C123",
           findPullRequest: async (_event, options) => ({
             url: "https://github.com/acme/example/pull/42",
@@ -515,8 +523,26 @@ describe("runOnce", () => {
 
       await run("In Progress");
       linearState = "In Review";
-      await run("In Review");
+      await assert.rejects(() => run("In Review"), /Simulated Slack failure/);
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
+
+      await run("In Review");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        0,
+      );
       assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
@@ -821,7 +847,10 @@ function runtimeConfig<T extends object>(config: T) {
   };
 }
 
-function fakeSlackClient(calls: Array<Record<string, unknown>>) {
+function fakeSlackClient(
+  calls: Array<Record<string, unknown>>,
+  rejectPostMessage?: (args: Record<string, unknown>) => boolean,
+) {
   let timestamp = 0;
   return {
     chat: {
@@ -836,6 +865,7 @@ function fakeSlackClient(calls: Array<Record<string, unknown>>) {
         };
       },
       async postMessage(args: Record<string, unknown>) {
+        if (rejectPostMessage?.(args)) throw new Error("Simulated Slack failure");
         timestamp += 1;
         calls.push({ method: "postMessage", ...args });
         return { ok: true, channel: String(args.channel), ts: `${timestamp}.000` };

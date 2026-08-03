@@ -188,6 +188,22 @@ describe("WatcherStore", () => {
         ),
         1,
       );
+
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "review_requeue_limit_reached",
+      });
+      store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeued",
+          "review_requeue_limit_reached",
+        ),
+        2,
+      );
     });
   });
 });
