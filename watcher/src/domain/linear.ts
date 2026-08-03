@@ -1,4 +1,4 @@
-export const TERMINAL_LINEAR_STATE_TYPES = ["completed", "canceled", "duplicate"] as const;
+const TERMINAL_LINEAR_STATE_TYPES = ["completed", "canceled", "duplicate"] as const;
 
 export function isTerminalLinearStateType(stateType?: string | null): boolean {
   const normalized = stateType?.trim().toLowerCase();
