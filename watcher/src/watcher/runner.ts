@@ -352,14 +352,14 @@ async function processWatcherEvent({
     review.inProgressStatus,
   );
   const auditBody = reviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
-  store.addEvent({
+  const requeueEvent = {
     taskId: task.id,
     type: REVIEW_REQUEUE_EVENT,
     actor: "watcher",
     fromStatus,
     toStatus: requeuedTask.status,
     body: auditBody,
-  });
+  };
 
   if (reviewDecision.reachesLimit) {
     const limitMessage = reviewRequeueLimitMessage(
@@ -368,18 +368,22 @@ async function processWatcherEvent({
       fromStatus,
       requeuedTask.status,
     );
-    store.addEvent({
-      taskId: task.id,
-      type: REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
-      actor: "watcher",
-      fromStatus,
-      toStatus: requeuedTask.status,
-      body: limitMessage,
-    });
+    store.addEvents([
+      requeueEvent,
+      {
+        taskId: task.id,
+        type: REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+        actor: "watcher",
+        fromStatus,
+        toStatus: requeuedTask.status,
+        body: limitMessage,
+      },
+    ]);
     await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
     return;
   }
 
+  store.addEvent(requeueEvent);
   const card = buildTaskCard(requeuedTask, store.getSelectableStatuses(requeuedTask.serviceName), {
     ...event,
     state: fromStatus,
@@ -416,11 +420,13 @@ async function deliverPendingReviewLimitNotifications(
 
     const notified = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT);
     if (!notified || notified.id < pending.id) {
-      await slackClient.chat.postMessage({
+      const message = {
         channel: task.parentChannelId,
         thread_ts: task.parentMessageTs,
         text: pending.body,
-      });
+        client_msg_id: slackClientMessageId(pending.id),
+      };
+      await slackClient.chat.postMessage(message);
       store.addEvent({
         taskId: task.id,
         type: REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
@@ -454,6 +460,11 @@ async function deliverPendingReviewLimitNotifications(
       body: pending.body,
     });
   }
+}
+
+function slackClientMessageId(eventId: number): string {
+  const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4000-8000-${suffix}`;
 }
 
 interface ReviewReactionDecision {

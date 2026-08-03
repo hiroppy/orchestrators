@@ -475,6 +475,7 @@ describe("runOnce", () => {
       const statusUpdates: string[] = [];
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
+      let rejectedClientMessageId: unknown;
       const slackClient = fakeSlackClient(
         calls,
         (args) => {
@@ -484,6 +485,7 @@ describe("runOnce", () => {
           ) {
             rejectLimitNotification = false;
             rejectLimitCardUpdate = true;
+            rejectedClientMessageId = args.client_msg_id;
             return true;
           }
           return false;
@@ -574,6 +576,11 @@ describe("runOnce", () => {
         calls.filter(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
           .length,
         1,
+      );
+      assert.equal(
+        calls.find(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
+          ?.client_msg_id,
+        rejectedClientMessageId,
       );
 
       await run("In Review");

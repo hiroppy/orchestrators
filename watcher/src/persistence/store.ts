@@ -15,6 +15,16 @@ import type {
 } from "../domain/types.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
+type TaskEventInput = {
+  taskId: string;
+  type: string;
+  actor?: string;
+  fromStatus?: string;
+  toStatus?: string;
+  body?: string;
+  slackThreadTs?: string;
+  createdAt?: Date;
+};
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
@@ -395,54 +405,12 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
-  addEvent(event: {
-    taskId: string;
-    type: string;
-    actor?: string;
-    fromStatus?: string;
-    toStatus?: string;
-    body?: string;
-    slackThreadTs?: string;
-    createdAt?: Date;
-  }): TaskEvent {
-    const timestamp = (event.createdAt ?? new Date()).toISOString();
-    const task = this.db
-      .select({ serviceId: tasks.serviceId })
-      .from(tasks)
-      .where(eq(tasks.id, event.taskId))
-      .get();
-    if (!task) throw new Error(`Task not found: ${event.taskId}`);
-    const fromStatusId = event.fromStatus
-      ? ensureStatus(this.db, task.serviceId, event.fromStatus, timestamp)
-      : undefined;
-    const toStatusId = event.toStatus
-      ? ensureStatus(this.db, task.serviceId, event.toStatus, timestamp)
-      : undefined;
-    const result = this.db
-      .insert(taskEvents)
-      .values({
-        taskId: event.taskId,
-        type: event.type,
-        actor: event.actor,
-        fromStatusId,
-        toStatusId,
-        body: event.body,
-        slackThreadTs: event.slackThreadTs,
-        createdAt: timestamp,
-      })
-      .run();
+  addEvent(event: TaskEventInput): TaskEvent {
+    return insertTaskEvent(this.db, event);
+  }
 
-    return {
-      id: Number(result.lastInsertRowid),
-      taskId: event.taskId,
-      type: event.type,
-      actor: event.actor,
-      fromStatus: event.fromStatus,
-      toStatus: event.toStatus,
-      body: event.body,
-      slackThreadTs: event.slackThreadTs,
-      createdAt: timestamp,
-    };
+  addEvents(events: TaskEventInput[]): TaskEvent[] {
+    return this.db.transaction((tx) => events.map((event) => insertTaskEvent(tx, event)));
   }
 
   hasRecordedPullRequest(taskId: string, url: string): boolean {
@@ -570,6 +538,47 @@ function ensureStatus(
     .from(statuses)
     .where(and(eq(statuses.serviceId, serviceId), eq(statuses.name, name)))
     .get()!.id;
+}
+
+function insertTaskEvent(db: WatcherDatabase | Transaction, event: TaskEventInput): TaskEvent {
+  const timestamp = (event.createdAt ?? new Date()).toISOString();
+  const task = db
+    .select({ serviceId: tasks.serviceId })
+    .from(tasks)
+    .where(eq(tasks.id, event.taskId))
+    .get();
+  if (!task) throw new Error(`Task not found: ${event.taskId}`);
+  const fromStatusId = event.fromStatus
+    ? ensureStatus(db, task.serviceId, event.fromStatus, timestamp)
+    : undefined;
+  const toStatusId = event.toStatus
+    ? ensureStatus(db, task.serviceId, event.toStatus, timestamp)
+    : undefined;
+  const result = db
+    .insert(taskEvents)
+    .values({
+      taskId: event.taskId,
+      type: event.type,
+      actor: event.actor,
+      fromStatusId,
+      toStatusId,
+      body: event.body,
+      slackThreadTs: event.slackThreadTs,
+      createdAt: timestamp,
+    })
+    .run();
+
+  return {
+    id: Number(result.lastInsertRowid),
+    taskId: event.taskId,
+    type: event.type,
+    actor: event.actor,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    body: event.body,
+    slackThreadTs: event.slackThreadTs,
+    createdAt: timestamp,
+  };
 }
 
 function taskFromRow(
