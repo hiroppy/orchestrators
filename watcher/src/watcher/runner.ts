@@ -46,6 +46,8 @@ const REVIEW_REQUEUE_EVENT = "review_requeued";
 const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
 const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";
+const REVIEW_REQUEUE_RECONCILE_PENDING_EVENT = "review_requeue_reconcile_pending";
+const REVIEW_REQUEUE_RECONCILED_EVENT = "review_requeue_reconciled";
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
@@ -144,10 +146,16 @@ export async function runOnce({
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
 }: RunOnceOptions) {
-  let completedPendingTaskIds = new Set<string>();
+  let reviewReconciliationTaskIds = new Set<string>();
   if (!dryRun) {
     if (!slackClient) throw new Error("Slack client is required.");
-    completedPendingTaskIds = await deliverPendingReviewLimitNotifications(store, slackClient);
+    await deliverPendingReviewLimitNotifications(store, slackClient);
+    reviewReconciliationTaskIds = new Set(
+      store.getTaskIdsWithIncompleteEvent(
+        REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+        REVIEW_REQUEUE_RECONCILED_EVENT,
+      ),
+    );
   }
 
   const previous = store.getSnapshots();
@@ -212,6 +220,7 @@ export async function runOnce({
         reviewDecision,
         updateLinearStatus,
       });
+      markReviewRequeueReconciled(store, taskIdFor(event.service, event.issueIdentifier));
     }
   }
 
@@ -224,7 +233,7 @@ export async function runOnce({
       slackChannelId,
       skipTaskIds: new Set([
         ...processedTaskIds,
-        ...taskIdsInSnapshots(current).filter((taskId) => !completedPendingTaskIds.has(taskId)),
+        ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
       ]),
       findPullRequestByUrl,
       updateLinearStatus,
@@ -297,6 +306,7 @@ async function reconcileLinearStatuses({
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
       }
+      markReviewRequeueReconciled(store, task.id);
       continue;
     }
 
@@ -309,6 +319,7 @@ async function reconcileLinearStatuses({
       reviewDecision,
       updateLinearStatus,
     });
+    markReviewRequeueReconciled(store, task.id);
   }
 }
 
@@ -383,7 +394,7 @@ async function processWatcherEvent({
         actor: "watcher",
         fromStatus,
         toStatus: requeuedTask.status,
-        body: limitMessage,
+        body: JSON.stringify({ message: limitMessage, event }),
       },
     ]);
     await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
@@ -450,13 +461,14 @@ async function deliverPendingReviewLimitNotification(
   if (!pending.body || !pending.fromStatus || !pending.toStatus) {
     throw new Error(`Invalid pending review requeue limit event for ${task.id}`);
   }
+  const payload = parseReviewRequeuePendingPayload(pending.body);
 
   const notified = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT);
   if (!notified || notified.id < pending.id) {
     const message = {
       channel: task.parentChannelId,
       thread_ts: task.parentMessageTs,
-      text: pending.body,
+      text: payload.message,
       client_msg_id: slackClientMessageId(pending.id),
     };
     await slackClient.chat.postMessage(message);
@@ -466,15 +478,13 @@ async function deliverPendingReviewLimitNotification(
       actor: "watcher",
       fromStatus: pending.fromStatus,
       toStatus: pending.toStatus,
-      body: pending.body,
+      body: payload.message,
     });
   }
 
   const updatedTask = store.getTask(task.id)!;
   const card = buildTaskCard(updatedTask, store.getSelectableStatuses(task.serviceName), {
-    type: "updated",
-    service: task.serviceName,
-    issueIdentifier: task.issueIdentifier,
+    ...payload.event,
     state: pending.fromStatus,
     resolvedState: updatedTask.status,
   });
@@ -484,14 +494,24 @@ async function deliverPendingReviewLimitNotification(
     ...card,
   });
   store.setRenderedSummary(task.id, JSON.stringify(card));
-  store.addEvent({
-    taskId: task.id,
-    type: REVIEW_REQUEUE_LIMIT_EVENT,
-    actor: "watcher",
-    fromStatus: pending.fromStatus,
-    toStatus: pending.toStatus,
-    body: pending.body,
-  });
+  store.addEvents([
+    {
+      taskId: task.id,
+      type: REVIEW_REQUEUE_LIMIT_EVENT,
+      actor: "watcher",
+      fromStatus: pending.fromStatus,
+      toStatus: pending.toStatus,
+      body: payload.message,
+    },
+    {
+      taskId: task.id,
+      type: REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+      actor: "watcher",
+      fromStatus: pending.fromStatus,
+      toStatus: pending.toStatus,
+      body: payload.message,
+    },
+  ]);
   store.setTaskLinearStateType(task.id, undefined);
   return true;
 }
@@ -499,6 +519,30 @@ async function deliverPendingReviewLimitNotification(
 function slackClientMessageId(eventId: number): string {
   const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
   return `00000000-0000-4000-8000-${suffix}`;
+}
+
+function parseReviewRequeuePendingPayload(body: string): {
+  message: string;
+  event: WatcherEvent;
+} {
+  const payload = JSON.parse(body) as { message?: unknown; event?: unknown };
+  if (typeof payload.message !== "string" || typeof payload.event !== "object") {
+    throw new Error("Invalid review requeue pending payload");
+  }
+  return payload as { message: string; event: WatcherEvent };
+}
+
+function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void {
+  if (
+    store.countEventsAfterLatest(
+      taskId,
+      REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+      REVIEW_REQUEUE_RECONCILED_EVENT,
+    ) === 0
+  )
+    return;
+
+  store.addEvent({ taskId, type: REVIEW_REQUEUE_RECONCILED_EVENT, actor: "watcher" });
 }
 
 interface ReviewReactionDecision {
@@ -512,16 +556,6 @@ function decideReviewReaction(
   store: WatcherStore,
   event: WatcherEvent,
 ): ReviewReactionDecision {
-  const review = config.reviewReaction;
-  if (
-    !review ||
-    normalizeStatus(event.resolvedState ?? event.state ?? "") !==
-      normalizeStatus(review.inReviewStatus) ||
-    event.pullRequest?.hasConfiguredReaction !== true
-  ) {
-    return { shouldRequeue: false, reachesLimit: false };
-  }
-
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   if (
     store.countEventsAfterLatest(
@@ -535,6 +569,16 @@ function decideReviewReaction(
       reachesLimit: false,
       hasPendingLimitNotification: true,
     };
+  }
+
+  const review = config.reviewReaction;
+  if (
+    !review ||
+    normalizeStatus(event.resolvedState ?? event.state ?? "") !==
+      normalizeStatus(review.inReviewStatus) ||
+    event.pullRequest?.hasConfiguredReaction !== true
+  ) {
+    return { shouldRequeue: false, reachesLimit: false };
   }
 
   let requeueCount = store.countEventsAfterLatest(

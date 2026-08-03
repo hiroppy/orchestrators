@@ -426,9 +426,15 @@ describe("runOnce", () => {
   it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
+      let failLinearFetchOnce = false;
+      let hasReviewReaction = true;
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        if (failLinearFetchOnce) {
+          failLinearFetchOnce = false;
+          return new Response("temporary failure", { status: 500 });
+        }
         return Response.json({
           data: {
             issue: {
@@ -523,12 +529,12 @@ describe("runOnce", () => {
           findPullRequest: async (_event, options) => ({
             url: "https://github.com/acme/example/pull/42",
             number: 42,
-            hasConfiguredReaction: options.reaction === "👀",
+            hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
           }),
           findPullRequestByUrl: async (url, options) => ({
             url,
             number: 42,
-            hasConfiguredReaction: options.reaction === "👀",
+            hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
           }),
           updateLinearStatus: async (_issue, status) => {
             statusUpdates.push(status);
@@ -572,6 +578,7 @@ describe("runOnce", () => {
 
       config.reviewReaction.maxRequeues = 5;
       linearState = "In Review";
+      hasReviewReaction = false;
       store.setTaskLinearStateType("service-a:ENG-62", "completed");
       await run("In Review");
       assert.match(deliveryErrors.join("\n"), /Simulated Slack card failure/);
@@ -601,7 +608,10 @@ describe("runOnce", () => {
           ?.client_msg_id,
         rejectedClientMessageId,
       );
+      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
+      hasReviewReaction = true;
+      failLinearFetchOnce = true;
       await run("In Review");
       assert.equal(
         store.countEventsAfterLatest(
@@ -611,9 +621,32 @@ describe("runOnce", () => {
         ),
         0,
       );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        1,
+      );
+      assert.equal(statusUpdates.length, 3);
+
+      await run("In Review");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        0,
+      );
       assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
       assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+      assert.match(
+        JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
+        /PR#42/,
+      );
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress", "In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
       assert.equal(

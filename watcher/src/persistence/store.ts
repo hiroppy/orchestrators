@@ -1,8 +1,8 @@
-import { and, asc, count, desc, eq, gt, inArray, ne, notInArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, ne, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
-import { isTerminalLinearStateType } from "../domain/linear.ts";
+import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
   ServiceDefinition,
@@ -267,7 +267,7 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasks(): Task[] {
+  getTasksForLinearSync(): Task[] {
     return this.db
       .select({
         task: tasks,
@@ -279,14 +279,16 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
+      .where(
+        or(
+          isNull(tasks.linearStateType),
+          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+        ),
+      )
       .all()
       .map((row) =>
         taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
       );
-  }
-
-  getTasksForLinearSync(): Task[] {
-    return this.getTasks().filter((task) => !isTerminalLinearStateType(task.linearStateType));
   }
 
   upsertTaskFromEvent(event: WatcherEvent, now = new Date()): Task {
