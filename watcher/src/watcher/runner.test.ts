@@ -462,6 +462,15 @@ describe("runOnce", () => {
         },
       });
       store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      }
       const calls: Array<Record<string, unknown>> = [];
       const statusUpdates: string[] = [];
       let rejectLimitNotification = true;

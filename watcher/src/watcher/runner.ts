@@ -468,11 +468,27 @@ function decideReviewReaction(
     return { shouldRequeue: false, reachesLimit: false };
   }
 
-  const requeueCount = store.countEventsAfterLatest(
-    taskIdFor(event.service, event.issueIdentifier),
+  const taskId = taskIdFor(event.service, event.issueIdentifier);
+  if (
+    store.countEventsAfterLatest(
+      taskId,
+      REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+      REVIEW_REQUEUE_LIMIT_EVENT,
+    ) > 0
+  ) {
+    return { shouldRequeue: false, reachesLimit: false };
+  }
+
+  let requeueCount = store.countEventsAfterLatest(
+    taskId,
     REVIEW_REQUEUE_EVENT,
     REVIEW_REQUEUE_LIMIT_EVENT,
   );
+  const hasRecordedLimit = store.countEvents(taskId, REVIEW_REQUEUE_LIMIT_EVENT) > 0;
+  // Older databases have requeue history but no explicit limit boundaries.
+  if (!hasRecordedLimit && review.maxRequeues > 0) {
+    requeueCount %= review.maxRequeues;
+  }
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
   }
