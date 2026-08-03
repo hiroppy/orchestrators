@@ -423,7 +423,7 @@ describe("runOnce", () => {
     });
   });
 
-  it("posts at the requeue limit, then mentions when the issue next enters In Review", async (context) => {
+  it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
       const nativeFetch = globalThis.fetch;
@@ -523,9 +523,17 @@ describe("runOnce", () => {
       await run("In Progress");
       linearState = "In Review";
       await run("In Review");
-      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
-      assert.match(JSON.stringify(calls), /<@U123>/);
+      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress", "In Progress"]);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeued",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
+      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
     });
   });
 

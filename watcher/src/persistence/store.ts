@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, ne, notInArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, ne, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -478,6 +478,29 @@ export class WatcherStore {
         .select({ value: count() })
         .from(taskEvents)
         .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+        .get()?.value ?? 0
+    );
+  }
+
+  countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {
+    const latestBoundaryId = this.db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, boundaryType)))
+      .orderBy(desc(taskEvents.id))
+      .get()?.id;
+
+    return (
+      this.db
+        .select({ value: count() })
+        .from(taskEvents)
+        .where(
+          and(
+            eq(taskEvents.taskId, taskId),
+            eq(taskEvents.type, type),
+            latestBoundaryId === undefined ? undefined : gt(taskEvents.id, latestBoundaryId),
+          ),
+        )
         .get()?.value ?? 0
     );
   }

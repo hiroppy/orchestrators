@@ -43,6 +43,7 @@ import { enteredTerminalLinearState } from "../domain/linear.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const REVIEW_REQUEUE_EVENT = "review_requeued";
+const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
@@ -354,15 +355,24 @@ async function processWatcherEvent({
   });
 
   if (reviewDecision.reachesLimit) {
+    const limitMessage = reviewRequeueLimitMessage(
+      review.reaction,
+      review.maxRequeues,
+      fromStatus,
+      requeuedTask.status,
+    );
+    store.addEvent({
+      taskId: task.id,
+      type: REVIEW_REQUEUE_LIMIT_EVENT,
+      actor: "watcher",
+      fromStatus,
+      toStatus: requeuedTask.status,
+      body: limitMessage,
+    });
     await slackClient.chat.postMessage({
       channel: requeuedTask.parentChannelId!,
       thread_ts: requeuedTask.parentMessageTs!,
-      text: reviewRequeueLimitMessage(
-        review.reaction,
-        review.maxRequeues,
-        fromStatus,
-        requeuedTask.status,
-      ),
+      text: limitMessage,
     });
   }
 
@@ -399,9 +409,10 @@ function decideReviewReaction(
     return { shouldRequeue: false, reachesLimit: false };
   }
 
-  const requeueCount = store.countEvents(
+  const requeueCount = store.countEventsAfterLatest(
     taskIdFor(event.service, event.issueIdentifier),
     REVIEW_REQUEUE_EVENT,
+    REVIEW_REQUEUE_LIMIT_EVENT,
   );
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
