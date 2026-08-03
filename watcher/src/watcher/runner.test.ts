@@ -429,6 +429,7 @@ describe("runOnce", () => {
       let failLinearFetchOnce = false;
       let hasReviewReaction = true;
       let failReactionLookupOnce = false;
+      let omitLinearPullRequestOnce = false;
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
@@ -436,6 +437,10 @@ describe("runOnce", () => {
           failLinearFetchOnce = false;
           return new Response("temporary failure", { status: 500 });
         }
+        const attachments = omitLinearPullRequestOnce
+          ? { nodes: [] }
+          : { nodes: [{ url: "https://github.com/acme/example/pull/42" }] };
+        omitLinearPullRequestOnce = false;
         return Response.json({
           data: {
             issue: {
@@ -443,9 +448,7 @@ describe("runOnce", () => {
               title: "Review the pull request",
               state: { name: linearState, type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
-              attachments: {
-                nodes: [{ url: "https://github.com/acme/example/pull/42" }],
-              },
+              attachments,
             },
           },
         });
@@ -643,7 +646,8 @@ describe("runOnce", () => {
 
       store.setTaskLinearStateType("service-a:ENG-62", "completed");
       failReactionLookupOnce = true;
-      // Phase 4: a terminal task is retried, but failed reaction lookup stays pending.
+      omitLinearPullRequestOnce = true;
+      // Phase 4: a terminal task reuses its stored PR, but failed reaction lookup stays pending.
       await run("In Progress");
       assert.equal(
         store.countEventsAfterLatest(
@@ -656,7 +660,9 @@ describe("runOnce", () => {
       assert.equal(statusUpdates.length, 3);
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
-      // Phase 5: reconciliation retries and requeues the same In Review cycle.
+      hasReviewReaction = false;
+      store.updateTaskStatus("service-a:ENG-62", "In Review");
+      // Phase 5: authoritative absence of the reaction sends the deferred human mention.
       await run("In Progress");
       assert.equal(
         store.countEventsAfterLatest(
@@ -666,9 +672,24 @@ describe("runOnce", () => {
         ),
         0,
       );
+      assert.equal(statusUpdates.length, 3);
+      assert.match(JSON.stringify(calls), /<@U123>/);
+      const mentionCallCount = calls.filter((call) =>
+        JSON.stringify(call).includes("<@U123>"),
+      ).length;
+
+      hasReviewReaction = true;
+      linearState = "In Progress";
+      await run("In Progress");
+      linearState = "In Review";
+      // Phase 6: the next reacted In Review cycle starts from zero and requeues.
+      await run("In Review");
       assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
       assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
-      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+      assert.equal(
+        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
+        mentionCallCount,
+      );
       assert.match(
         JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
         /PR#42/,
@@ -683,15 +704,13 @@ describe("runOnce", () => {
         ),
         1,
       );
-      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
-
       await run("In Progress");
       for (let count = 0; count < 3; count += 1) {
         store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
       }
       config.reviewReaction.maxRequeues = 3;
       linearState = "In Review";
-      // Phase 6: lowering the limit normalizes an over-limit current cycle.
+      // Phase 7: lowering the limit normalizes an over-limit current cycle.
       await run("In Review");
       assert.equal(statusUpdates.length, 5);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");

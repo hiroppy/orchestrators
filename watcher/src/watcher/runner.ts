@@ -33,6 +33,7 @@ import { buildTaskCard, buildThreadMessage } from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
+  PullRequest,
   ResolvedLinearTeamConfig,
   ServiceDefinition,
   Snapshot,
@@ -170,22 +171,27 @@ export async function runOnce({
     });
     const enrichedEvent = enrichment.event;
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
-    const reviewDecision = decideReviewReaction(config, store, enrichedEvent);
+    const reviewDecision = decideReviewReaction(
+      config,
+      store,
+      enrichedEvent,
+      enrichment.isAuthoritative,
+    );
 
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
-      const mentionTarget =
-        reviewDecision.shouldRequeue ||
-        reviewDecision.hasPendingLimitNotification ||
-        reviewDecision.hasPendingReviewReconciliation
-          ? undefined
-          : mentionTargetForWatcherEvent(
-              config.mention,
-              store.getTask(taskId)?.status,
-              status,
-              enrichedEvent.type,
-            );
+      let mentionTarget: string | undefined;
+      if (reviewDecision.deliverDeferredMention) {
+        mentionTarget = config.mention?.target;
+      } else if (!shouldSuppressReviewMention(reviewDecision)) {
+        mentionTarget = mentionTargetForWatcherEvent(
+          config.mention,
+          store.getTask(taskId)?.status,
+          status,
+          enrichedEvent.type,
+        );
+      }
       const task = {
         id: taskId,
         serviceName: enrichedEvent.service,
@@ -287,11 +293,15 @@ async function reconcileLinearStatuses({
       task.linearStateType,
       linearIssue.stateType,
     );
-    let pullRequest = linearIssue.pullRequest;
+    const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
+    let pullRequest =
+      linearIssue.pullRequest ??
+      (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
     const reaction = reviewReactionForStatus(config, linearIssue.state);
+    if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
     if (reaction && pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction });
-      if (!enrichedPullRequest && reviewReconciliationTaskIds.has(task.id)) continue;
+      if (!enrichedPullRequest && hasPendingReconciliation) continue;
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
 
@@ -307,9 +317,14 @@ async function reconcileLinearStatuses({
       pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     };
-    const reviewDecision = decideReviewReaction(config, store, event);
+    const reviewDecision = decideReviewReaction(config, store, event, true);
 
-    if (sameStatus && !reviewDecision.shouldRequeue && !enteredTerminalState) {
+    if (
+      sameStatus &&
+      !reviewDecision.shouldRequeue &&
+      !enteredTerminalState &&
+      !hasPendingReconciliation
+    ) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
       }
@@ -353,11 +368,8 @@ async function processWatcherEvent({
     store,
     slackChannelId,
     event,
-    reviewDecision.shouldRequeue ||
-      reviewDecision.hasPendingLimitNotification ||
-      reviewDecision.hasPendingReviewReconciliation
-      ? undefined
-      : config.mention,
+    shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
+    { forceMention: reviewDecision.deliverDeferredMention },
   );
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
@@ -559,12 +571,22 @@ interface ReviewReactionDecision {
   reachesLimit: boolean;
   hasPendingLimitNotification?: boolean;
   hasPendingReviewReconciliation?: boolean;
+  deliverDeferredMention?: boolean;
+}
+
+function shouldSuppressReviewMention(decision: ReviewReactionDecision): boolean {
+  return Boolean(
+    decision.shouldRequeue ||
+    decision.hasPendingLimitNotification ||
+    decision.hasPendingReviewReconciliation,
+  );
 }
 
 function decideReviewReaction(
   config: ResolvedWatcherRuntimeConfig,
   store: WatcherStore,
   event: WatcherEvent,
+  reconciliationIsAuthoritative = false,
 ): ReviewReactionDecision {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const hasPendingReviewReconciliation = hasPendingEvent(
@@ -584,16 +606,23 @@ function decideReviewReaction(
   }
 
   const review = config.reviewReaction;
-  if (
-    !review ||
-    normalizeStatus(event.resolvedState ?? event.state ?? "") !==
-      normalizeStatus(review.inReviewStatus) ||
-    event.pullRequest?.hasConfiguredReaction !== true
-  ) {
+  const currentStatus = event.resolvedState ?? event.state ?? "";
+  const isInReview = Boolean(
+    review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
+  );
+  if (!review || !isInReview || event.pullRequest?.hasConfiguredReaction !== true) {
     return {
       shouldRequeue: false,
       reachesLimit: false,
-      hasPendingReviewReconciliation,
+      hasPendingReviewReconciliation:
+        hasPendingReviewReconciliation && !reconciliationIsAuthoritative,
+      deliverDeferredMention:
+        hasPendingReviewReconciliation &&
+        reconciliationIsAuthoritative &&
+        isInReview &&
+        event.pullRequest?.hasConfiguredReaction === false &&
+        mentionTargetForWatcherEvent(config.mention, undefined, currentStatus, event.type) !==
+          undefined,
     };
   }
 
@@ -634,6 +663,17 @@ function hasPendingEvent(
   completedType: string,
 ): boolean {
   return store.countEventsAfterLatest(taskId, pendingType, completedType) > 0;
+}
+
+function pendingReviewPullRequest(store: WatcherStore, taskId: string): PullRequest | undefined {
+  const body = store.getLatestEvent(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)?.body;
+  if (!body) return undefined;
+
+  try {
+    return parseReviewRequeuePendingPayload(body).event.pullRequest;
+  } catch {
+    return undefined;
+  }
 }
 
 function reviewRequeueMessage(reaction: string, fromStatus: string, toStatus: string): string {

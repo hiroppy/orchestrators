@@ -280,18 +280,16 @@ export async function publishWatcherEvent(
   destinationChannel: string,
   event: WatcherEvent,
   mention?: ResolvedMentionConfig,
+  options: { forceMention?: boolean } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const previousTask = store.getTask(taskId);
   const isNewPullRequest =
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
   let task = store.upsertTaskFromEvent(event);
-  const mentionTarget = mentionTargetForWatcherEvent(
-    mention,
-    previousTask?.status,
-    task.status,
-    event.type,
-  );
+  const mentionTarget = options.forceMention
+    ? mention?.target
+    : mentionTargetForWatcherEvent(mention, previousTask?.status, task.status, event.type);
   const card = buildTaskCard(
     task,
     store.getSelectableStatuses(task.serviceName),
