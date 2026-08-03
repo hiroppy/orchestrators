@@ -1,8 +1,8 @@
-import { and, asc, count, desc, eq, gt, isNull, ne, notInArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ne, notInArray } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
-import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
   ServiceDefinition,
@@ -257,7 +257,7 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(): Task[] {
+  getTasks(): Task[] {
     return this.db
       .select({
         task: tasks,
@@ -269,16 +269,14 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(
-        or(
-          isNull(tasks.linearStateType),
-          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-        ),
-      )
       .all()
       .map((row) =>
         taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
       );
+  }
+
+  getTasksForLinearSync(): Task[] {
+    return this.getTasks().filter((task) => !isTerminalLinearStateType(task.linearStateType));
   }
 
   upsertTaskFromEvent(event: WatcherEvent, now = new Date()): Task {
@@ -480,6 +478,37 @@ export class WatcherStore {
         .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
         .get()?.value ?? 0
     );
+  }
+
+  getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
+    const event = this.db
+      .select()
+      .from(taskEvents)
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+      .orderBy(desc(taskEvents.id))
+      .get();
+    if (!event) return undefined;
+
+    const statusName = (statusId: number | null): string | undefined =>
+      statusId === null
+        ? undefined
+        : this.db
+            .select({ name: statuses.name })
+            .from(statuses)
+            .where(eq(statuses.id, statusId))
+            .get()?.name;
+
+    return {
+      id: event.id,
+      taskId: event.taskId,
+      type: event.type,
+      actor: event.actor ?? undefined,
+      fromStatus: statusName(event.fromStatusId),
+      toStatus: statusName(event.toStatusId),
+      body: event.body ?? undefined,
+      slackThreadTs: event.slackThreadTs ?? undefined,
+      createdAt: event.createdAt,
+    };
   }
 
   countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {
