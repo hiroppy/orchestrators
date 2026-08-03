@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, ne, notInArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, ne, notInArray } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -477,6 +477,26 @@ export class WatcherStore {
       slackThreadTs: event.slackThreadTs ?? undefined,
       createdAt: event.createdAt,
     };
+  }
+
+  getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
+    const latestPending = new Map<string, number>();
+    const latestCompleted = new Map<string, number>();
+    const rows = this.db
+      .select({ id: taskEvents.id, taskId: taskEvents.taskId, type: taskEvents.type })
+      .from(taskEvents)
+      .where(inArray(taskEvents.type, [pendingType, completedType]))
+      .orderBy(asc(taskEvents.id))
+      .all();
+
+    for (const event of rows) {
+      const target = event.type === pendingType ? latestPending : latestCompleted;
+      target.set(event.taskId, event.id);
+    }
+
+    return [...latestPending].flatMap(([taskId, pendingId]) =>
+      pendingId > (latestCompleted.get(taskId) ?? 0) ? [taskId] : [],
+    );
   }
 
   countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {

@@ -436,6 +436,9 @@ describe("runOnce", () => {
               title: "Review the pull request",
               state: { name: linearState, type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: {
+                nodes: [{ url: "https://github.com/acme/example/pull/42" }],
+              },
             },
           },
         });
@@ -472,6 +475,8 @@ describe("runOnce", () => {
         store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
       }
       const calls: Array<Record<string, unknown>> = [];
+      const deliveryErrors: string[] = [];
+      context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
@@ -520,6 +525,11 @@ describe("runOnce", () => {
             number: 42,
             hasConfiguredReaction: options.reaction === "👀",
           }),
+          findPullRequestByUrl: async (url, options) => ({
+            url,
+            number: 42,
+            hasConfiguredReaction: options.reaction === "👀",
+          }),
           updateLinearStatus: async (_issue, status) => {
             statusUpdates.push(status);
             linearState = status;
@@ -563,7 +573,16 @@ describe("runOnce", () => {
       config.reviewReaction.maxRequeues = 5;
       linearState = "In Review";
       store.setTaskLinearStateType("service-a:ENG-62", "completed");
-      await assert.rejects(() => run("In Review"), /Simulated Slack card failure/);
+      await run("In Review");
+      assert.match(deliveryErrors.join("\n"), /Simulated Slack card failure/);
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
       assert.equal(
         store.countEventsAfterLatest(
           "service-a:ENG-62",
@@ -606,6 +625,16 @@ describe("runOnce", () => {
         1,
       );
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+
+      await run("In Progress");
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      }
+      config.reviewReaction.maxRequeues = 3;
+      linearState = "In Review";
+      await run("In Review");
+      assert.equal(statusUpdates.length, 5);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
     });
   });
 

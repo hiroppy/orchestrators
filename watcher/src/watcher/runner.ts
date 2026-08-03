@@ -144,9 +144,10 @@ export async function runOnce({
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
 }: RunOnceOptions) {
+  let completedPendingTaskIds = new Set<string>();
   if (!dryRun) {
     if (!slackClient) throw new Error("Slack client is required.");
-    await deliverPendingReviewLimitNotifications(store, slackClient);
+    completedPendingTaskIds = await deliverPendingReviewLimitNotifications(store, slackClient);
   }
 
   const previous = store.getSnapshots();
@@ -165,14 +166,15 @@ export async function runOnce({
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
-      const mentionTarget = reviewDecision.shouldRequeue
-        ? undefined
-        : mentionTargetForWatcherEvent(
-            config.mention,
-            store.getTask(taskId)?.status,
-            status,
-            enrichedEvent.type,
-          );
+      const mentionTarget =
+        reviewDecision.shouldRequeue || reviewDecision.hasPendingLimitNotification
+          ? undefined
+          : mentionTargetForWatcherEvent(
+              config.mention,
+              store.getTask(taskId)?.status,
+              status,
+              enrichedEvent.type,
+            );
       const task = {
         id: taskId,
         serviceName: enrichedEvent.service,
@@ -220,7 +222,10 @@ export async function runOnce({
       store,
       slackClient,
       slackChannelId,
-      skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
+      skipTaskIds: new Set([
+        ...processedTaskIds,
+        ...taskIdsInSnapshots(current).filter((taskId) => !completedPendingTaskIds.has(taskId)),
+      ]),
       findPullRequestByUrl,
       updateLinearStatus,
     });
@@ -330,7 +335,9 @@ async function processWatcherEvent({
     store,
     slackChannelId,
     event,
-    reviewDecision.shouldRequeue ? undefined : config.mention,
+    reviewDecision.shouldRequeue || reviewDecision.hasPendingLimitNotification
+      ? undefined
+      : config.mention,
   );
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
@@ -401,65 +408,92 @@ async function deliverPendingReviewLimitNotifications(
   store: WatcherStore,
   slackClient: WebClient,
   onlyTaskId?: string,
-): Promise<void> {
-  for (const task of store.getTasks()) {
-    const pending = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_PENDING_EVENT);
-    const completed = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_EVENT);
-    if (
-      (onlyTaskId && task.id !== onlyTaskId) ||
-      !task.parentChannelId ||
-      !task.parentMessageTs ||
-      !pending ||
-      (completed && completed.id > pending.id)
-    )
-      continue;
+): Promise<Set<string>> {
+  const taskIds = onlyTaskId
+    ? [onlyTaskId]
+    : store.getTaskIdsWithIncompleteEvent(
+        REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+        REVIEW_REQUEUE_LIMIT_EVENT,
+      );
+  const completedTaskIds = new Set<string>();
 
-    if (!pending.body || !pending.fromStatus || !pending.toStatus) {
-      throw new Error(`Invalid pending review requeue limit event for ${task.id}`);
+  for (const taskId of taskIds) {
+    try {
+      if (await deliverPendingReviewLimitNotification(store, slackClient, taskId)) {
+        completedTaskIds.add(taskId);
+      }
+    } catch (error) {
+      if (onlyTaskId) throw error;
+      console.error(`Failed to deliver pending review limit notification for ${taskId}:`, error);
     }
+  }
 
-    const notified = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT);
-    if (!notified || notified.id < pending.id) {
-      const message = {
-        channel: task.parentChannelId,
-        thread_ts: task.parentMessageTs,
-        text: pending.body,
-        client_msg_id: slackClientMessageId(pending.id),
-      };
-      await slackClient.chat.postMessage(message);
-      store.addEvent({
-        taskId: task.id,
-        type: REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
-        actor: "watcher",
-        fromStatus: pending.fromStatus,
-        toStatus: pending.toStatus,
-        body: pending.body,
-      });
-    }
+  return completedTaskIds;
+}
 
-    const updatedTask = store.getTask(task.id)!;
-    const card = buildTaskCard(updatedTask, store.getSelectableStatuses(task.serviceName), {
-      type: "updated",
-      service: task.serviceName,
-      issueIdentifier: task.issueIdentifier,
-      state: pending.fromStatus,
-      resolvedState: updatedTask.status,
-    });
-    await slackClient.chat.update({
+async function deliverPendingReviewLimitNotification(
+  store: WatcherStore,
+  slackClient: WebClient,
+  taskId: string,
+): Promise<boolean> {
+  const task = store.getTask(taskId);
+  const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT);
+  const completed = store.getLatestEvent(taskId, REVIEW_REQUEUE_LIMIT_EVENT);
+  if (
+    !task?.parentChannelId ||
+    !task.parentMessageTs ||
+    !pending ||
+    (completed && completed.id > pending.id)
+  )
+    return false;
+
+  if (!pending.body || !pending.fromStatus || !pending.toStatus) {
+    throw new Error(`Invalid pending review requeue limit event for ${task.id}`);
+  }
+
+  const notified = store.getLatestEvent(task.id, REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT);
+  if (!notified || notified.id < pending.id) {
+    const message = {
       channel: task.parentChannelId,
-      ts: task.parentMessageTs,
-      ...card,
-    });
-    store.setRenderedSummary(task.id, JSON.stringify(card));
+      thread_ts: task.parentMessageTs,
+      text: pending.body,
+      client_msg_id: slackClientMessageId(pending.id),
+    };
+    await slackClient.chat.postMessage(message);
     store.addEvent({
       taskId: task.id,
-      type: REVIEW_REQUEUE_LIMIT_EVENT,
+      type: REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
       actor: "watcher",
       fromStatus: pending.fromStatus,
       toStatus: pending.toStatus,
       body: pending.body,
     });
   }
+
+  const updatedTask = store.getTask(task.id)!;
+  const card = buildTaskCard(updatedTask, store.getSelectableStatuses(task.serviceName), {
+    type: "updated",
+    service: task.serviceName,
+    issueIdentifier: task.issueIdentifier,
+    state: pending.fromStatus,
+    resolvedState: updatedTask.status,
+  });
+  await slackClient.chat.update({
+    channel: task.parentChannelId,
+    ts: task.parentMessageTs,
+    ...card,
+  });
+  store.setRenderedSummary(task.id, JSON.stringify(card));
+  store.addEvent({
+    taskId: task.id,
+    type: REVIEW_REQUEUE_LIMIT_EVENT,
+    actor: "watcher",
+    fromStatus: pending.fromStatus,
+    toStatus: pending.toStatus,
+    body: pending.body,
+  });
+  store.setTaskLinearStateType(task.id, undefined);
+  return true;
 }
 
 function slackClientMessageId(eventId: number): string {
@@ -470,6 +504,7 @@ function slackClientMessageId(eventId: number): string {
 interface ReviewReactionDecision {
   shouldRequeue: boolean;
   reachesLimit: boolean;
+  hasPendingLimitNotification?: boolean;
 }
 
 function decideReviewReaction(
@@ -495,7 +530,11 @@ function decideReviewReaction(
       REVIEW_REQUEUE_LIMIT_EVENT,
     ) > 0
   ) {
-    return { shouldRequeue: false, reachesLimit: false };
+    return {
+      shouldRequeue: false,
+      reachesLimit: false,
+      hasPendingLimitNotification: true,
+    };
   }
 
   let requeueCount = store.countEventsAfterLatest(
@@ -503,9 +542,7 @@ function decideReviewReaction(
     REVIEW_REQUEUE_EVENT,
     REVIEW_REQUEUE_LIMIT_EVENT,
   );
-  const hasRecordedLimit = store.countEvents(taskId, REVIEW_REQUEUE_LIMIT_EVENT) > 0;
-  // Older databases have requeue history but no explicit limit boundaries.
-  if (!hasRecordedLimit && review.maxRequeues > 0) {
+  if (review.maxRequeues > 0) {
     requeueCount %= review.maxRequeues;
   }
   if (requeueCount >= review.maxRequeues) {

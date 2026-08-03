@@ -235,6 +235,29 @@ describe("WatcherStore", () => {
         /Task not found/,
       );
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 0);
+
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "review_requeue_limit_pending",
+      });
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        ["service-a:ENG-62"],
+      );
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "review_requeue_limit_reached",
+      });
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        [],
+      );
     });
   });
 });
