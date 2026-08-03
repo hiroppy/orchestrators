@@ -1,0 +1,1 @@
+CREATE INDEX `task_events_type_task_id_idx` ON `task_events` (`type`,`task_id`,`id`);

@@ -1,4 +1,18 @@
-import { and, asc, count, eq, isNull, ne, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -15,6 +29,16 @@ import type {
 } from "../domain/types.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
+type TaskEventInput = {
+  taskId: string;
+  type: string;
+  actor?: string;
+  fromStatus?: string;
+  toStatus?: string;
+  body?: string;
+  slackThreadTs?: string;
+  createdAt?: Date;
+};
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
@@ -257,7 +281,13 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(): Task[] {
+  getTasksForLinearSync(includedTaskIds: ReadonlySet<string> = new Set()): Task[] {
+    const activeOrIncluded = or(
+      isNull(tasks.linearStateType),
+      notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+      includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+    );
+
     return this.db
       .select({
         task: tasks,
@@ -269,12 +299,7 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(
-        or(
-          isNull(tasks.linearStateType),
-          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-        ),
-      )
+      .where(activeOrIncluded)
       .all()
       .map((row) =>
         taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
@@ -397,54 +422,12 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
-  addEvent(event: {
-    taskId: string;
-    type: string;
-    actor?: string;
-    fromStatus?: string;
-    toStatus?: string;
-    body?: string;
-    slackThreadTs?: string;
-    createdAt?: Date;
-  }): TaskEvent {
-    const timestamp = (event.createdAt ?? new Date()).toISOString();
-    const task = this.db
-      .select({ serviceId: tasks.serviceId })
-      .from(tasks)
-      .where(eq(tasks.id, event.taskId))
-      .get();
-    if (!task) throw new Error(`Task not found: ${event.taskId}`);
-    const fromStatusId = event.fromStatus
-      ? ensureStatus(this.db, task.serviceId, event.fromStatus, timestamp)
-      : undefined;
-    const toStatusId = event.toStatus
-      ? ensureStatus(this.db, task.serviceId, event.toStatus, timestamp)
-      : undefined;
-    const result = this.db
-      .insert(taskEvents)
-      .values({
-        taskId: event.taskId,
-        type: event.type,
-        actor: event.actor,
-        fromStatusId,
-        toStatusId,
-        body: event.body,
-        slackThreadTs: event.slackThreadTs,
-        createdAt: timestamp,
-      })
-      .run();
+  addEvent(event: TaskEventInput): TaskEvent {
+    return insertTaskEvent(this.db, event);
+  }
 
-    return {
-      id: Number(result.lastInsertRowid),
-      taskId: event.taskId,
-      type: event.type,
-      actor: event.actor,
-      fromStatus: event.fromStatus,
-      toStatus: event.toStatus,
-      body: event.body,
-      slackThreadTs: event.slackThreadTs,
-      createdAt: timestamp,
-    };
+  addEvents(events: TaskEventInput[]): TaskEvent[] {
+    return this.db.transaction((tx) => events.map((event) => insertTaskEvent(tx, event)));
   }
 
   hasRecordedPullRequest(taskId: string, url: string): boolean {
@@ -478,6 +461,78 @@ export class WatcherStore {
         .select({ value: count() })
         .from(taskEvents)
         .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+        .get()?.value ?? 0
+    );
+  }
+
+  getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
+    const fromStatuses = alias(statuses, "event_from_status");
+    const toStatuses = alias(statuses, "event_to_status");
+    const row = this.db
+      .select({
+        event: taskEvents,
+        fromStatus: fromStatuses.name,
+        toStatus: toStatuses.name,
+      })
+      .from(taskEvents)
+      .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+      .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+      .orderBy(desc(taskEvents.id))
+      .get();
+    if (!row) return undefined;
+
+    return {
+      id: row.event.id,
+      taskId: row.event.taskId,
+      type: row.event.type,
+      actor: row.event.actor ?? undefined,
+      fromStatus: row.fromStatus ?? undefined,
+      toStatus: row.toStatus ?? undefined,
+      body: row.event.body ?? undefined,
+      slackThreadTs: row.event.slackThreadTs ?? undefined,
+      createdAt: row.event.createdAt,
+    };
+  }
+
+  getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
+    const rows = this.db
+      .select({
+        taskId: taskEvents.taskId,
+        latestPending: sql<
+          number | null
+        >`max(case when ${taskEvents.type} = ${pendingType} then ${taskEvents.id} end)`,
+        latestCompleted: sql<number>`coalesce(max(case when ${taskEvents.type} = ${completedType} then ${taskEvents.id} end), 0)`,
+      })
+      .from(taskEvents)
+      .where(inArray(taskEvents.type, [pendingType, completedType]))
+      .groupBy(taskEvents.taskId)
+      .all();
+
+    return rows.flatMap(({ taskId, latestPending, latestCompleted }) =>
+      latestPending !== null && latestPending > latestCompleted ? [taskId] : [],
+    );
+  }
+
+  countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {
+    const latestBoundaryId = this.db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, boundaryType)))
+      .orderBy(desc(taskEvents.id))
+      .get()?.id;
+
+    return (
+      this.db
+        .select({ value: count() })
+        .from(taskEvents)
+        .where(
+          and(
+            eq(taskEvents.taskId, taskId),
+            eq(taskEvents.type, type),
+            latestBoundaryId === undefined ? undefined : gt(taskEvents.id, latestBoundaryId),
+          ),
+        )
         .get()?.value ?? 0
     );
   }
@@ -518,6 +573,47 @@ function ensureStatus(
     .from(statuses)
     .where(and(eq(statuses.serviceId, serviceId), eq(statuses.name, name)))
     .get()!.id;
+}
+
+function insertTaskEvent(db: WatcherDatabase | Transaction, event: TaskEventInput): TaskEvent {
+  const timestamp = (event.createdAt ?? new Date()).toISOString();
+  const task = db
+    .select({ serviceId: tasks.serviceId })
+    .from(tasks)
+    .where(eq(tasks.id, event.taskId))
+    .get();
+  if (!task) throw new Error(`Task not found: ${event.taskId}`);
+  const fromStatusId = event.fromStatus
+    ? ensureStatus(db, task.serviceId, event.fromStatus, timestamp)
+    : undefined;
+  const toStatusId = event.toStatus
+    ? ensureStatus(db, task.serviceId, event.toStatus, timestamp)
+    : undefined;
+  const result = db
+    .insert(taskEvents)
+    .values({
+      taskId: event.taskId,
+      type: event.type,
+      actor: event.actor,
+      fromStatusId,
+      toStatusId,
+      body: event.body,
+      slackThreadTs: event.slackThreadTs,
+      createdAt: timestamp,
+    })
+    .run();
+
+  return {
+    id: Number(result.lastInsertRowid),
+    taskId: event.taskId,
+    type: event.type,
+    actor: event.actor,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    body: event.body,
+    slackThreadTs: event.slackThreadTs,
+    createdAt: timestamp,
+  };
 }
 
 function taskFromRow(

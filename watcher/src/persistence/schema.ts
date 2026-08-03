@@ -89,6 +89,7 @@ export const taskEvents = sqliteTable(
   },
   (table) => [
     index("task_events_task_created_idx").on(table.taskId, table.createdAt),
+    index("task_events_type_task_id_idx").on(table.type, table.taskId, table.id),
     index("task_events_from_status_idx").on(table.fromStatusId),
     index("task_events_to_status_idx").on(table.toStatusId),
   ],

@@ -423,12 +423,25 @@ describe("runOnce", () => {
     });
   });
 
-  it("posts at the requeue limit, then mentions when the issue next enters In Review", async (context) => {
+  it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
+      let failLinearFetchOnce = false;
+      let hasReviewReaction = true;
+      let failWorkspacePullRequestLookupOnce = false;
+      let failReactionLookupOnce = false;
+      let omitLinearPullRequestOnce = false;
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        if (failLinearFetchOnce) {
+          failLinearFetchOnce = false;
+          return new Response("temporary failure", { status: 500 });
+        }
+        const attachments = omitLinearPullRequestOnce
+          ? { nodes: [] }
+          : { nodes: [{ url: "https://github.com/acme/example/pull/42" }] };
+        omitLinearPullRequestOnce = false;
         return Response.json({
           data: {
             issue: {
@@ -436,6 +449,7 @@ describe("runOnce", () => {
               title: "Review the pull request",
               state: { name: linearState, type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
+              attachments,
             },
           },
         });
@@ -448,7 +462,7 @@ describe("runOnce", () => {
             linearTeam: "workspace-a-eng",
           },
         ],
-        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
+        linearTeams: linearTeams(["In Progress", "In Review", "Blocked", "Done"]),
         reviewReaction: {
           inReviewStatus: "In Review",
           inProgressStatus: "In Progress",
@@ -457,13 +471,48 @@ describe("runOnce", () => {
         },
         mention: {
           target: "<@U123>",
-          statuses: ["In Review"],
+          statuses: ["In Review", "Blocked"],
           events: [],
         },
       });
       store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      }
       const calls: Array<Record<string, unknown>> = [];
+      const deliveryErrors: string[] = [];
+      context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
+      let rejectLimitNotification = true;
+      let rejectLimitCardUpdate = false;
+      let rejectedClientMessageId: unknown;
+      const slackClient = fakeSlackClient(calls, {
+        rejectPostMessage: (args) => {
+          if (
+            rejectLimitNotification &&
+            String(args.text).includes("review requeue limit reached")
+          ) {
+            rejectLimitNotification = false;
+            rejectLimitCardUpdate = true;
+            rejectedClientMessageId = args.client_msg_id;
+            return true;
+          }
+          return false;
+        },
+        rejectUpdate: (args) => {
+          if (rejectLimitCardUpdate && JSON.stringify(args.blocks).includes("In Progress")) {
+            rejectLimitCardUpdate = false;
+            return true;
+          }
+          return false;
+        },
+      });
       const run = async (snapshotStatus: string) => {
         config.services[0].url = dataUrl({
           running: [
@@ -479,13 +528,30 @@ describe("runOnce", () => {
         await runOnce({
           config,
           store,
-          slackClient: fakeSlackClient(calls),
+          slackClient,
           slackChannelId: "C123",
-          findPullRequest: async (_event, options) => ({
-            url: "https://github.com/acme/example/pull/42",
-            number: 42,
-            hasConfiguredReaction: options.reaction === "👀",
-          }),
+          findPullRequest: async (_event, options) => {
+            if (failWorkspacePullRequestLookupOnce) {
+              failWorkspacePullRequestLookupOnce = false;
+              return null;
+            }
+            return {
+              url: "https://github.com/acme/example/pull/42",
+              number: 42,
+              hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
+            };
+          },
+          findPullRequestByUrl: async (url, options) => {
+            if (failReactionLookupOnce) {
+              failReactionLookupOnce = false;
+              return null;
+            }
+            return {
+              url,
+              number: 42,
+              hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
+            };
+          },
           updateLinearStatus: async (_issue, status) => {
             statusUpdates.push(status);
             linearState = status;
@@ -515,17 +581,173 @@ describe("runOnce", () => {
 
       await run("In Progress");
       linearState = "In Review";
+      // Phase 1: Slack rejects the limit notification, but the poll continues.
       await run("In Review");
+      assert.match(deliveryErrors.join("\n"), /Simulated Slack failure/);
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
-      assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
-      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
 
+      config.reviewReaction.maxRequeues = 5;
+      linearState = "Blocked";
+      hasReviewReaction = false;
+      store.setTaskLinearStateType("service-a:ENG-62", "completed");
+      // Phase 2: an unrelated Blocked alert survives while the card update remains pending.
+      await run("Blocked");
+      assert.match(deliveryErrors.join("\n"), /Simulated Slack card failure/);
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_notified",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
+          .length,
+        1,
+      );
+      assert.equal(
+        calls.find(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
+          ?.client_msg_id,
+        rejectedClientMessageId,
+      );
+      assert.match(JSON.stringify(calls), /<@U123>/);
+      const blockedMentionCallCount = calls.filter((call) =>
+        JSON.stringify(call).includes("<@U123>"),
+      ).length;
+
+      hasReviewReaction = true;
+      linearState = "In Review";
+      failLinearFetchOnce = true;
+      // Phase 3: card recovery succeeds, but failed enrichment on a snapshot diff stays pending.
+      await run("In Progress");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_limit_pending",
+          "review_requeue_limit_reached",
+        ),
+        0,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        1,
+      );
+      assert.equal(statusUpdates.length, 3);
+      assert.equal(
+        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
+        blockedMentionCallCount,
+      );
+
+      omitLinearPullRequestOnce = true;
+      failWorkspacePullRequestLookupOnce = true;
+      // Phase 4: unresolved PR enrichment on a snapshot diff keeps reconciliation pending.
+      await run("In Review");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        1,
+      );
+
+      store.setTaskLinearStateType("service-a:ENG-62", "completed");
+      failReactionLookupOnce = true;
+      omitLinearPullRequestOnce = true;
+      // Phase 5: a terminal task reuses its stored PR, but failed reaction lookup stays pending.
+      await run("In Review");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        1,
+      );
+      assert.equal(statusUpdates.length, 3);
+      assert.equal(
+        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
+        blockedMentionCallCount,
+      );
+
+      hasReviewReaction = false;
+      store.updateTaskStatus("service-a:ENG-62", "In Review");
+      // Phase 6: authoritative absence of the reaction sends the deferred human mention.
+      await run("In Review");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        0,
+      );
+      assert.equal(statusUpdates.length, 3);
+      assert.ok(
+        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length >
+          blockedMentionCallCount,
+      );
+      const mentionCallCount = calls.filter((call) =>
+        JSON.stringify(call).includes("<@U123>"),
+      ).length;
+
+      hasReviewReaction = true;
+      linearState = "In Progress";
       await run("In Progress");
       linearState = "In Review";
+      // Phase 7: the next reacted In Review cycle starts from zero and requeues.
       await run("In Review");
-      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
-      assert.match(JSON.stringify(calls), /<@U123>/);
+      assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
+      assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
+      assert.equal(
+        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
+        mentionCallCount,
+      );
+      assert.match(
+        JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
+        /PR#42/,
+      );
+      assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress", "In Progress"]);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeued",
+          "review_requeue_limit_reached",
+        ),
+        1,
+      );
+      await run("In Progress");
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      }
+      config.reviewReaction.maxRequeues = 3;
+      linearState = "In Review";
+      // Phase 8: lowering the limit normalizes an over-limit current cycle.
+      await run("In Review");
+      assert.equal(statusUpdates.length, 5);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
     });
   });
 
@@ -813,7 +1035,13 @@ function runtimeConfig<T extends object>(config: T) {
   };
 }
 
-function fakeSlackClient(calls: Array<Record<string, unknown>>) {
+function fakeSlackClient(
+  calls: Array<Record<string, unknown>>,
+  options: {
+    rejectPostMessage?: (args: Record<string, unknown>) => boolean;
+    rejectUpdate?: (args: Record<string, unknown>) => boolean;
+  } = {},
+) {
   let timestamp = 0;
   return {
     chat: {
@@ -828,11 +1056,13 @@ function fakeSlackClient(calls: Array<Record<string, unknown>>) {
         };
       },
       async postMessage(args: Record<string, unknown>) {
+        if (options.rejectPostMessage?.(args)) throw new Error("Simulated Slack failure");
         timestamp += 1;
         calls.push({ method: "postMessage", ...args });
         return { ok: true, channel: String(args.channel), ts: `${timestamp}.000` };
       },
       async update(args: Record<string, unknown>) {
+        if (options.rejectUpdate?.(args)) throw new Error("Simulated Slack card failure");
         calls.push({ method: "update", ...args });
         return { ok: true, channel: String(args.channel), ts: String(args.ts) };
       },
