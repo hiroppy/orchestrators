@@ -281,7 +281,13 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(): Task[] {
+  getTasksForLinearSync(includedTaskIds: ReadonlySet<string> = new Set()): Task[] {
+    const activeOrIncluded = or(
+      isNull(tasks.linearStateType),
+      notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+      includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+    );
+
     return this.db
       .select({
         task: tasks,
@@ -293,12 +299,7 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(
-        or(
-          isNull(tasks.linearStateType),
-          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-        ),
-      )
+      .where(activeOrIncluded)
       .all()
       .map((row) =>
         taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),

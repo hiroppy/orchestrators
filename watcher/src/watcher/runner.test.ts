@@ -428,6 +428,7 @@ describe("runOnce", () => {
       let linearState = "In Review";
       let failLinearFetchOnce = false;
       let hasReviewReaction = true;
+      let failReactionLookupOnce = false;
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
@@ -530,11 +531,17 @@ describe("runOnce", () => {
             number: 42,
             hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
           }),
-          findPullRequestByUrl: async (url, options) => ({
-            url,
-            number: 42,
-            hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
-          }),
+          findPullRequestByUrl: async (url, options) => {
+            if (failReactionLookupOnce) {
+              failReactionLookupOnce = false;
+              return null;
+            }
+            return {
+              url,
+              number: 42,
+              hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
+            };
+          },
           updateLinearStatus: async (_issue, status) => {
             statusUpdates.push(status);
             linearState = status;
@@ -614,8 +621,8 @@ describe("runOnce", () => {
 
       hasReviewReaction = true;
       failLinearFetchOnce = true;
-      // Phase 3: card recovery succeeds, but transient Linear failure keeps reconciliation pending.
-      await run("In Review");
+      // Phase 3: card recovery succeeds, but failed enrichment on a snapshot diff stays pending.
+      await run("In Progress");
       assert.equal(
         store.countEventsAfterLatest(
           "service-a:ENG-62",
@@ -634,8 +641,23 @@ describe("runOnce", () => {
       );
       assert.equal(statusUpdates.length, 3);
 
-      // Phase 4: reconciliation retries and requeues the same In Review cycle.
-      await run("In Review");
+      store.setTaskLinearStateType("service-a:ENG-62", "completed");
+      failReactionLookupOnce = true;
+      // Phase 4: a terminal task is retried, but failed reaction lookup stays pending.
+      await run("In Progress");
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_reconcile_pending",
+          "review_requeue_reconciled",
+        ),
+        1,
+      );
+      assert.equal(statusUpdates.length, 3);
+      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+
+      // Phase 5: reconciliation retries and requeues the same In Review cycle.
+      await run("In Progress");
       assert.equal(
         store.countEventsAfterLatest(
           "service-a:ENG-62",
@@ -669,7 +691,7 @@ describe("runOnce", () => {
       }
       config.reviewReaction.maxRequeues = 3;
       linearState = "In Review";
-      // Phase 5: lowering the limit normalizes an over-limit current cycle.
+      // Phase 6: lowering the limit normalizes an over-limit current cycle.
       await run("In Review");
       assert.equal(statusUpdates.length, 5);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");

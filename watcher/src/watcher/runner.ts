@@ -164,10 +164,11 @@ export async function runOnce({
   const processedTaskIds = new Set<string>();
 
   for (const event of events) {
-    const enrichedEvent = await enrichEvent(event, config, {
+    const enrichment = await enrichEvent(event, config, {
       findPullRequest,
       findPullRequestByUrl,
     });
+    const enrichedEvent = enrichment.event;
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
     const reviewDecision = decideReviewReaction(config, store, enrichedEvent);
 
@@ -175,7 +176,9 @@ export async function runOnce({
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
       const mentionTarget =
-        reviewDecision.shouldRequeue || reviewDecision.hasPendingLimitNotification
+        reviewDecision.shouldRequeue ||
+        reviewDecision.hasPendingLimitNotification ||
+        reviewDecision.hasPendingReviewReconciliation
           ? undefined
           : mentionTargetForWatcherEvent(
               config.mention,
@@ -220,7 +223,9 @@ export async function runOnce({
         reviewDecision,
         updateLinearStatus,
       });
-      markReviewRequeueReconciled(store, taskIdFor(event.service, event.issueIdentifier));
+      if (enrichment.isAuthoritative) {
+        markReviewRequeueReconciled(store, taskIdFor(event.service, event.issueIdentifier));
+      }
     }
   }
 
@@ -237,6 +242,7 @@ export async function runOnce({
       ]),
       findPullRequestByUrl,
       updateLinearStatus,
+      reviewReconciliationTaskIds,
     });
     store.replaceSnapshots(current);
   }
@@ -251,6 +257,7 @@ async function reconcileLinearStatuses({
   skipTaskIds,
   findPullRequestByUrl,
   updateLinearStatus,
+  reviewReconciliationTaskIds,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -259,8 +266,9 @@ async function reconcileLinearStatuses({
   skipTaskIds: Set<string>;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  reviewReconciliationTaskIds: ReadonlySet<string>;
 }): Promise<void> {
-  for (const task of store.getTasksForLinearSync()) {
+  for (const task of store.getTasksForLinearSync(reviewReconciliationTaskIds)) {
     if (
       skipTaskIds.has(task.id) ||
       task.issueIdentifier.startsWith("watcher:") ||
@@ -282,10 +290,9 @@ async function reconcileLinearStatuses({
     let pullRequest = linearIssue.pullRequest;
     const reaction = reviewReactionForStatus(config, linearIssue.state);
     if (reaction && pullRequest?.url) {
-      pullRequest =
-        (await findPullRequestByUrl(pullRequest.url, {
-          reaction,
-        })) ?? pullRequest;
+      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction });
+      if (!enrichedPullRequest && reviewReconciliationTaskIds.has(task.id)) continue;
+      pullRequest = enrichedPullRequest ?? pullRequest;
     }
 
     const event: WatcherEvent = {
@@ -346,7 +353,9 @@ async function processWatcherEvent({
     store,
     slackChannelId,
     event,
-    reviewDecision.shouldRequeue || reviewDecision.hasPendingLimitNotification
+    reviewDecision.shouldRequeue ||
+      reviewDecision.hasPendingLimitNotification ||
+      reviewDecision.hasPendingReviewReconciliation
       ? undefined
       : config.mention,
   );
@@ -533,11 +542,12 @@ function parseReviewRequeuePendingPayload(body: string): {
 
 function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void {
   if (
-    store.countEventsAfterLatest(
+    !hasPendingEvent(
+      store,
       taskId,
       REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
       REVIEW_REQUEUE_RECONCILED_EVENT,
-    ) === 0
+    )
   )
     return;
 
@@ -548,6 +558,7 @@ interface ReviewReactionDecision {
   shouldRequeue: boolean;
   reachesLimit: boolean;
   hasPendingLimitNotification?: boolean;
+  hasPendingReviewReconciliation?: boolean;
 }
 
 function decideReviewReaction(
@@ -556,12 +567,14 @@ function decideReviewReaction(
   event: WatcherEvent,
 ): ReviewReactionDecision {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
+  const hasPendingReviewReconciliation = hasPendingEvent(
+    store,
+    taskId,
+    REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+    REVIEW_REQUEUE_RECONCILED_EVENT,
+  );
   if (
-    store.countEventsAfterLatest(
-      taskId,
-      REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
-      REVIEW_REQUEUE_LIMIT_EVENT,
-    ) > 0
+    hasPendingEvent(store, taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT, REVIEW_REQUEUE_LIMIT_EVENT)
   ) {
     return {
       shouldRequeue: false,
@@ -577,7 +590,11 @@ function decideReviewReaction(
       normalizeStatus(review.inReviewStatus) ||
     event.pullRequest?.hasConfiguredReaction !== true
   ) {
-    return { shouldRequeue: false, reachesLimit: false };
+    return {
+      shouldRequeue: false,
+      reachesLimit: false,
+      hasPendingReviewReconciliation,
+    };
   }
 
   let requeueCount = store.countEventsAfterLatest(
@@ -608,6 +625,15 @@ function reviewReactionForStatus(
   return review && status && normalizeStatus(status) === normalizeStatus(review.inReviewStatus)
     ? review.reaction
     : undefined;
+}
+
+function hasPendingEvent(
+  store: WatcherStore,
+  taskId: string,
+  pendingType: string,
+  completedType: string,
+): boolean {
+  return store.countEventsAfterLatest(taskId, pendingType, completedType) > 0;
 }
 
 function reviewRequeueMessage(reaction: string, fromStatus: string, toStatus: string): string {
@@ -646,8 +672,10 @@ async function enrichEvent(
     findPullRequest: typeof findPullRequestDefault;
     findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   },
-): Promise<WatcherEvent> {
-  if (event.issueIdentifier === `watcher:${event.service}`) return event;
+): Promise<{ event: WatcherEvent; isAuthoritative: boolean }> {
+  if (event.issueIdentifier === `watcher:${event.service}`) {
+    return { event, isAuthoritative: true };
+  }
 
   const isEnded = event.type === "ended";
   const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
@@ -658,22 +686,34 @@ async function enrichEvent(
   const resolvedState = linearIssue?.state ?? event.state;
   const reaction = reviewReactionForStatus(config, resolvedState);
   let pullRequest = (await github.findPullRequest(event, { reaction })) ?? undefined;
+  let reactionLookupSucceeded = !reaction || pullRequest?.hasConfiguredReaction !== undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
-    pullRequest = reaction
-      ? ((await github.findPullRequestByUrl(linearIssue.pullRequest.url, {
-          reaction,
-        })) ?? linearIssue.pullRequest)
-      : linearIssue.pullRequest;
+    if (reaction) {
+      const enrichedPullRequest = await github.findPullRequestByUrl(linearIssue.pullRequest.url, {
+        reaction,
+      });
+      reactionLookupSucceeded = enrichedPullRequest?.hasConfiguredReaction !== undefined;
+      pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
+    } else {
+      pullRequest = linearIssue.pullRequest;
+    }
+  } else if (!pullRequest) {
+    reactionLookupSucceeded = true;
   }
-  return compactObject({
-    ...event,
-    issueTitle: linearIssue?.title,
-    issueUrl: linearIssue?.url ?? event.issueUrl,
-    resolvedState: linearIssue?.state,
-    resolvedStateType: linearIssue?.stateType ? normalizeStatus(linearIssue.stateType) : undefined,
-    pullRequest,
-    relatedIssues: linearIssue?.relatedIssues,
-  });
+  return {
+    event: compactObject({
+      ...event,
+      issueTitle: linearIssue?.title,
+      issueUrl: linearIssue?.url ?? event.issueUrl,
+      resolvedState: linearIssue?.state,
+      resolvedStateType: linearIssue?.stateType
+        ? normalizeStatus(linearIssue.stateType)
+        : undefined,
+      pullRequest,
+      relatedIssues: linearIssue?.relatedIssues,
+    }),
+    isAuthoritative: Boolean(linearIssue?.state) && reactionLookupSucceeded,
+  };
 }
 
 interface CollectSnapshotsOptions {
