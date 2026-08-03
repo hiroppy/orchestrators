@@ -595,7 +595,13 @@ function decideReviewReaction(
     REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
     REVIEW_REQUEUE_RECONCILED_EVENT,
   );
+  const review = config.reviewReaction;
+  const currentStatus = event.resolvedState ?? event.state ?? "";
+  const isInReview = Boolean(
+    review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
+  );
   if (
+    isInReview &&
     hasPendingEvent(store, taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT, REVIEW_REQUEUE_LIMIT_EVENT)
   ) {
     return {
@@ -605,17 +611,12 @@ function decideReviewReaction(
     };
   }
 
-  const review = config.reviewReaction;
-  const currentStatus = event.resolvedState ?? event.state ?? "";
-  const isInReview = Boolean(
-    review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
-  );
   if (!review || !isInReview || event.pullRequest?.hasConfiguredReaction !== true) {
     return {
       shouldRequeue: false,
       reachesLimit: false,
       hasPendingReviewReconciliation:
-        hasPendingReviewReconciliation && !reconciliationIsAuthoritative,
+        hasPendingReviewReconciliation && !reconciliationIsAuthoritative && isInReview,
       deliverDeferredMention:
         hasPendingReviewReconciliation &&
         reconciliationIsAuthoritative &&
@@ -737,8 +738,6 @@ async function enrichEvent(
     } else {
       pullRequest = linearIssue.pullRequest;
     }
-  } else if (!pullRequest) {
-    reactionLookupSucceeded = true;
   }
   return {
     event: compactObject({
