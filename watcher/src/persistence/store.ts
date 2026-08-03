@@ -1,4 +1,18 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, ne, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
@@ -451,53 +465,51 @@ export class WatcherStore {
   }
 
   getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
-    const event = this.db
-      .select()
+    const fromStatuses = alias(statuses, "event_from_status");
+    const toStatuses = alias(statuses, "event_to_status");
+    const row = this.db
+      .select({
+        event: taskEvents,
+        fromStatus: fromStatuses.name,
+        toStatus: toStatuses.name,
+      })
       .from(taskEvents)
+      .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+      .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
       .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
       .orderBy(desc(taskEvents.id))
       .get();
-    if (!event) return undefined;
-
-    const statusName = (statusId: number | null): string | undefined =>
-      statusId === null
-        ? undefined
-        : this.db
-            .select({ name: statuses.name })
-            .from(statuses)
-            .where(eq(statuses.id, statusId))
-            .get()?.name;
+    if (!row) return undefined;
 
     return {
-      id: event.id,
-      taskId: event.taskId,
-      type: event.type,
-      actor: event.actor ?? undefined,
-      fromStatus: statusName(event.fromStatusId),
-      toStatus: statusName(event.toStatusId),
-      body: event.body ?? undefined,
-      slackThreadTs: event.slackThreadTs ?? undefined,
-      createdAt: event.createdAt,
+      id: row.event.id,
+      taskId: row.event.taskId,
+      type: row.event.type,
+      actor: row.event.actor ?? undefined,
+      fromStatus: row.fromStatus ?? undefined,
+      toStatus: row.toStatus ?? undefined,
+      body: row.event.body ?? undefined,
+      slackThreadTs: row.event.slackThreadTs ?? undefined,
+      createdAt: row.event.createdAt,
     };
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
-    const latestPending = new Map<string, number>();
-    const latestCompleted = new Map<string, number>();
     const rows = this.db
-      .select({ id: taskEvents.id, taskId: taskEvents.taskId, type: taskEvents.type })
+      .select({
+        taskId: taskEvents.taskId,
+        latestPending: sql<
+          number | null
+        >`max(case when ${taskEvents.type} = ${pendingType} then ${taskEvents.id} end)`,
+        latestCompleted: sql<number>`coalesce(max(case when ${taskEvents.type} = ${completedType} then ${taskEvents.id} end), 0)`,
+      })
       .from(taskEvents)
       .where(inArray(taskEvents.type, [pendingType, completedType]))
-      .orderBy(asc(taskEvents.id))
+      .groupBy(taskEvents.taskId)
       .all();
 
-    for (const event of rows) {
-      const target = event.type === pendingType ? latestPending : latestCompleted;
-      target.set(event.taskId, event.id);
-    }
-
-    return [...latestPending].flatMap(([taskId, pendingId]) =>
-      pendingId > (latestCompleted.get(taskId) ?? 0) ? [taskId] : [],
+    return rows.flatMap(({ taskId, latestPending, latestCompleted }) =>
+      latestPending !== null && latestPending > latestCompleted ? [taskId] : [],
     );
   }
 

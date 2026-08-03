@@ -434,7 +434,6 @@ async function deliverPendingReviewLimitNotifications(
         completedTaskIds.add(taskId);
       }
     } catch (error) {
-      if (onlyTaskId) throw error;
       console.error(`Failed to deliver pending review limit notification for ${taskId}:`, error);
     }
   }
@@ -586,9 +585,11 @@ function decideReviewReaction(
     REVIEW_REQUEUE_EVENT,
     REVIEW_REQUEUE_LIMIT_EVENT,
   );
+  // Legacy or reconfigured cycles can contain counts beyond the current limit.
   if (review.maxRequeues > 0) {
     requeueCount %= review.maxRequeues;
   }
+  // Non-positive limits disable automatic requeueing.
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
   }

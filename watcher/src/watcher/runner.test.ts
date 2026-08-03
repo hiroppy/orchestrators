@@ -487,9 +487,8 @@ describe("runOnce", () => {
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
       let rejectedClientMessageId: unknown;
-      const slackClient = fakeSlackClient(
-        calls,
-        (args) => {
+      const slackClient = fakeSlackClient(calls, {
+        rejectPostMessage: (args) => {
           if (
             rejectLimitNotification &&
             String(args.text).includes("review requeue limit reached")
@@ -501,14 +500,14 @@ describe("runOnce", () => {
           }
           return false;
         },
-        (args) => {
+        rejectUpdate: (args) => {
           if (rejectLimitCardUpdate && JSON.stringify(args.blocks).includes("In Progress")) {
             rejectLimitCardUpdate = false;
             return true;
           }
           return false;
         },
-      );
+      });
       const run = async (snapshotStatus: string) => {
         config.services[0].url = dataUrl({
           running: [
@@ -565,7 +564,9 @@ describe("runOnce", () => {
 
       await run("In Progress");
       linearState = "In Review";
-      await assert.rejects(() => run("In Review"), /Simulated Slack failure/);
+      // Phase 1: Slack rejects the limit notification, but the poll continues.
+      await run("In Review");
+      assert.match(deliveryErrors.join("\n"), /Simulated Slack failure/);
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress"]);
       assert.equal(
         store.countEventsAfterLatest(
@@ -580,6 +581,7 @@ describe("runOnce", () => {
       linearState = "In Review";
       hasReviewReaction = false;
       store.setTaskLinearStateType("service-a:ENG-62", "completed");
+      // Phase 2: notification delivery succeeds, while the card update remains pending.
       await run("In Review");
       assert.match(deliveryErrors.join("\n"), /Simulated Slack card failure/);
       assert.equal(
@@ -612,6 +614,7 @@ describe("runOnce", () => {
 
       hasReviewReaction = true;
       failLinearFetchOnce = true;
+      // Phase 3: card recovery succeeds, but transient Linear failure keeps reconciliation pending.
       await run("In Review");
       assert.equal(
         store.countEventsAfterLatest(
@@ -631,6 +634,7 @@ describe("runOnce", () => {
       );
       assert.equal(statusUpdates.length, 3);
 
+      // Phase 4: reconciliation retries and requeues the same In Review cycle.
       await run("In Review");
       assert.equal(
         store.countEventsAfterLatest(
@@ -665,6 +669,7 @@ describe("runOnce", () => {
       }
       config.reviewReaction.maxRequeues = 3;
       linearState = "In Review";
+      // Phase 5: lowering the limit normalizes an over-limit current cycle.
       await run("In Review");
       assert.equal(statusUpdates.length, 5);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
@@ -957,8 +962,10 @@ function runtimeConfig<T extends object>(config: T) {
 
 function fakeSlackClient(
   calls: Array<Record<string, unknown>>,
-  rejectPostMessage?: (args: Record<string, unknown>) => boolean,
-  rejectUpdate?: (args: Record<string, unknown>) => boolean,
+  options: {
+    rejectPostMessage?: (args: Record<string, unknown>) => boolean;
+    rejectUpdate?: (args: Record<string, unknown>) => boolean;
+  } = {},
 ) {
   let timestamp = 0;
   return {
@@ -974,13 +981,13 @@ function fakeSlackClient(
         };
       },
       async postMessage(args: Record<string, unknown>) {
-        if (rejectPostMessage?.(args)) throw new Error("Simulated Slack failure");
+        if (options.rejectPostMessage?.(args)) throw new Error("Simulated Slack failure");
         timestamp += 1;
         calls.push({ method: "postMessage", ...args });
         return { ok: true, channel: String(args.channel), ts: `${timestamp}.000` };
       },
       async update(args: Record<string, unknown>) {
-        if (rejectUpdate?.(args)) throw new Error("Simulated Slack card failure");
+        if (options.rejectUpdate?.(args)) throw new Error("Simulated Slack card failure");
         calls.push({ method: "update", ...args });
         return { ok: true, channel: String(args.channel), ts: String(args.ts) };
       },
