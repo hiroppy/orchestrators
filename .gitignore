@@ -17,6 +17,8 @@
 .env.*
 /config.ts
 /config.local.ts
+/watcher/config.ts
+/watcher/config.local.ts
 /config.json
 /launchd/
 
