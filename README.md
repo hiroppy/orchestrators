@@ -60,8 +60,9 @@ cp config.example.ts config.ts
 
 ### Configuration
 
-`config.ts` is gitignored. Credentials can also be read from environment
-variables as shown in `config.example.ts`.
+The root `config.ts` is gitignored. Credentials can also be read from environment
+variables as shown in `config.example.ts`. The Symphony runner and Slack watcher
+both read it through the `orchestrator-config` workspace package.
 
 #### Create the Slack app
 
@@ -244,6 +245,7 @@ This does not update instances already copied to `symphonies/`.
 
 - `symphony_template/` — official Symphony source imported as a Git subtree and copied into each instance
 - `symphonies/<name>/` — generated local instances
+- `config/` — shared configuration package and schema
 - `watcher/` — process runner and Slack watcher
 - `data/symphony/` — instance workspaces and logs
 - `data/watcher/` — watcher SQLite state

@@ -15,6 +15,9 @@
     "db:generate": "pnpm --filter orchestrator-slack-watcher db:generate",
     "db:studio": "pnpm --filter orchestrator-slack-watcher db:studio"
   },
+  "dependencies": {
+    "orchestrator-config": "workspace:*"
+  },
   "devDependencies": {
     "knip": "^6.29.0",
     "oxfmt": "^0.61.0",
