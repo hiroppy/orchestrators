@@ -7,7 +7,7 @@
   "imports": {
     "#watcher-config": {
       "test": "./src/fixtures/config.ts",
-      "default": "./config.ts"
+      "default": "./src/config/root-config.js"
     }
   },
   "scripts": {

@@ -15,8 +15,8 @@
 # Local/private config and secrets
 .env
 .env.*
-/watcher/config.ts
-/watcher/config.local.ts
+/config.ts
+/config.local.ts
 /config.json
 /launchd/
 

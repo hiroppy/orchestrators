@@ -55,13 +55,13 @@ During setup, you will configure the following values:
 ```sh
 npm run setup
 pnpm install
-cp watcher/config.example.ts watcher/config.ts
+cp config.example.ts config.ts
 ```
 
 ### Configuration
 
-`watcher/config.ts` is gitignored. Credentials can also be read from environment
-variables as shown in `watcher/config.example.ts`.
+`config.ts` is gitignored. Credentials can also be read from environment
+variables as shown in `config.example.ts`.
 
 #### Create the Slack app
 
@@ -85,7 +85,7 @@ one. Existing installations do not gain newly declared scopes automatically.
 The manifest cannot issue an app-level token. In **Basic Information →
 App-Level Tokens**, choose **Generate Token and Scopes**, add
 `connections:write`, and copy the resulting `xapp-...` token to
-`slack.appToken` in `watcher/config.ts`. Copy the installed bot's `xoxb-...`
+`slack.appToken` in `config.ts`. Copy the installed bot's `xoxb-...`
 token to `slack.botToken`.
 
 #### Define teams and instances
@@ -221,7 +221,7 @@ pnpm start:symphonies
 ```
 
 Each instance's dashboard is available at `http://127.0.0.1:<port>`, using the
-port configured in `watcher/config.ts`. Logs are written to
+port configured in `config.ts`. Logs are written to
 `data/symphony/logs/<instance-name>/`.
 
 To also monitor the instances from Slack, start the watcher in another terminal:

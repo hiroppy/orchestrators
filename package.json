@@ -1,6 +1,7 @@
 {
   "name": "orchestrators",
   "private": true,
+  "type": "module",
   "scripts": {
     "setup": "corepack enable",
     "start:watcher": "pnpm --filter orchestrator-slack-watcher start:watcher",

@@ -1,4 +1,4 @@
-import { defineConfig } from "./src/config/define.ts";
+import { defineConfig } from "./watcher/src/config/define.ts";
 
 export default defineConfig({
   watcher: {
