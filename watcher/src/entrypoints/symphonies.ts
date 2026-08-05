@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import config from "#watcher-config";
+import config from "orchestrator-config/runtime";
 import { startSymphonies } from "../symphonies/runner.ts";
 
 startSymphonies(config).catch((error: Error) => {

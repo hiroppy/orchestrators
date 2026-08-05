@@ -1,5 +1,15 @@
 /** Shared domain types used across watcher subsystems. */
-export type EventType = "started" | "updated" | "retrying" | "blocked" | "ended" | "recovered";
+import type { EventType, LinearTeamConfig } from "orchestrator-config";
+
+export type {
+  EventType,
+  InstanceConfig,
+  LinearTeamConfig,
+  MentionConfig,
+  OrchestratorConfig,
+  ReviewReactionConfig,
+  SlackConfig,
+} from "orchestrator-config";
 
 export interface TokenCounts {
   input?: number;
@@ -40,62 +50,14 @@ export interface Snapshot {
 
 export type SnapshotsByService = Record<string, Snapshot | undefined>;
 
-export interface LinearTeamConfig {
-  apiKey: string;
-  teamId: string;
-  baseUrl?: string;
-}
-
 export interface ResolvedLinearTeamConfig extends LinearTeamConfig {
   statuses: string[];
-}
-
-export interface InstanceConfig {
-  port: number;
-  linearTeam: string;
-  enabled?: boolean;
 }
 
 export interface ServiceDefinition {
   name: string;
   url: string;
   linearTeam: string;
-}
-
-export interface SlackConfig {
-  botToken?: string;
-  appToken?: string;
-  channelId?: string;
-  mention?: MentionConfig;
-}
-
-export interface MentionConfig {
-  target: string;
-  statuses?: string[];
-  events?: EventType[];
-}
-
-export interface ReviewReactionConfig {
-  inReviewStatus: string;
-  inProgressStatus: string;
-  reaction: string;
-  maxRequeues: number;
-}
-
-interface WatcherSettings {
-  pollIntervalMs?: number;
-  endedTaskRetry?: {
-    maxAttempts?: number;
-    delayMs?: number;
-  };
-  reviewReaction?: ReviewReactionConfig;
-}
-
-export interface OrchestratorConfig {
-  instances: Record<string, InstanceConfig>;
-  linearTeams: Record<string, LinearTeamConfig>;
-  watcher?: WatcherSettings;
-  slack?: SlackConfig;
 }
 
 export interface PullRequest {

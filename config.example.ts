@@ -1,4 +1,4 @@
-import { defineConfig } from "./src/config/define.ts";
+import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {

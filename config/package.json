@@ -1,0 +1,16 @@
+{
+  "name": "orchestrator-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime": {
+      "test": "./src/fixtures/config.ts",
+      "default": "./src/root-config.ts"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

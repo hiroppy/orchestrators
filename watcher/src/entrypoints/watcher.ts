@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import config from "#watcher-config";
+import config from "orchestrator-config/runtime";
 import { startWatcher } from "../watcher/runner.ts";
 
 startWatcher(config, process.argv.slice(2)).catch((error: Error) => {

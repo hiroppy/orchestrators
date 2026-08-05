@@ -2,12 +2,13 @@
 
 ## Configuration
 
-`config.ts` is gitignored. Credentials can also be read from environment
-variables as shown in `config.example.ts`.
+The repository root `config.ts` is gitignored. Credentials can also be read from
+environment variables as shown in the root `config.example.ts`.
 
-Both entrypoints statically import `#watcher-config`. Normal execution resolves
-that import to `config.ts`; the `test` condition resolves it to
-`src/fixtures/config.ts`. Tests and type checking do not require a config file.
+Both entrypoints import `orchestrator-config/runtime`. Normal execution resolves
+that export to the shared root `config.ts`; the `test` condition resolves it to a
+fixture owned by the config package. Tests and type checking do not require a
+private config file.
 
 ### Define teams and instances
 
@@ -120,7 +121,7 @@ watcher thread.
 
 Run the command from the `watcher` directory. It uses the same card builder as
 the watcher and requires only a bot token with permission to post to the
-destination channel. It does not require `watcher/config.ts` or
+destination channel. It does not require the root `config.ts` or
 `SLACK_APP_TOKEN`.
 
 ## Message behavior

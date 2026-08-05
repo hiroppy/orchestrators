@@ -1,4 +1,4 @@
-import { defineConfig } from "../config/define.ts";
+import { defineConfig } from "../index.ts";
 
 export default defineConfig({
   linearTeams: {
