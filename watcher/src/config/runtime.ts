@@ -198,7 +198,10 @@ function resolveMentionConfig(
   const targets = mention.targets ?? [];
   const statuses = mention.statuses ?? [];
   const events = mention.events ?? [];
-  if (!Array.isArray(targets) || targets.some((target) => !target.trim())) {
+  if (
+    !Array.isArray(targets) ||
+    targets.some((target) => typeof target !== "string" || !target.trim())
+  ) {
     throw new Error("slack.mentions.targets must be an array of non-empty Slack mentions.");
   }
   if (!Array.isArray(statuses)) {

@@ -10,11 +10,11 @@ import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";
 
 const ISSUE_STATE_QUERY = `
-  query OrchestratorWatcherIssueState($id: String!) {
+  query OrchestratorWatcherIssueState($id: String!, $includeCreator: Boolean!) {
     issue(id: $id) {
       identifier
       title
-      creator {
+      creator @include(if: $includeCreator) {
         name
         email
       }
@@ -157,6 +157,7 @@ interface LinearRequestOptions {
 }
 
 interface FetchLinearOptions extends LinearRequestOptions {
+  includeCreator?: boolean;
   maxAttempts?: number;
   retryDelayMs?: number;
 }
@@ -542,6 +543,7 @@ export async function fetchLinearIssueState(
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const includeCreator = options.includeCreator ?? true;
 
   if (!apiKey || !issueIdentifier) return null;
 
@@ -555,7 +557,7 @@ export async function fetchLinearIssueState(
         },
         body: JSON.stringify({
           query: ISSUE_STATE_QUERY,
-          variables: { id: issueIdentifier },
+          variables: { id: issueIdentifier, includeCreator },
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -583,8 +585,8 @@ export async function fetchLinearIssueState(
         state: issue.state?.name ?? null,
         stateType: issue.state?.type ?? null,
         url: issue.url ?? null,
-        ...(issue.creator?.name ? { creatorName: issue.creator.name } : {}),
-        ...(issue.creator?.email ? { creatorEmail: issue.creator.email } : {}),
+        ...(includeCreator && issue.creator?.name ? { creatorName: issue.creator.name } : {}),
+        ...(includeCreator && issue.creator?.email ? { creatorEmail: issue.creator.email } : {}),
         ...(pullRequest ? { pullRequest } : {}),
         ...(relatedIssues.length > 0 ? { relatedIssues } : {}),
       };

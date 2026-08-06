@@ -425,18 +425,27 @@ export function notificationTargetsForWatcherEvent(
   creatorMention?: string,
   force = false,
 ): { creator?: string; mentions: string[] } | undefined {
-  if (!force) {
-    if (!mention) return undefined;
-    if (
-      !enteredMentionStatus(mention, previousStatus, currentStatus) &&
-      !mention.events.includes(eventType)
-    ) {
-      return undefined;
-    }
+  if (!notificationIsEligible(mention, previousStatus, currentStatus, eventType, force)) {
+    return undefined;
   }
   const targets = mention?.targets ?? [];
   if (!creatorMention && targets.length === 0) return undefined;
   return { creator: creatorMention, mentions: targets };
+}
+
+export function notificationIsEligible(
+  mention: ResolvedMentionConfig | undefined,
+  previousStatus: string | undefined,
+  currentStatus: string,
+  eventType: WatcherEvent["type"],
+  force = false,
+): boolean {
+  if (force) return true;
+  if (!mention) return false;
+  return (
+    enteredMentionStatus(mention, previousStatus, currentStatus) ||
+    mention.events.includes(eventType)
+  );
 }
 
 function enteredMentionStatus(

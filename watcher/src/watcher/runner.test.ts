@@ -86,6 +86,17 @@ describe("runOnce", () => {
         ),
       /unknown events/,
     );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            slack: { mentions: { targets: [123] } },
+          } as never,
+          { requireSlack: false },
+        ),
+      /targets must be an array of non-empty Slack mentions/,
+    );
   });
 
   it("loads workflow statuses from Linear and validates status-based rules", async () => {
@@ -341,6 +352,7 @@ describe("runOnce", () => {
             issue: {
               identifier: "ALT-77",
               title: "Use another Linear account",
+              creator: { name: "Private Creator", email: "private@example.com" },
               state: { name: "Building", type: "started" },
               url: "https://linear.app/other/issue/ALT-77/example",
             },
@@ -371,6 +383,7 @@ describe("runOnce", () => {
 
       assert.deepEqual(authorizationHeaders, ["lin_other"]);
       assert.match(output[0], /Use another Linear account/);
+      assert.doesNotMatch(output[0], /private@example\.com|Private Creator/);
       assert.deepEqual(store.getSnapshots()["service-b"], {
         running: [],
         retrying: [],
@@ -590,6 +603,10 @@ describe("runOnce", () => {
           "review_requeue_limit_reached",
         ),
         1,
+      );
+      assert.doesNotMatch(
+        store.getLatestEvent("service-a:ENG-62", "review_requeue_limit_pending")?.body ?? "",
+        /creatorName|creatorEmail|creator@example\.com/,
       );
 
       config.reviewReaction.maxRequeues = 5;

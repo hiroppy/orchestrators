@@ -256,7 +256,8 @@ describe("Slack rendering", () => {
   });
 
   it("renders a precomputed attention mention in cards and threads", () => {
-    const mention = "<!subteam^SXXXXXXXX>";
+    const creator = "<@UCREATOR>";
+    const mentions = ["<!subteam^SXXXXXXXX>"];
     const card = buildTaskCard(
       { ...task, status: "In Review" },
       ["In Progress", "In Review", "Done"],
@@ -267,7 +268,8 @@ describe("Slack rendering", () => {
         turnCount: 1,
         tokens: { total: 1_400_000 },
       },
-      mention,
+      creator,
+      { mentions },
     );
     const thread = buildThreadMessage(
       {
@@ -276,18 +278,20 @@ describe("Slack rendering", () => {
         issueIdentifier: "ENG-62",
         resolvedState: "In Review",
       },
-      mention,
+      creator,
+      { mentions },
     );
 
-    assert.match(card.text, /Creator: <!subteam\^SXXXXXXXX>/);
+    assert.match(card.text, /Creator: <@UCREATOR>/);
+    assert.match(card.text, /Mentions: <!subteam\^SXXXXXXXX>/);
     const context = card.blocks.find((block) => block.type === "context") as {
       elements: Array<{ text: string }>;
     };
     assert.match(
       context.elements[0].text,
-      /^Event: Ended \| Creator: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
+      /^Event: Ended \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
     );
-    assert.match(thread, /\*Updated\* \| Creator: <!subteam\^SXXXXXXXX>/);
+    assert.match(thread, /\*Updated\* \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>/);
 
     const withoutMentions = buildTaskCard(task, ["In Progress"], undefined, undefined, {
       mentions: [],
