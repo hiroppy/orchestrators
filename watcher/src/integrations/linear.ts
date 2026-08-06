@@ -6,6 +6,8 @@ const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
+export class TransientLinearError extends Error {}
+
 import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";
 
@@ -160,6 +162,7 @@ interface FetchLinearOptions extends LinearRequestOptions {
   includeCreator?: boolean;
   maxAttempts?: number;
   retryDelayMs?: number;
+  throwOnTransientFailure?: boolean;
 }
 
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
@@ -544,6 +547,7 @@ export async function fetchLinearIssueState(
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const includeCreator = options.includeCreator ?? true;
+  const throwOnTransientFailure = options.throwOnTransientFailure ?? false;
 
   if (!apiKey || !issueIdentifier) return null;
 
@@ -568,6 +572,10 @@ export async function fetchLinearIssueState(
           continue;
         }
 
+        if (shouldRetryResponse(response.status) && throwOnTransientFailure) {
+          throw new TransientLinearError(`Linear request failed with status ${response.status}.`);
+        }
+
         return null;
       }
 
@@ -590,8 +598,14 @@ export async function fetchLinearIssueState(
         ...(pullRequest ? { pullRequest } : {}),
         ...(relatedIssues.length > 0 ? { relatedIssues } : {}),
       };
-    } catch {
-      if (attempt >= maxAttempts) return null;
+    } catch (error) {
+      if (error instanceof TransientLinearError) throw error;
+      if (attempt >= maxAttempts) {
+        if (throwOnTransientFailure) {
+          throw new TransientLinearError("Linear request failed transiently.");
+        }
+        return null;
+      }
       await sleep(retryDelayMs);
     }
   }

@@ -497,6 +497,111 @@ describe("runOnce", () => {
     });
   });
 
+  it("commits permanent creator misses and still sends static mentions", async (context) => {
+    await withStore(async (store) => {
+      const current = {
+        running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
+        retrying: [],
+        blocked: [],
+      };
+      let linearRequests = 0;
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        linearRequests += 1;
+        if (linearRequests === 2) return new Response("not found", { status: 404 });
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Notify reviewers",
+              state: { name: "Blocked", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
+        mention: {
+          targets: ["<!subteam^SREVIEWERS>"],
+          statuses: [],
+          events: ["started"],
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const calls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.deepEqual(store.getSnapshots()["service-a"], current);
+      assert.match(JSON.stringify(calls), /Mentions: <!subteam\^SREVIEWERS>/);
+    });
+  });
+
+  it("preflights creator enrichment before publishing any event", async (context) => {
+    await withStore(async (store) => {
+      const current = {
+        running: [
+          { issue_identifier: "ENG-61", state: "Blocked" },
+          { issue_identifier: "ENG-62", state: "Blocked" },
+        ],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const body = JSON.parse(String(options?.body)) as {
+          variables: { id: string; includeCreator: boolean };
+        };
+        if (body.variables.id === "ENG-62" && body.variables.includeCreator) {
+          return new Response("temporary failure", { status: 500 });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: body.variables.id,
+              title: `Notify ${body.variables.id}`,
+              creator: { name: "Creator", email: `${body.variables.id}@example.com` },
+              state: { name: "Blocked", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
+        mention: { targets: [], statuses: [], events: ["started"] },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const calls: Array<Record<string, unknown>> = [];
+      context.mock.method(console, "warn", () => {});
+
+      await runPoll({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(
+        calls.some(({ method }) => method === "postMessage"),
+        false,
+      );
+      assert.deepEqual(store.getSnapshots()["service-a"], {
+        running: [],
+        retrying: [],
+        blocked: [],
+      });
+    });
+  });
+
   it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";

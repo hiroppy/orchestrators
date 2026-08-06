@@ -15,6 +15,7 @@ import {
   createLinearWorkpadReply,
   fetchLinearIssueState,
   fetchLinearWorkflowStates,
+  TransientLinearError,
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
 import { downloadSlackFile } from "../integrations/slack.ts";
@@ -175,6 +176,7 @@ export async function runOnce({
   const current = await collectSnapshots(config.services, previous);
   const events = diffSnapshots(previous, current, config);
   const processedTaskIds = new Set<string>();
+  const preparedEvents = [];
 
   for (const event of events) {
     const enrichment = await enrichEvent(event, config, {
@@ -195,7 +197,11 @@ export async function runOnce({
       reviewDecision,
       dryRun ? undefined : slackClient,
     );
+    preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
+  }
 
+  for (const prepared of preparedEvents) {
+    const { source, enrichment, event: enrichedEvent, reviewDecision } = prepared;
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
@@ -250,7 +256,7 @@ export async function runOnce({
         updateLinearStatus,
       });
       if (enrichment.isAuthoritative) {
-        markReviewRequeueReconciled(store, taskIdFor(event.service, event.issueIdentifier));
+        markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
       }
     }
   }
@@ -805,17 +811,21 @@ async function enrichCreatorForNotification(
   }
   if (event.issueIdentifier === `watcher:${event.service}`) return event;
 
-  const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
-    apiKey: linearTeamForService(config, event.service)?.apiKey,
-    includeCreator: true,
-    maxAttempts: 1,
-  });
-  if (!linearIssue) {
-    if (!slackClient) return event;
+  let linearIssue;
+  try {
+    linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
+      apiKey: linearTeamForService(config, event.service)?.apiKey,
+      includeCreator: true,
+      maxAttempts: 1,
+      throwOnTransientFailure: Boolean(slackClient),
+    });
+  } catch (error) {
+    if (!(error instanceof TransientLinearError)) throw error;
     throw new RetryablePollError(
       `Could not fetch Linear creator for notification: ${event.issueIdentifier}`,
     );
   }
+  if (!linearIssue) return event;
   return enrichCreatorMention(
     compactObject({
       ...event,
