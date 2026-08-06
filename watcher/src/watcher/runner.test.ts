@@ -97,6 +97,17 @@ describe("runOnce", () => {
         ),
       /targets must be an array of non-empty Slack mentions/,
     );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            slack: { mentions: { targets: ["x".repeat(2_001)] } },
+          },
+          { requireSlack: false },
+        ),
+      /targets must not exceed 2000 characters combined/,
+    );
   });
 
   it("loads workflow statuses from Linear and validates status-based rules", async () => {
@@ -462,7 +473,11 @@ describe("runOnce", () => {
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
         linearRequests += 1;
-        if (linearRequests === 2) return new Response("temporary failure", { status: 500 });
+        if (linearRequests === 2) {
+          return Response.json({
+            errors: [{ message: "rate limited", extensions: { code: "RATELIMITED" } }],
+          });
+        }
         return Response.json({
           data: {
             issue: {

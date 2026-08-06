@@ -13,6 +13,7 @@ import type {
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
+const MAX_MENTION_TARGETS_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
 const EVENT_TYPES: EventType[] = [
   "started",
@@ -203,6 +204,11 @@ function resolveMentionConfig(
     targets.some((target) => typeof target !== "string" || !target.trim())
   ) {
     throw new Error("slack.mentions.targets must be an array of non-empty Slack mentions.");
+  }
+  if (targets.join(" ").length > MAX_MENTION_TARGETS_LENGTH) {
+    throw new Error(
+      `slack.mentions.targets must not exceed ${MAX_MENTION_TARGETS_LENGTH} characters combined.`,
+    );
   }
   if (!Array.isArray(statuses)) {
     throw new Error("slack.mentions.statuses must be an array.");

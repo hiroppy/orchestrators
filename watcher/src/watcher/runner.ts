@@ -263,6 +263,7 @@ export async function runOnce({
 
   if (!dryRun) {
     if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
+    store.replaceSnapshots(current);
     await reconcileLinearStatuses({
       config,
       store,
@@ -276,7 +277,6 @@ export async function runOnce({
       updateLinearStatus,
       reviewReconciliationTaskIds,
     });
-    store.replaceSnapshots(current);
   }
   return { events, current };
 }

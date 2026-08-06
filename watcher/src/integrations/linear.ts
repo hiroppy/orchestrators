@@ -206,6 +206,7 @@ interface LinearIssueRelation {
 }
 
 interface LinearIssueResponse {
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>;
   data?: {
     issue?: {
       identifier: string;
@@ -580,6 +581,17 @@ export async function fetchLinearIssueState(
       }
 
       const body = (await response.json()) as LinearIssueResponse;
+      const rateLimited = body.errors?.some((error) => error.extensions?.code === "RATELIMITED");
+      if (rateLimited) {
+        if (attempt < maxAttempts) {
+          await sleep(retryDelayMs);
+          continue;
+        }
+        if (throwOnTransientFailure) {
+          throw new TransientLinearError("Linear GraphQL request was rate limited.");
+        }
+        return null;
+      }
       const issue = body?.data?.issue;
 
       if (!issue) return null;
