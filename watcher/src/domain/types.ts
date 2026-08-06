@@ -5,7 +5,7 @@ export type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  MentionConfig,
+  MentionsConfig,
   OrchestratorConfig,
   ReviewReactionConfig,
   SlackConfig,
@@ -95,6 +95,9 @@ export interface WatcherEvent {
   dueAt?: string;
   error?: string;
   issueTitle?: string | null;
+  creatorName?: string | null;
+  creatorEmail?: string | null;
+  creatorMention?: string | null;
   resolvedState?: string | null;
   resolvedStateType?: string | null;
   pullRequest?: PullRequest;

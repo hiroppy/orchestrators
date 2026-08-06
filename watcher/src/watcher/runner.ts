@@ -15,6 +15,7 @@ import {
   createLinearWorkpadReply,
   fetchLinearIssueState,
   fetchLinearWorkflowStates,
+  TransientLinearError,
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
 import { downloadSlackFile } from "../integrations/slack.ts";
@@ -25,7 +26,8 @@ import {
 } from "../integrations/github.ts";
 import {
   createSlackApp,
-  mentionTargetForWatcherEvent,
+  notificationIsEligible,
+  notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
 } from "../slack/app.ts";
@@ -43,6 +45,7 @@ import type {
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+const creatorMentionCache = new Map<string, string | null>();
 const REVIEW_REQUEUE_EVENT = "review_requeued";
 const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
@@ -50,6 +53,8 @@ const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";
 const REVIEW_REQUEUE_RECONCILE_PENDING_EVENT = "review_requeue_reconcile_pending";
 const REVIEW_REQUEUE_RECONCILED_EVENT = "review_requeue_reconciled";
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+class RetryablePollError extends Error {}
 
 export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
   const options = parseArgs(args);
@@ -71,7 +76,6 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
       ? createSlackApp({
           botToken: slackConfig.botToken,
           appToken: slackConfig.appToken,
-          mention: runtimeConfig.mention,
           updateLinearStatus: async (task, status) => {
             await updateLinearIssueStatus(task.issueIdentifier, status, {
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
@@ -109,7 +113,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
     }
 
     while (true) {
-      await runOnce({
+      await runPoll({
         config: runtimeConfig,
         store,
         slackClient: client,
@@ -123,6 +127,15 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
   } finally {
     if (app) await app.stop();
     database.close();
+  }
+}
+
+export async function runPoll(options: RunOnceOptions): Promise<void> {
+  try {
+    await runOnce(options);
+  } catch (error) {
+    if (!(error instanceof RetryablePollError)) throw error;
+    console.warn(error.message);
   }
 }
 
@@ -163,35 +176,45 @@ export async function runOnce({
   const current = await collectSnapshots(config.services, previous);
   const events = diffSnapshots(previous, current, config);
   const processedTaskIds = new Set<string>();
+  const preparedEvents = [];
 
   for (const event of events) {
     const enrichment = await enrichEvent(event, config, {
       findPullRequest,
       findPullRequestByUrl,
     });
-    const enrichedEvent = enrichment.event;
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
     const reviewDecision = decideReviewReaction(
       config,
       store,
-      enrichedEvent,
+      enrichment.event,
       enrichment.isAuthoritative,
     );
+    const enrichedEvent = await enrichCreatorForNotification(
+      enrichment.event,
+      config,
+      store.getTask(taskIdFor(event.service, event.issueIdentifier))?.status,
+      reviewDecision,
+      dryRun ? undefined : slackClient,
+    );
+    preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
+  }
 
+  for (const prepared of preparedEvents) {
+    const { source, enrichment, event: enrichedEvent, reviewDecision } = prepared;
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
-      let mentionTarget: string | undefined;
-      if (reviewDecision.deliverDeferredMention) {
-        mentionTarget = config.mention?.target;
-      } else if (!shouldSuppressReviewMention(reviewDecision)) {
-        mentionTarget = mentionTargetForWatcherEvent(
-          config.mention,
-          store.getTask(taskId)?.status,
-          status,
-          enrichedEvent.type,
-        );
-      }
+      const notificationTargets = shouldSuppressReviewMention(reviewDecision)
+        ? undefined
+        : notificationTargetsForWatcherEvent(
+            config.mention,
+            store.getTask(taskId)?.status,
+            status,
+            enrichedEvent.type,
+            enrichedEvent.creatorMention ?? undefined,
+            reviewDecision.deliverDeferredMention,
+          );
       const task = {
         id: taskId,
         serviceName: enrichedEvent.service,
@@ -203,15 +226,18 @@ export async function runOnce({
       console.log(
         JSON.stringify(
           {
-            event: enrichedEvent,
+            event: withoutCreatorEmail(enrichedEvent),
             slack: {
               parent: buildTaskCard(
                 task,
                 linearTeamForService(config, task.serviceName)?.statuses ?? [],
                 enrichedEvent,
-                mentionTarget,
+                notificationTargets?.creator,
+                { mentions: notificationTargets?.mentions },
               ),
-              thread: buildThreadMessage(enrichedEvent, mentionTarget),
+              thread: buildThreadMessage(enrichedEvent, notificationTargets?.creator, {
+                mentions: notificationTargets?.mentions,
+              }),
             },
           },
           null,
@@ -230,13 +256,14 @@ export async function runOnce({
         updateLinearStatus,
       });
       if (enrichment.isAuthoritative) {
-        markReviewRequeueReconciled(store, taskIdFor(event.service, event.issueIdentifier));
+        markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
       }
     }
   }
 
   if (!dryRun) {
     if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
+    store.replaceSnapshots(current);
     await reconcileLinearStatuses({
       config,
       store,
@@ -250,7 +277,6 @@ export async function runOnce({
       updateLinearStatus,
       reviewReconciliationTaskIds,
     });
-    store.replaceSnapshots(current);
   }
   return { events, current };
 }
@@ -285,6 +311,7 @@ async function reconcileLinearStatuses({
 
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
+      includeCreator: false,
       maxAttempts: 1,
     });
     if (!linearIssue?.state) continue;
@@ -318,7 +345,6 @@ async function reconcileLinearStatuses({
       relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewReaction(config, store, event, true);
-
     if (
       sameStatus &&
       !reviewDecision.shouldRequeue &&
@@ -332,12 +358,20 @@ async function reconcileLinearStatuses({
       continue;
     }
 
+    const enrichedEvent = await enrichCreatorForNotification(
+      event,
+      config,
+      task.status,
+      reviewDecision,
+      slackClient,
+    );
+
     await processWatcherEvent({
       config,
       store,
       slackClient,
       slackChannelId,
-      event,
+      event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
     });
@@ -415,7 +449,7 @@ async function processWatcherEvent({
         actor: "watcher",
         fromStatus,
         toStatus: requeuedTask.status,
-        body: JSON.stringify({ message: limitMessage, event }),
+        body: JSON.stringify({ message: limitMessage, event: withoutCreatorDetails(event) }),
       },
     ]);
     await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
@@ -622,8 +656,7 @@ function decideReviewReaction(
         reconciliationIsAuthoritative &&
         isInReview &&
         event.pullRequest?.hasConfiguredReaction === false &&
-        mentionTargetForWatcherEvent(config.mention, undefined, currentStatus, event.type) !==
-          undefined,
+        notificationIsEligible(config.mention, undefined, currentStatus, event.type),
     };
   }
 
@@ -721,6 +754,7 @@ async function enrichEvent(
   const isEnded = event.type === "ended";
   const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
     apiKey: linearTeamForService(config, event.service)?.apiKey,
+    includeCreator: false,
     maxAttempts: isEnded ? config.endedTaskRetry.maxAttempts : 1,
     retryDelayMs: isEnded ? config.endedTaskRetry.delayMs : 0,
   });
@@ -753,6 +787,118 @@ async function enrichEvent(
     }),
     isAuthoritative: Boolean(linearIssue?.state) && reactionLookupSucceeded,
   };
+}
+
+async function enrichCreatorForNotification(
+  event: WatcherEvent,
+  config: ResolvedWatcherRuntimeConfig,
+  previousStatus: string | undefined,
+  reviewDecision: ReviewReactionDecision,
+  slackClient?: WebClient,
+): Promise<WatcherEvent> {
+  const currentStatus = event.resolvedState ?? event.state ?? "Unknown";
+  if (
+    shouldSuppressReviewMention(reviewDecision) ||
+    !notificationIsEligible(
+      config.mention,
+      previousStatus,
+      currentStatus,
+      event.type,
+      reviewDecision.deliverDeferredMention,
+    )
+  ) {
+    return event;
+  }
+  if (event.issueIdentifier === `watcher:${event.service}`) return event;
+
+  let linearIssue;
+  try {
+    linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
+      apiKey: linearTeamForService(config, event.service)?.apiKey,
+      includeCreator: true,
+      maxAttempts: 1,
+      throwOnTransientFailure: Boolean(slackClient),
+    });
+  } catch (error) {
+    if (!(error instanceof TransientLinearError)) throw error;
+    throw new RetryablePollError(
+      `Could not fetch Linear creator for notification: ${event.issueIdentifier}`,
+    );
+  }
+  if (!linearIssue) return event;
+  return enrichCreatorMention(
+    compactObject({
+      ...event,
+      creatorName: linearIssue?.creatorName,
+      creatorEmail: linearIssue?.creatorEmail,
+    }),
+    slackClient,
+  );
+}
+
+async function enrichCreatorMention(
+  event: WatcherEvent,
+  slackClient?: WebClient,
+): Promise<WatcherEvent> {
+  const email = event.creatorEmail?.trim().toLowerCase();
+  if (!email || !slackClient) {
+    return withCreatorName(event);
+  }
+
+  if (creatorMentionCache.has(email)) {
+    const cached = creatorMentionCache.get(email);
+    return cached ? { ...event, creatorMention: cached } : withCreatorName(event);
+  }
+
+  try {
+    const response = await slackClient.users.lookupByEmail({ email });
+    const userId = response.user?.id;
+    if (userId) {
+      const mention = `<@${userId}>`;
+      creatorMentionCache.set(email, mention);
+      return { ...event, creatorMention: mention };
+    }
+  } catch (error) {
+    if (isSlackUserNotFound(error)) {
+      creatorMentionCache.set(email, null);
+      return withCreatorName(event);
+    }
+    console.warn(`Could not resolve Linear creator in Slack for ${event.issueIdentifier}:`, error);
+  }
+
+  return withCreatorName(event);
+}
+
+function isSlackUserNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "data" in error &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "error" in error.data &&
+    error.data.error === "users_not_found"
+  );
+}
+
+function withCreatorName(event: WatcherEvent): WatcherEvent {
+  return event.creatorName
+    ? { ...event, creatorMention: escapeSlackText(event.creatorName) }
+    : event;
+}
+
+function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
+  const { creatorEmail: _, ...safeEvent } = event;
+  return safeEvent;
+}
+
+function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {
+  const { creatorName: _name, creatorEmail: _email, ...safeEvent } = event;
+  return safeEvent;
+}
+
+function escapeSlackText(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 interface CollectSnapshotsOptions {
@@ -883,7 +1029,7 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
     );
   }
   for (const status of config.mention?.statuses ?? []) {
-    rules.push(["slack.mention.statuses", status]);
+    rules.push(["slack.mentions.statuses", status]);
   }
 
   for (const [label, expected] of rules) {

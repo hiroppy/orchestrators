@@ -6,14 +6,20 @@ const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
+export class TransientLinearError extends Error {}
+
 import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";
 
 const ISSUE_STATE_QUERY = `
-  query OrchestratorWatcherIssueState($id: String!) {
+  query OrchestratorWatcherIssueState($id: String!, $includeCreator: Boolean!) {
     issue(id: $id) {
       identifier
       title
+      creator @include(if: $includeCreator) {
+        name
+        email
+      }
       state {
         name
         type
@@ -153,8 +159,10 @@ interface LinearRequestOptions {
 }
 
 interface FetchLinearOptions extends LinearRequestOptions {
+  includeCreator?: boolean;
   maxAttempts?: number;
   retryDelayMs?: number;
+  throwOnTransientFailure?: boolean;
 }
 
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
@@ -181,6 +189,8 @@ interface LinearIssueState {
   state: string | null;
   stateType: string | null;
   url: string | null;
+  creatorName?: string | null;
+  creatorEmail?: string | null;
   pullRequest?: PullRequest;
   relatedIssues?: RelatedIssue[];
 }
@@ -196,10 +206,12 @@ interface LinearIssueRelation {
 }
 
 interface LinearIssueResponse {
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>;
   data?: {
     issue?: {
       identifier: string;
       title?: string | null;
+      creator?: { name?: string | null; email?: string | null } | null;
       state?: { name?: string | null; type?: string | null } | null;
       attachments?: { nodes?: Array<{ url?: string | null }> | null } | null;
       relations?: { nodes?: LinearIssueRelation[] | null } | null;
@@ -535,6 +547,8 @@ export async function fetchLinearIssueState(
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const includeCreator = options.includeCreator ?? true;
+  const throwOnTransientFailure = options.throwOnTransientFailure ?? false;
 
   if (!apiKey || !issueIdentifier) return null;
 
@@ -548,7 +562,7 @@ export async function fetchLinearIssueState(
         },
         body: JSON.stringify({
           query: ISSUE_STATE_QUERY,
-          variables: { id: issueIdentifier },
+          variables: { id: issueIdentifier, includeCreator },
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -559,10 +573,25 @@ export async function fetchLinearIssueState(
           continue;
         }
 
+        if (shouldRetryResponse(response.status) && throwOnTransientFailure) {
+          throw new TransientLinearError(`Linear request failed with status ${response.status}.`);
+        }
+
         return null;
       }
 
       const body = (await response.json()) as LinearIssueResponse;
+      const rateLimited = body.errors?.some((error) => error.extensions?.code === "RATELIMITED");
+      if (rateLimited) {
+        if (attempt < maxAttempts) {
+          await sleep(retryDelayMs);
+          continue;
+        }
+        if (throwOnTransientFailure) {
+          throw new TransientLinearError("Linear GraphQL request was rate limited.");
+        }
+        return null;
+      }
       const issue = body?.data?.issue;
 
       if (!issue) return null;
@@ -576,11 +605,19 @@ export async function fetchLinearIssueState(
         state: issue.state?.name ?? null,
         stateType: issue.state?.type ?? null,
         url: issue.url ?? null,
+        ...(includeCreator && issue.creator?.name ? { creatorName: issue.creator.name } : {}),
+        ...(includeCreator && issue.creator?.email ? { creatorEmail: issue.creator.email } : {}),
         ...(pullRequest ? { pullRequest } : {}),
         ...(relatedIssues.length > 0 ? { relatedIssues } : {}),
       };
-    } catch {
-      if (attempt >= maxAttempts) return null;
+    } catch (error) {
+      if (error instanceof TransientLinearError) throw error;
+      if (attempt >= maxAttempts) {
+        if (throwOnTransientFailure) {
+          throw new TransientLinearError("Linear request failed transiently.");
+        }
+        return null;
+      }
       await sleep(retryDelayMs);
     }
   }

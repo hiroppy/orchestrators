@@ -2,7 +2,7 @@ import type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  MentionConfig,
+  MentionsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
   ReviewReactionConfig,
@@ -13,6 +13,7 @@ import type {
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
+const MAX_MENTION_TARGETS_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
 const EVENT_TYPES: EventType[] = [
   "started",
@@ -30,7 +31,7 @@ interface ResolvedSlackConfig {
 }
 
 export interface ResolvedMentionConfig {
-  target: string;
+  targets: string[];
   statuses: string[];
   events: EventType[];
 }
@@ -100,7 +101,7 @@ export function resolveWatcherConfig(
     pollIntervalMs,
     endedTaskRetry,
     reviewReaction,
-    mention: resolveMentionConfig(config.slack?.mention),
+    mention: resolveMentionConfig(config.slack?.mentions),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
 }
@@ -191,29 +192,38 @@ function referencedLinearTeams(
 }
 
 function resolveMentionConfig(
-  mention: MentionConfig | undefined,
+  mention: MentionsConfig | undefined,
 ): ResolvedMentionConfig | undefined {
   if (!mention) return undefined;
 
-  const target = mention.target?.trim();
-  if (!target) throw new Error("slack.mention.target must be a non-empty Slack mention.");
-
+  const targets = mention.targets ?? [];
   const statuses = mention.statuses ?? [];
   const events = mention.events ?? [];
+  if (
+    !Array.isArray(targets) ||
+    targets.some((target) => typeof target !== "string" || !target.trim())
+  ) {
+    throw new Error("slack.mentions.targets must be an array of non-empty Slack mentions.");
+  }
+  if (targets.join(" ").length > MAX_MENTION_TARGETS_LENGTH) {
+    throw new Error(
+      `slack.mentions.targets must not exceed ${MAX_MENTION_TARGETS_LENGTH} characters combined.`,
+    );
+  }
   if (!Array.isArray(statuses)) {
-    throw new Error("slack.mention.statuses must be an array.");
+    throw new Error("slack.mentions.statuses must be an array.");
   }
   if (!Array.isArray(events)) {
-    throw new Error("slack.mention.events must be an array.");
+    throw new Error("slack.mentions.events must be an array.");
   }
-  validateStatuses("slack.mention.statuses", statuses);
+  validateStatuses("slack.mentions.statuses", statuses);
 
   const unknownEvents = events.filter((event) => !EVENT_TYPES.includes(event));
   if (unknownEvents.length > 0) {
-    throw new Error(`slack.mention.events contains unknown events: ${unknownEvents.join(", ")}`);
+    throw new Error(`slack.mentions.events contains unknown events: ${unknownEvents.join(", ")}`);
   }
 
-  return { target, statuses, events };
+  return { targets: targets.map((target) => target.trim()), statuses, events };
 }
 
 function resolveSlackConfig(
