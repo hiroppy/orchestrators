@@ -229,7 +229,7 @@ describe("Slack rendering", () => {
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Started: <!date\^\d+\^\{ago\}\|[^>]+> \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -287,7 +287,12 @@ describe("Slack rendering", () => {
       context.elements[0].text,
       /^Event: Ended \| Creator: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
     );
-    assert.match(thread, /\*Updated\* \| <!subteam\^SXXXXXXXX>/);
+    assert.match(thread, /\*Updated\* \| Creator: <!subteam\^SXXXXXXXX>/);
+
+    const withoutMentions = buildTaskCard(task, ["In Progress"], undefined, undefined, {
+      mentions: [],
+    });
+    assert.doesNotMatch(JSON.stringify(withoutMentions), /Mentions:/);
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
       /\*Rework\* → \*In Review\* by Example User/,

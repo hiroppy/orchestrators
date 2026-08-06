@@ -30,6 +30,7 @@ interface ResolvedSlackConfig {
 }
 
 export interface ResolvedMentionConfig {
+  targets: string[];
   statuses: string[];
   events: EventType[];
 }
@@ -194,8 +195,12 @@ function resolveMentionConfig(
 ): ResolvedMentionConfig | undefined {
   if (!mention) return undefined;
 
+  const targets = mention.targets ?? [];
   const statuses = mention.statuses ?? [];
   const events = mention.events ?? [];
+  if (!Array.isArray(targets) || targets.some((target) => !target.trim())) {
+    throw new Error("slack.mentions.targets must be an array of non-empty Slack mentions.");
+  }
   if (!Array.isArray(statuses)) {
     throw new Error("slack.mentions.statuses must be an array.");
   }
@@ -209,7 +214,7 @@ function resolveMentionConfig(
     throw new Error(`slack.mentions.events contains unknown events: ${unknownEvents.join(", ")}`);
   }
 
-  return { statuses, events };
+  return { targets: targets.map((target) => target.trim()), statuses, events };
 }
 
 function resolveSlackConfig(

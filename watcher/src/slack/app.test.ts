@@ -278,6 +278,7 @@ describe("Slack app behavior", () => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
       const mention = {
+        targets: ["<!subteam^SREVIEWERS>"],
         statuses: ["In Review"],
         events: ["blocked"] as const,
       };
@@ -339,7 +340,10 @@ describe("Slack app behavior", () => {
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 2);
       assert.match(threadTexts[0], /\| Creator: <@UCREATOR>/);
-      assert.match(threadTexts[1], /\| <@UCREATOR>/);
+      for (const text of threadTexts) {
+        assert.match(text, /Creator: <@UCREATOR>/);
+        assert.match(text, /Mentions: <!subteam\^SREVIEWERS>/);
+      }
     });
   });
 

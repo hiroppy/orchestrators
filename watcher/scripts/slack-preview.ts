@@ -12,6 +12,7 @@ import {
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 const DEFAULT_ATTENTION_TARGET = "@attention-target";
+const DEFAULT_MENTION_TARGETS = ["@reviewer-one", "@reviewer-two"];
 export const SLACK_PREVIEW_CATEGORIES = ["post", "thread"] as const;
 export const SLACK_PREVIEW_EVENT_TYPES = [
   "start",
@@ -61,6 +62,7 @@ export interface SlackPreviewConfig {
 
 export interface SlackPreviewOptions {
   mentionTarget?: string;
+  mentions?: string[];
 }
 
 export interface SlackPreviewClient {
@@ -151,6 +153,7 @@ export function buildSlackPreviewMessage(
   const eventPreviewType = type === "attention" ? "block" : type;
   const mentionTarget =
     type === "attention" ? (options.mentionTarget ?? DEFAULT_ATTENTION_TARGET) : undefined;
+  const mentions = type === "attention" ? (options.mentions ?? DEFAULT_MENTION_TARGETS) : [];
   const service = "preview-service";
   const issueIdentifier = "PREVIEW-123";
   const eventType = PREVIEW_EVENT_TYPES[eventPreviewType];
@@ -160,7 +163,7 @@ export function buildSlackPreviewMessage(
   const event = previewEvent(eventType, service, eventIssueIdentifier, status, now);
 
   if (category === "thread") {
-    const context = previewThreadContext(eventType);
+    const context = { ...previewThreadContext(eventType), mentions };
     const blocks = buildThreadMessageBlocks(event, mentionTarget, context);
     return {
       text: buildThreadMessage(event, mentionTarget, context),
@@ -180,7 +183,7 @@ export function buildSlackPreviewMessage(
     PREVIEW_STATUSES,
     event,
     mentionTarget,
-    { interactive: false },
+    { interactive: false, mentions },
   );
 }
 

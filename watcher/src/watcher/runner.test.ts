@@ -67,6 +67,7 @@ describe("runOnce", () => {
     );
 
     assert.deepEqual(config.mention, {
+      targets: [],
       statuses: [],
       events: [],
     });

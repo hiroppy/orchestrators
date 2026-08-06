@@ -17,6 +17,7 @@ export default defineConfig({
     appToken: process.env.SLACK_APP_TOKEN ?? "", // xapp-...
     channelId: process.env.SLACK_CHANNEL_ID ?? "",
     mentions: {
+      targets: ["<!subteam^SXXXXXXXX>"],
       statuses: ["In Review"],
       events: ["blocked"],
     },

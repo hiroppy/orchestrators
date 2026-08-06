@@ -117,9 +117,10 @@ pnpm slack:preview thread update
 The first argument is `post` or `thread`. Available event types are `start`,
 `update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
 a status change made by a Slack user, including the actor's display name. A
-configured attention target can be previewed with `post attention` or
-`thread attention`. Pass the target as `mentionTarget` when using the preview
-helper; the CLI uses a non-notifying placeholder. Thread previews are posted as
+configured creator and additional mention targets can be previewed with
+`post attention` or `thread attention`. Pass them as `mentionTarget` and
+`mentions` when using the preview helper; the CLI uses non-notifying
+placeholders. Thread previews are posted as
 new parent messages so their formatting can be inspected without existing
 watcher threads.
 
@@ -160,7 +161,9 @@ destination channel. It does not require the root `config.ts` or
   mentioned. Watcher-originated notifications resolve the Linear issue creator
   by email and render `Creator: <@user>` when a configured `slack.mentions`
   status or event is reached. If Slack lookup fails, the Linear creator name is
-  displayed without a mention.
+  displayed without a mention. Optional `slack.mentions.targets` entries render
+  separately as `Mentions:` for reviewers or Slack user groups. When `targets`
+  is omitted or empty, the `Mentions:` label is not displayed.
 - A user's text and attached images in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
   PNG, JPEG, GIF, and WebP image-only replies are supported. Bot messages,

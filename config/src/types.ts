@@ -13,6 +13,7 @@ export interface InstanceConfig {
 }
 
 export interface MentionsConfig {
+  targets?: string[];
   statuses?: string[];
   events?: EventType[];
 }

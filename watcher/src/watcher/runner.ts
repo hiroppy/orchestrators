@@ -25,7 +25,7 @@ import {
 } from "../integrations/github.ts";
 import {
   createSlackApp,
-  mentionTargetForWatcherEvent,
+  notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
 } from "../slack/app.ts";
@@ -72,7 +72,6 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
       ? createSlackApp({
           botToken: slackConfig.botToken,
           appToken: slackConfig.appToken,
-          mention: runtimeConfig.mention,
           updateLinearStatus: async (task, status) => {
             await updateLinearIssueStatus(task.issueIdentifier, status, {
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
@@ -182,18 +181,16 @@ export async function runOnce({
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
-      let mentionTarget: string | undefined;
-      if (reviewDecision.deliverDeferredMention) {
-        mentionTarget = enrichedEvent.creatorMention ?? undefined;
-      } else if (!shouldSuppressReviewMention(reviewDecision)) {
-        mentionTarget = mentionTargetForWatcherEvent(
-          config.mention,
-          store.getTask(taskId)?.status,
-          status,
-          enrichedEvent.type,
-          enrichedEvent.creatorMention ?? undefined,
-        );
-      }
+      const notificationTargets = shouldSuppressReviewMention(reviewDecision)
+        ? undefined
+        : notificationTargetsForWatcherEvent(
+            config.mention,
+            store.getTask(taskId)?.status,
+            status,
+            enrichedEvent.type,
+            enrichedEvent.creatorMention ?? undefined,
+            reviewDecision.deliverDeferredMention,
+          );
       const task = {
         id: taskId,
         serviceName: enrichedEvent.service,
@@ -211,9 +208,12 @@ export async function runOnce({
                 task,
                 linearTeamForService(config, task.serviceName)?.statuses ?? [],
                 enrichedEvent,
-                mentionTarget,
+                notificationTargets?.creator,
+                { mentions: notificationTargets?.mentions },
               ),
-              thread: buildThreadMessage(enrichedEvent, mentionTarget),
+              thread: buildThreadMessage(enrichedEvent, notificationTargets?.creator, {
+                mentions: notificationTargets?.mentions,
+              }),
             },
           },
           null,
@@ -627,7 +627,7 @@ function decideReviewReaction(
         reconciliationIsAuthoritative &&
         isInReview &&
         event.pullRequest?.hasConfiguredReaction === false &&
-        mentionTargetForWatcherEvent(
+        notificationTargetsForWatcherEvent(
           config.mention,
           undefined,
           currentStatus,

@@ -24,6 +24,7 @@ export interface TaskCard {
 
 export interface TaskCardOptions {
   interactive?: boolean;
+  mentions?: string[];
 }
 
 export function buildTaskCard(
@@ -33,7 +34,7 @@ export function buildTaskCard(
   mentionTarget?: string,
   options: TaskCardOptions = {},
 ): TaskCard {
-  const mention = mentionLabel(mentionTarget);
+  const notifications = notificationLabels(mentionTarget, options.mentions);
   const watcherErrorTask = isWatcherErrorTask(task);
   const issueUrl = event?.issueUrl ?? task.linkUrl;
   const issueTitle = watcherErrorTask
@@ -56,8 +57,7 @@ export function buildTaskCard(
     [
       watcherErrorTask ? `Status: ${escapeSlack(capitalize(task.status))}` : null,
       event ? `Event: ${escapeSlack(EVENT_LABELS[event.type])}` : null,
-      event ? lifecycleTiming(event) : null,
-      mention,
+      ...notifications,
     ]
       .filter(isPresent)
       .join(" | "),
@@ -69,7 +69,7 @@ export function buildTaskCard(
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
 
   return {
-    text: [displayTitle, mention].filter(isPresent).join(" "),
+    text: [displayTitle, ...notifications].filter(isPresent).join(" "),
     metadata: {
       event_type: "watcher_task",
       event_payload: { task_id: task.id },
@@ -116,6 +116,7 @@ export function buildTaskCard(
 export interface ThreadMessageContext {
   fromStatus?: string;
   toStatus?: string;
+  mentions?: string[];
 }
 
 export function buildThreadMessageBlocks(
@@ -161,13 +162,12 @@ export function buildThreadMessage(
     : `*${escapeSlack(EVENT_LABELS[event.type])}*`;
   const details = [
     headline,
-    mentionTarget,
+    ...notificationLabels(mentionTarget, context.mentions),
     ...[
       event.pullRequest ? formatPullRequest(event.pullRequest) : null,
       event.pullRequest ? null : event.activity,
       event.error ? `Error: ${event.error}` : null,
       event.attempt ? `Attempt: ${event.attempt}` : null,
-      event.dueAt ? `Due: ${event.dueAt}` : null,
     ]
       .filter(isPresent)
       .map(escapeExceptLinks),
@@ -190,8 +190,7 @@ function statusTransitionDetails(
   const details = [
     [
       `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
-      lifecycleTiming(event),
-      mentionLabel(mentionTarget),
+      ...notificationLabels(mentionTarget, context.mentions),
     ]
       .filter(isPresent)
       .join(" | "),
@@ -235,19 +234,6 @@ function compactEventDetails(event: WatcherEvent, includeAttempt = true): string
   ].filter(isPresent);
 }
 
-function lifecycleTiming(event: WatcherEvent): string | undefined {
-  if (event.type === "retrying" && event.dueAt) {
-    return slackDateLabel("Retry", event.dueAt, "{date_short_pretty} {time}");
-  }
-  if (event.type === "blocked" && event.blockedAt) {
-    return slackDateLabel("Blocked", event.blockedAt, "{ago}");
-  }
-  if (event.startedAt) {
-    return slackDateLabel("Started", event.startedAt, "{ago}");
-  }
-  return undefined;
-}
-
 function truncateThreadBody(body: string): string {
   return body.length <= MAX_THREAD_BODY_LENGTH
     ? body
@@ -267,19 +253,18 @@ function mentionLabel(mention?: string): string | undefined {
   return mention ? `Creator: ${mention}` : undefined;
 }
 
+function notificationLabels(creator?: string, mentions: string[] = []): string[] {
+  return [
+    mentionLabel(creator),
+    mentions.length > 0 ? `Mentions: ${mentions.join(" ")}` : undefined,
+  ].filter(isPresent);
+}
+
 function isWatcherErrorTask(task: Task): boolean {
   return (
     task.issueIdentifier.startsWith("watcher:") ||
     task.status.trim().toLowerCase() === "unavailable"
   );
-}
-
-function slackDateLabel(label: string, value: string, format: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return `${label}: ${escapeSlack(value)}`;
-
-  const timestamp = Math.floor(date.getTime() / 1_000);
-  return `${label}: <!date^${timestamp}^${format}|${date.toISOString()}>`;
 }
 
 function capitalize(value: string): string {

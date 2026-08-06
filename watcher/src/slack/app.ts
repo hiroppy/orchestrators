@@ -55,7 +55,6 @@ const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
 export interface SlackAppOptions {
   botToken: string;
   appToken: string;
-  mention?: ResolvedMentionConfig;
   updateLinearStatus: LinearStatusUpdater;
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
@@ -64,7 +63,6 @@ export interface SlackAppOptions {
 export function createSlackApp({
   botToken,
   appToken,
-  mention,
   updateLinearStatus,
   createLinearWorkpadReply,
   store,
@@ -75,7 +73,7 @@ export function createSlackApp({
     socketMode: true,
   });
 
-  registerStatusAction(app, store, updateLinearStatus, mention);
+  registerStatusAction(app, store, updateLinearStatus);
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply);
   });
@@ -149,10 +147,9 @@ function registerStatusAction(
   app: App,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
-  mention?: ResolvedMentionConfig,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
-    await handleStatusAction(args, store, updateLinearStatus, mention);
+    await handleStatusAction(args, store, updateLinearStatus);
   });
 }
 
@@ -160,7 +157,6 @@ export async function handleStatusAction(
   { ack, action, body, client, logger }: StatusActionArguments,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
-  mention?: ResolvedMentionConfig,
 ): Promise<void> {
   await ack();
 
@@ -283,20 +279,20 @@ export async function publishWatcherEvent(
   const isNewPullRequest =
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
   let task = store.upsertTaskFromEvent(event);
-  const mentionTarget = options.forceMention
-    ? (event.creatorMention ?? undefined)
-    : mentionTargetForWatcherEvent(
-        mention,
-        previousTask?.status,
-        task.status,
-        event.type,
-        event.creatorMention ?? undefined,
-      );
+  const notifications = notificationTargetsForWatcherEvent(
+    mention,
+    previousTask?.status,
+    task.status,
+    event.type,
+    event.creatorMention ?? undefined,
+    options.forceMention,
+  );
   const card = buildTaskCard(
     task,
     store.getSelectableStatuses(task.serviceName),
     event,
-    mentionTarget,
+    notifications?.creator,
+    { mentions: notifications?.mentions },
   );
   const summary = JSON.stringify(card);
   const announceTerminalParent =
@@ -351,9 +347,14 @@ export async function publishWatcherEvent(
     fromStatus: previousTask?.status,
     toStatus: task.status,
   };
-  const threadBody = buildThreadMessage(threadEvent, mentionTarget, threadContext);
-  const threadBlocks = buildThreadMessageBlocks(threadEvent, mentionTarget, threadContext);
-  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, mentionTarget)
+  const notificationContext = { ...threadContext, mentions: notifications?.mentions };
+  const threadBody = buildThreadMessage(threadEvent, notifications?.creator, notificationContext);
+  const threadBlocks = buildThreadMessageBlocks(
+    threadEvent,
+    notifications?.creator,
+    notificationContext,
+  );
+  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
     ? await client.chat.postMessage({
         channel: task.parentChannelId!,
         thread_ts: task.parentMessageTs!,
@@ -416,18 +417,26 @@ async function postRelatedIssues(
   }
 }
 
-export function mentionTargetForWatcherEvent(
+export function notificationTargetsForWatcherEvent(
   mention: ResolvedMentionConfig | undefined,
   previousStatus: string | undefined,
   currentStatus: string,
   eventType: WatcherEvent["type"],
   creatorMention?: string,
-): string | undefined {
-  if (!mention || !creatorMention) return undefined;
-  return enteredMentionStatus(mention, previousStatus, currentStatus) ||
-    mention.events.includes(eventType)
-    ? creatorMention
-    : undefined;
+  force = false,
+): { creator?: string; mentions: string[] } | undefined {
+  if (!force) {
+    if (!mention) return undefined;
+    if (
+      !enteredMentionStatus(mention, previousStatus, currentStatus) &&
+      !mention.events.includes(eventType)
+    ) {
+      return undefined;
+    }
+  }
+  const targets = mention?.targets ?? [];
+  if (!creatorMention && targets.length === 0) return undefined;
+  return { creator: creatorMention, mentions: targets };
 }
 
 function enteredMentionStatus(
@@ -486,9 +495,9 @@ export async function publishWatcherStarted(
 function shouldPostThreadMessage(
   statusChanged: boolean,
   isNewPullRequest: boolean,
-  mentionTarget?: string,
+  hasNotifications: boolean,
 ): boolean {
-  return statusChanged || isNewPullRequest || Boolean(mentionTarget);
+  return statusChanged || isNewPullRequest || hasNotifications;
 }
 
 interface StatusActionBody {
