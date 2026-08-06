@@ -646,7 +646,28 @@ describe("Slack app behavior", () => {
           text: "Please cover the retry path.",
           subtype: "thread_broadcast",
         },
-        client: reactionClient(reactions),
+        client: {
+          ...reactionClient(reactions),
+          users: {
+            async info({ user }: { user: string }) {
+              if (user === "U456") {
+                return { ok: true, user: { profile: { display_name: "No Avatar" } } };
+              }
+              if (user === "U789") {
+                return { ok: true, user: { real_name: "Real Name", profile: {} } };
+              }
+              return {
+                ok: true,
+                user: {
+                  profile: {
+                    display_name: "Hiroppy",
+                    image_72: "https://avatars.slack-edge.com/hiroppy.png",
+                  },
+                },
+              };
+            },
+          },
+        },
         logger: { error: (error: unknown) => assert.fail(String(error)) },
       };
       const reply = async (task: { issueIdentifier: string }, reply: SlackThreadReply) => {
@@ -664,6 +685,7 @@ describe("Slack app behavior", () => {
           message: {
             ...args.message,
             ts: "3.000",
+            user: "U456",
             text: "Screenshot attached.",
             subtype: "file_share",
             files: [
@@ -692,6 +714,7 @@ describe("Slack app behavior", () => {
           message: {
             ...args.message,
             ts: "4.000",
+            user: "U789",
             text: "",
             subtype: "file_share",
             files: [
@@ -714,12 +737,14 @@ describe("Slack app behavior", () => {
           reply: {
             text: "Please cover the retry path.",
             images: [],
+            authorName: "Hiroppy",
           },
         },
         {
           issueIdentifier: "ENG-62",
           reply: {
             text: "Screenshot attached.",
+            authorName: "No Avatar",
             images: [
               {
                 filename: "first screenshot.png",
@@ -740,6 +765,7 @@ describe("Slack app behavior", () => {
           issueIdentifier: "ENG-62",
           reply: {
             text: "",
+            authorName: "Real Name",
             images: [
               {
                 filename: "image only.gif",
@@ -758,6 +784,57 @@ describe("Slack app behavior", () => {
       ]);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 3);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 3);
+    });
+  });
+
+  it("falls back to the Slack user ID when profile lookup fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const replies: SlackThreadReply[] = [];
+      const errors: unknown[] = [];
+
+      await handleThreadReply(
+        {
+          message: {
+            channel: "C123",
+            thread_ts: "1.000",
+            ts: "2.000",
+            user: "U123",
+            text: "Please retry.",
+          },
+          client: {
+            ...reactionClient([]),
+            users: {
+              async info() {
+                throw new Error("Slack unavailable");
+              },
+            },
+          },
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+        async (_task, reply) => {
+          replies.push(reply);
+          return true;
+        },
+      );
+
+      assert.deepEqual(replies, [
+        {
+          text: "Please retry.",
+          images: [],
+          authorName: "U123",
+        },
+      ]);
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Failed to resolve Slack display name for U123/);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
     });
   });
 

@@ -36,6 +36,7 @@ interface SlackReplyImage {
 export interface SlackThreadReply {
   text: string;
   images: SlackReplyImage[];
+  authorName: string;
 }
 
 export type LinearWorkpadReplier = (
@@ -97,10 +98,12 @@ export async function handleThreadReply(
 
     if (!replyRecorded) {
       try {
+        const authorName = await resolveSlackDisplayName(client, { id: reply.user }, logger);
         const created = await createLinearWorkpadReply(
           task,
           {
             text: reply.text,
+            authorName,
             images: reply.files.map((file) => ({
               filename: file.name,
               contentType: file.mimetype,
@@ -544,6 +547,7 @@ interface MessageArguments {
     reactions: {
       add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
     };
+    users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
 }
@@ -675,7 +679,7 @@ function selectedStatusFromAction(action: unknown): string | undefined {
 }
 
 async function resolveSlackDisplayName(
-  client: SlackClient,
+  client: Pick<SlackClient, "users">,
   user?: StatusActionBody["user"],
   logger?: StatusActionArguments["logger"],
 ): Promise<string> {

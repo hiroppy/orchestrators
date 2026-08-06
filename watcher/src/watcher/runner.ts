@@ -85,6 +85,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
             createLinearWorkpadReply(task.issueIdentifier, reply.text, {
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
               idempotencyKey,
+              authorName: reply.authorName,
               images: reply.images.map((image) => ({
                 filename: image.filename,
                 contentType: image.contentType,

@@ -84,6 +84,42 @@ describe("createLinearWorkpadReply", () => {
     );
   });
 
+  it("includes the Slack display name in the reply body", async (context) => {
+    const requests: Array<{ query: string; variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      if (request.query.includes("IssueWorkpad")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-uuid",
+              comments: {
+                nodes: [{ id: "active", body: "## Codex Workpad", resolvedAt: null }],
+              },
+            },
+          },
+        });
+      }
+      return Response.json({ data: { commentCreate: { success: true } } });
+    });
+
+    assert.equal(
+      await createLinearWorkpadReply("ENG-62", "Please add a test.", {
+        apiKey: "lin_test",
+        idempotencyKey: "C123:2.000",
+        authorName: "Hiroppy",
+      }),
+      true,
+    );
+    assert.deepEqual(requests[1].variables, {
+      id: requests[1].variables.id,
+      issueId: "issue-uuid",
+      parentId: "active",
+      body: "Slack投稿者: Hiroppy\n\nPlease add a test.",
+    });
+  });
+
   it("uploads every image and embeds it with the reply text", async (context) => {
     const uploads: Array<{
       url: string;

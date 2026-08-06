@@ -168,6 +168,7 @@ interface FetchLinearOptions extends LinearRequestOptions {
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
   idempotencyKey: string;
   images?: LinearReplyImage[];
+  authorName?: string;
 }
 
 interface LinearReplyImage {
@@ -302,6 +303,7 @@ export async function createLinearWorkpadReply(
     apiKey,
     idempotencyKey,
     images,
+    authorName,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     retryDelayMs = DEFAULT_RETRY_DELAY_MS,
@@ -318,7 +320,8 @@ export async function createLinearWorkpadReply(
   if (replyImages.length > 0 && (await linearCommentExists(commentId, requestOptions))) return true;
 
   const imageMarkdown = await uploadReplyImages(replyImages, requestOptions);
-  const replyBody = [body, ...imageMarkdown].filter(Boolean).join("\n\n");
+  const authorLabel = authorName ? `Slack投稿者: ${authorName}` : undefined;
+  const replyBody = [authorLabel, body, ...imageMarkdown].filter(Boolean).join("\n\n");
   for (let attempt = 1; ; attempt += 1) {
     try {
       const result = await linearRequest<{
