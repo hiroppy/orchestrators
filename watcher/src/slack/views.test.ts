@@ -229,7 +229,7 @@ describe("Slack rendering", () => {
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Started: <!date\^\d+\^\{ago\}\|[^>]+> \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Started: <!date\^\d+\^\{ago\}\|[^>]+> \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -279,13 +279,13 @@ describe("Slack rendering", () => {
       mention,
     );
 
-    assert.match(card.text, /Attention: <!subteam\^SXXXXXXXX>/);
+    assert.match(card.text, /Creator: <!subteam\^SXXXXXXXX>/);
     const context = card.blocks.find((block) => block.type === "context") as {
       elements: Array<{ text: string }>;
     };
     assert.match(
       context.elements[0].text,
-      /^Event: Ended \| Attention: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
+      /^Event: Ended \| Creator: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
     );
     assert.match(thread, /\*Updated\* \| <!subteam\^SXXXXXXXX>/);
     assert.match(

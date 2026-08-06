@@ -189,11 +189,7 @@ export async function handleStatusAction(
       if (!existingTask.parentChannelId || !existingTask.parentMessageTs) {
         throw new Error(`Task has no Slack parent message: ${taskId}`);
       }
-      const mentionTarget = mentionForStatusTransition(
-        mention,
-        existingTask.status,
-        selectedStatus,
-      );
+      const mentionTarget = undefined;
 
       const card = buildTaskCard(
         {
@@ -288,8 +284,14 @@ export async function publishWatcherEvent(
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
   let task = store.upsertTaskFromEvent(event);
   const mentionTarget = options.forceMention
-    ? mention?.target
-    : mentionTargetForWatcherEvent(mention, previousTask?.status, task.status, event.type);
+    ? (event.creatorMention ?? undefined)
+    : mentionTargetForWatcherEvent(
+        mention,
+        previousTask?.status,
+        task.status,
+        event.type,
+        event.creatorMention ?? undefined,
+      );
   const card = buildTaskCard(
     task,
     store.getSelectableStatuses(task.serviceName),
@@ -419,21 +421,12 @@ export function mentionTargetForWatcherEvent(
   previousStatus: string | undefined,
   currentStatus: string,
   eventType: WatcherEvent["type"],
+  creatorMention?: string,
 ): string | undefined {
-  if (!mention) return undefined;
+  if (!mention || !creatorMention) return undefined;
   return enteredMentionStatus(mention, previousStatus, currentStatus) ||
     mention.events.includes(eventType)
-    ? mention.target
-    : undefined;
-}
-
-function mentionForStatusTransition(
-  mention: ResolvedMentionConfig | undefined,
-  previousStatus: string,
-  currentStatus: string,
-): string | undefined {
-  return mention && enteredMentionStatus(mention, previousStatus, currentStatus)
-    ? mention.target
+    ? creatorMention
     : undefined;
 }
 

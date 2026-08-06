@@ -2,7 +2,7 @@ export type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  MentionConfig,
+  MentionsConfig,
   OrchestratorConfig,
   OrchestratorConfigInput,
   ReviewReactionConfig,

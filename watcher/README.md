@@ -157,8 +157,10 @@ destination channel. It does not require the root `config.ts` or
   the Linear update and Slack card update succeed.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
-  mentioned. A configured attention target is appended when the transition
-  enters one of its configured statuses.
+  mentioned. Watcher-originated notifications resolve the Linear issue creator
+  by email and render `Creator: <@user>` when a configured `slack.mentions`
+  status or event is reached. If Slack lookup fails, the Linear creator name is
+  displayed without a mention.
 - A user's text and attached images in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
   PNG, JPEG, GIF, and WebP image-only replies are supported. Bot messages,

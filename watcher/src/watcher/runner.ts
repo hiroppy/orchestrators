@@ -43,6 +43,7 @@ import type {
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+const creatorMentionCache = new Map<string, string>();
 const REVIEW_REQUEUE_EVENT = "review_requeued";
 const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
@@ -169,7 +170,7 @@ export async function runOnce({
       findPullRequest,
       findPullRequestByUrl,
     });
-    const enrichedEvent = enrichment.event;
+    const enrichedEvent = await enrichCreatorMention(enrichment.event, slackClient);
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
     const reviewDecision = decideReviewReaction(
       config,
@@ -183,13 +184,14 @@ export async function runOnce({
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
       let mentionTarget: string | undefined;
       if (reviewDecision.deliverDeferredMention) {
-        mentionTarget = config.mention?.target;
+        mentionTarget = enrichedEvent.creatorMention ?? undefined;
       } else if (!shouldSuppressReviewMention(reviewDecision)) {
         mentionTarget = mentionTargetForWatcherEvent(
           config.mention,
           store.getTask(taskId)?.status,
           status,
           enrichedEvent.type,
+          enrichedEvent.creatorMention ?? undefined,
         );
       }
       const task = {
@@ -310,6 +312,8 @@ async function reconcileLinearStatuses({
       service: task.serviceName,
       issueIdentifier: task.issueIdentifier,
       issueTitle: linearIssue.title,
+      creatorName: linearIssue.creatorName,
+      creatorEmail: linearIssue.creatorEmail,
       issueUrl: linearIssue.url ?? task.linkUrl,
       state: task.status,
       resolvedState: linearIssue.state,
@@ -317,7 +321,8 @@ async function reconcileLinearStatuses({
       pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     };
-    const reviewDecision = decideReviewReaction(config, store, event, true);
+    const enrichedEvent = await enrichCreatorMention(event, slackClient);
+    const reviewDecision = decideReviewReaction(config, store, enrichedEvent, true);
 
     if (
       sameStatus &&
@@ -337,7 +342,7 @@ async function reconcileLinearStatuses({
       store,
       slackClient,
       slackChannelId,
-      event,
+      event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
     });
@@ -622,8 +627,13 @@ function decideReviewReaction(
         reconciliationIsAuthoritative &&
         isInReview &&
         event.pullRequest?.hasConfiguredReaction === false &&
-        mentionTargetForWatcherEvent(config.mention, undefined, currentStatus, event.type) !==
+        mentionTargetForWatcherEvent(
+          config.mention,
           undefined,
+          currentStatus,
+          event.type,
+          event.creatorMention ?? undefined,
+        ) !== undefined,
     };
   }
 
@@ -743,6 +753,8 @@ async function enrichEvent(
     event: compactObject({
       ...event,
       issueTitle: linearIssue?.title,
+      creatorName: linearIssue?.creatorName,
+      creatorEmail: linearIssue?.creatorEmail,
       issueUrl: linearIssue?.url ?? event.issueUrl,
       resolvedState: linearIssue?.state,
       resolvedStateType: linearIssue?.stateType
@@ -753,6 +765,41 @@ async function enrichEvent(
     }),
     isAuthoritative: Boolean(linearIssue?.state) && reactionLookupSucceeded,
   };
+}
+
+async function enrichCreatorMention(
+  event: WatcherEvent,
+  slackClient?: WebClient,
+): Promise<WatcherEvent> {
+  const email = event.creatorEmail?.trim().toLowerCase();
+  if (!email || !slackClient) {
+    return event.creatorName
+      ? { ...event, creatorMention: escapeSlackText(event.creatorName) }
+      : event;
+  }
+
+  const cached = creatorMentionCache.get(email);
+  if (cached) return { ...event, creatorMention: cached };
+
+  try {
+    const response = await slackClient.users.lookupByEmail({ email });
+    const userId = response.user?.id;
+    if (userId) {
+      const mention = `<@${userId}>`;
+      creatorMentionCache.set(email, mention);
+      return { ...event, creatorMention: mention };
+    }
+  } catch (error) {
+    console.warn(`Could not resolve Linear creator in Slack for ${event.issueIdentifier}:`, error);
+  }
+
+  return event.creatorName
+    ? { ...event, creatorMention: escapeSlackText(event.creatorName) }
+    : event;
+}
+
+function escapeSlackText(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 interface CollectSnapshotsOptions {
@@ -883,7 +930,7 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
     );
   }
   for (const status of config.mention?.statuses ?? []) {
-    rules.push(["slack.mention.statuses", status]);
+    rules.push(["slack.mentions.statuses", status]);
   }
 
   for (const [label, expected] of rules) {

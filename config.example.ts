@@ -16,8 +16,7 @@ export default defineConfig({
     botToken: process.env.SLACK_BOT_TOKEN ?? "", // xoxb-...
     appToken: process.env.SLACK_APP_TOKEN ?? "", // xapp-...
     channelId: process.env.SLACK_CHANNEL_ID ?? "",
-    mention: {
-      target: "<!subteam^SXXXXXXXX>",
+    mentions: {
       statuses: ["In Review"],
       events: ["blocked"],
     },

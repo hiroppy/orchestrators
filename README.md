@@ -78,8 +78,9 @@ used by the watcher:
   Linear
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
+- `users:read.email` — match a Linear issue creator to their Slack account
 
-After adding or updating `files:read` for an existing Slack app, reinstall the
+After adding or updating a scope for an existing Slack app, reinstall the
 app to the workspace and replace the configured bot token if Slack issues a new
 one. Existing installations do not gain newly declared scopes automatically.
 
@@ -160,7 +161,7 @@ the `symphony_template/` Git subtree identical to upstream.
 The watcher example configuration uses `In Review`, matching the default
 `customize` profile. The `official` profile uses Symphony's upstream
 `Human Review` status; when selecting it, set `watcher.reviewReaction.inReviewStatus`
-and any matching `slack.mention.statuses` entries to `Human Review`.
+and any matching `slack.mentions.statuses` entries to `Human Review`.
 
 Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
 workflow and can customize it independently. Since `symphonies/` is gitignored,

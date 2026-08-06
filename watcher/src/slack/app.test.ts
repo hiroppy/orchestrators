@@ -278,7 +278,6 @@ describe("Slack app behavior", () => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
       const mention = {
-        target: "<!subteam^S123>",
         statuses: ["In Review"],
         events: ["blocked"] as const,
       };
@@ -304,6 +303,7 @@ describe("Slack app behavior", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           state: "In Review",
+          creatorMention: "<@UCREATOR>",
         },
         mention,
       );
@@ -316,6 +316,7 @@ describe("Slack app behavior", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           state: "In Review",
+          creatorMention: "<@UCREATOR>",
         },
         mention,
       );
@@ -328,6 +329,7 @@ describe("Slack app behavior", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           state: "In Review",
+          creatorMention: "<@UCREATOR>",
         },
         mention,
       );
@@ -336,8 +338,8 @@ describe("Slack app behavior", () => {
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 2);
-      assert.match(threadTexts[0], /\| Attention: <!subteam\^S123>/);
-      assert.match(threadTexts[1], /\| <!subteam\^S123>/);
+      assert.match(threadTexts[0], /\| Creator: <@UCREATOR>/);
+      assert.match(threadTexts[1], /\| <@UCREATOR>/);
     });
   });
 
@@ -397,13 +399,13 @@ describe("Slack app behavior", () => {
           issueIdentifier: "ENG-62",
           state: "running",
           resolvedState: "In Review",
+          creatorMention: "<@UHIROPPY>",
           pullRequest: {
             url: "https://github.com/acme/example/pull/42",
             number: 42,
           },
         },
         {
-          target: "<@UHIROPPY>",
           statuses: ["In Review"],
           events: [],
         },
@@ -420,7 +422,7 @@ describe("Slack app behavior", () => {
       );
       assert.match(
         threadTexts[2],
-        /^\*In Progress\* → \*In Review\*\nEvent: Updated \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^\*In Progress\* → \*In Review\*\nEvent: Updated \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       const statusTransitionBlocks = calls.filter(
         ({ method, args }) => method === "postMessage" && args.thread_ts,
@@ -435,7 +437,7 @@ describe("Slack app behavior", () => {
       );
       assert.match(
         (statusTransitionBlocks[1].elements as Array<{ text: string }>)[0].text,
-        /^Event: Updated \| Attention: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^Event: Updated \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,

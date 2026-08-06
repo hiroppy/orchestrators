@@ -124,8 +124,8 @@ describe("Slack preview", () => {
       options,
     );
 
-    assert.match(JSON.stringify(parent.blocks), /Attention: <!subteam\^SATTENTION>/);
-    assert.match(thread.text, /Attention: <!subteam\^SATTENTION>/);
+    assert.match(JSON.stringify(parent.blocks), /Creator: <!subteam\^SATTENTION>/);
+    assert.match(thread.text, /Creator: <!subteam\^SATTENTION>/);
   });
 
   it("requires a supported category and event type", () => {

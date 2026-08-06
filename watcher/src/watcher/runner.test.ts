@@ -60,14 +60,13 @@ describe("runOnce", () => {
       {
         ...baseConfig(),
         slack: {
-          mention: { target: " <!subteam^S123> " },
+          mentions: {},
         },
       },
       { requireSlack: false },
     );
 
     assert.deepEqual(config.mention, {
-      target: "<!subteam^S123>",
       statuses: [],
       events: [],
     });
@@ -77,8 +76,7 @@ describe("runOnce", () => {
           {
             ...baseConfig(),
             slack: {
-              mention: {
-                target: "<!subteam^S123>",
+              mentions: {
                 events: ["unknown"],
               },
             },
@@ -105,8 +103,7 @@ describe("runOnce", () => {
           },
         },
         slack: {
-          mention: {
-            target: "<!subteam^S123>",
+          mentions: {
             statuses: ["In Review"],
           },
         },
@@ -129,7 +126,7 @@ describe("runOnce", () => {
 
     await assert.rejects(
       resolveLinearWorkflowStatuses(unresolved, async () => ["Todo", "In Progress", "Done"]),
-      /slack\.mention\.statuses references unknown Linear status "In Review"/,
+      /slack\.mentions\.statuses references unknown Linear status "In Review"/,
     );
     await assert.rejects(
       resolveLinearWorkflowStatuses(unresolved, async () =>
@@ -447,6 +444,7 @@ describe("runOnce", () => {
             issue: {
               identifier: "ENG-62",
               title: "Review the pull request",
+              creator: { name: "Creator", email: "creator@example.com" },
               state: { name: linearState, type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
               attachments,
@@ -470,7 +468,6 @@ describe("runOnce", () => {
           maxRequeues: 3,
         },
         mention: {
-          target: "<@U123>",
           statuses: ["In Review", "Blocked"],
           events: [],
         },
@@ -761,6 +758,7 @@ describe("runOnce", () => {
             issue: {
               identifier: "ENG-62",
               title: "Ready for human review",
+              creator: { name: "Creator", email: "creator@example.com" },
               state: { name: "In Review", type: "started" },
             },
           },
@@ -792,7 +790,6 @@ describe("runOnce", () => {
           maxRequeues: 2,
         },
         mention: {
-          target: "<@U123>",
           statuses: ["In Review"],
           events: [],
         },
@@ -853,7 +850,6 @@ describe("runOnce", () => {
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
         mention: {
-          target: "<@U123>",
           statuses: ["In Review"],
           events: [],
         },
@@ -1044,6 +1040,12 @@ function fakeSlackClient(
 ) {
   let timestamp = 0;
   return {
+    users: {
+      async lookupByEmail(args: Record<string, unknown>) {
+        calls.push({ method: "lookupByEmail", ...args });
+        return { ok: true, user: { id: "U123" } };
+      },
+    },
     chat: {
       async getPermalink(args: Record<string, unknown>) {
         calls.push({ method: "getPermalink", ...args });

@@ -2,7 +2,7 @@ import type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  MentionConfig,
+  MentionsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
   ReviewReactionConfig,
@@ -30,7 +30,6 @@ interface ResolvedSlackConfig {
 }
 
 export interface ResolvedMentionConfig {
-  target: string;
   statuses: string[];
   events: EventType[];
 }
@@ -100,7 +99,7 @@ export function resolveWatcherConfig(
     pollIntervalMs,
     endedTaskRetry,
     reviewReaction,
-    mention: resolveMentionConfig(config.slack?.mention),
+    mention: resolveMentionConfig(config.slack?.mentions),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
 }
@@ -191,29 +190,26 @@ function referencedLinearTeams(
 }
 
 function resolveMentionConfig(
-  mention: MentionConfig | undefined,
+  mention: MentionsConfig | undefined,
 ): ResolvedMentionConfig | undefined {
   if (!mention) return undefined;
-
-  const target = mention.target?.trim();
-  if (!target) throw new Error("slack.mention.target must be a non-empty Slack mention.");
 
   const statuses = mention.statuses ?? [];
   const events = mention.events ?? [];
   if (!Array.isArray(statuses)) {
-    throw new Error("slack.mention.statuses must be an array.");
+    throw new Error("slack.mentions.statuses must be an array.");
   }
   if (!Array.isArray(events)) {
-    throw new Error("slack.mention.events must be an array.");
+    throw new Error("slack.mentions.events must be an array.");
   }
-  validateStatuses("slack.mention.statuses", statuses);
+  validateStatuses("slack.mentions.statuses", statuses);
 
   const unknownEvents = events.filter((event) => !EVENT_TYPES.includes(event));
   if (unknownEvents.length > 0) {
-    throw new Error(`slack.mention.events contains unknown events: ${unknownEvents.join(", ")}`);
+    throw new Error(`slack.mentions.events contains unknown events: ${unknownEvents.join(", ")}`);
   }
 
-  return { target, statuses, events };
+  return { statuses, events };
 }
 
 function resolveSlackConfig(

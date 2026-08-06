@@ -18,7 +18,8 @@
         "files:read",
         "groups:history",
         "reactions:write",
-        "users:read"
+        "users:read",
+        "users:read.email"
       ]
     }
   },

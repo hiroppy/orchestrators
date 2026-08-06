@@ -14,6 +14,10 @@ const ISSUE_STATE_QUERY = `
     issue(id: $id) {
       identifier
       title
+      creator {
+        name
+        email
+      }
       state {
         name
         type
@@ -181,6 +185,8 @@ interface LinearIssueState {
   state: string | null;
   stateType: string | null;
   url: string | null;
+  creatorName?: string | null;
+  creatorEmail?: string | null;
   pullRequest?: PullRequest;
   relatedIssues?: RelatedIssue[];
 }
@@ -200,6 +206,7 @@ interface LinearIssueResponse {
     issue?: {
       identifier: string;
       title?: string | null;
+      creator?: { name?: string | null; email?: string | null } | null;
       state?: { name?: string | null; type?: string | null } | null;
       attachments?: { nodes?: Array<{ url?: string | null }> | null } | null;
       relations?: { nodes?: LinearIssueRelation[] | null } | null;
@@ -576,6 +583,8 @@ export async function fetchLinearIssueState(
         state: issue.state?.name ?? null,
         stateType: issue.state?.type ?? null,
         url: issue.url ?? null,
+        ...(issue.creator?.name ? { creatorName: issue.creator.name } : {}),
+        ...(issue.creator?.email ? { creatorEmail: issue.creator.email } : {}),
         ...(pullRequest ? { pullRequest } : {}),
         ...(relatedIssues.length > 0 ? { relatedIssues } : {}),
       };

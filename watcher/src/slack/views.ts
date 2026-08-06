@@ -264,7 +264,7 @@ function pullRequestNumberFromUrl(url: string): string | undefined {
 }
 
 function mentionLabel(mention?: string): string | undefined {
-  return mention ? `Attention: ${mention}` : undefined;
+  return mention ? `Creator: ${mention}` : undefined;
 }
 
 function isWatcherErrorTask(task: Task): boolean {
