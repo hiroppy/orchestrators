@@ -182,7 +182,7 @@ export async function runOnce({
       config,
       store.getTask(taskIdFor(event.service, event.issueIdentifier))?.status,
       reviewDecision,
-      slackClient,
+      dryRun ? undefined : slackClient,
     );
 
     if (dryRun) {
@@ -328,14 +328,6 @@ async function reconcileLinearStatuses({
       relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewReaction(config, store, event, true);
-    const enrichedEvent = await enrichCreatorForNotification(
-      event,
-      config,
-      task.status,
-      reviewDecision,
-      slackClient,
-    );
-
     if (
       sameStatus &&
       !reviewDecision.shouldRequeue &&
@@ -348,6 +340,14 @@ async function reconcileLinearStatuses({
       markReviewRequeueReconciled(store, task.id);
       continue;
     }
+
+    const enrichedEvent = await enrichCreatorForNotification(
+      event,
+      config,
+      task.status,
+      reviewDecision,
+      slackClient,
+    );
 
     await processWatcherEvent({
       config,
@@ -831,11 +831,26 @@ async function enrichCreatorMention(
       return { ...event, creatorMention: mention };
     }
   } catch (error) {
+    if (isSlackUserNotFound(error)) {
+      creatorMentionCache.set(email, null);
+      return withCreatorName(event);
+    }
     console.warn(`Could not resolve Linear creator in Slack for ${event.issueIdentifier}:`, error);
   }
 
-  creatorMentionCache.set(email, null);
   return withCreatorName(event);
+}
+
+function isSlackUserNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "data" in error &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "error" in error.data &&
+    error.data.error === "users_not_found"
+  );
 }
 
 function withCreatorName(event: WatcherEvent): WatcherEvent {

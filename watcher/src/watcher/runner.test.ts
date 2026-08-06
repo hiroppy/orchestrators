@@ -374,16 +374,32 @@ describe("runOnce", () => {
             statuses: ["Triage", "Building", "Shipped"],
           },
         },
+        mention: {
+          targets: [],
+          statuses: [],
+          events: ["started"],
+        },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const output: string[] = [];
+      const slackCalls: Array<Record<string, unknown>> = [];
       context.mock.method(console, "log", (line) => output.push(String(line)));
 
-      await runOnce({ config, store, dryRun: true });
+      await runOnce({
+        config,
+        store,
+        dryRun: true,
+        slackClient: fakeSlackClient(slackCalls),
+      });
 
-      assert.deepEqual(authorizationHeaders, ["lin_other"]);
+      assert.deepEqual(authorizationHeaders, ["lin_other", "lin_other"]);
       assert.match(output[0], /Use another Linear account/);
-      assert.doesNotMatch(output[0], /private@example\.com|Private Creator/);
+      assert.match(output[0], /Private Creator/);
+      assert.doesNotMatch(output[0], /private@example\.com/);
+      assert.equal(
+        slackCalls.some(({ method }) => method === "lookupByEmail"),
+        false,
+      );
       assert.deepEqual(store.getSnapshots()["service-b"], {
         running: [],
         retrying: [],
