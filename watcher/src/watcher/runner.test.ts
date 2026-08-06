@@ -450,6 +450,53 @@ describe("runOnce", () => {
     });
   });
 
+  it("retries creator-only notifications when Linear creator enrichment fails", async (context) => {
+    await withStore(async (store) => {
+      const current = {
+        running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
+        retrying: [],
+        blocked: [],
+      };
+      let linearRequests = 0;
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        linearRequests += 1;
+        if (linearRequests === 2) return new Response("temporary failure", { status: 500 });
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Notify the creator",
+              state: { name: "Blocked", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
+        mention: { targets: [], statuses: [], events: ["started"] },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+
+      await assert.rejects(
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+        }),
+        /Could not fetch Linear creator for notification: ENG-62/,
+      );
+      assert.deepEqual(store.getSnapshots()["service-a"], {
+        running: [],
+        retrying: [],
+        blocked: [],
+      });
+    });
+  });
+
   it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";

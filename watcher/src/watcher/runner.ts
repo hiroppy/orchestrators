@@ -798,6 +798,10 @@ async function enrichCreatorForNotification(
     includeCreator: true,
     maxAttempts: 1,
   });
+  if (!linearIssue) {
+    if (!slackClient) return event;
+    throw new Error(`Could not fetch Linear creator for notification: ${event.issueIdentifier}`);
+  }
   return enrichCreatorMention(
     compactObject({
       ...event,
