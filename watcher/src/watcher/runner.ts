@@ -53,6 +53,8 @@ const REVIEW_REQUEUE_RECONCILE_PENDING_EVENT = "review_requeue_reconcile_pending
 const REVIEW_REQUEUE_RECONCILED_EVENT = "review_requeue_reconciled";
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
+class RetryablePollError extends Error {}
+
 export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
   const options = parseArgs(args);
   const unresolvedConfig = resolveWatcherConfig(config, {
@@ -110,7 +112,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
     }
 
     while (true) {
-      await runOnce({
+      await runPoll({
         config: runtimeConfig,
         store,
         slackClient: client,
@@ -124,6 +126,15 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
   } finally {
     if (app) await app.stop();
     database.close();
+  }
+}
+
+export async function runPoll(options: RunOnceOptions): Promise<void> {
+  try {
+    await runOnce(options);
+  } catch (error) {
+    if (!(error instanceof RetryablePollError)) throw error;
+    console.warn(error.message);
   }
 }
 
@@ -792,6 +803,7 @@ async function enrichCreatorForNotification(
   ) {
     return event;
   }
+  if (event.issueIdentifier === `watcher:${event.service}`) return event;
 
   const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
     apiKey: linearTeamForService(config, event.service)?.apiKey,
@@ -800,7 +812,9 @@ async function enrichCreatorForNotification(
   });
   if (!linearIssue) {
     if (!slackClient) return event;
-    throw new Error(`Could not fetch Linear creator for notification: ${event.issueIdentifier}`);
+    throw new RetryablePollError(
+      `Could not fetch Linear creator for notification: ${event.issueIdentifier}`,
+    );
   }
   return enrichCreatorMention(
     compactObject({

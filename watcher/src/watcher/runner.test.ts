@@ -8,7 +8,7 @@ import { resolveWatcherConfig } from "../config/runtime.ts";
 import type { ReviewReactionConfig } from "../domain/types.ts";
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
-import { collectSnapshots, resolveLinearWorkflowStatuses, runOnce } from "./runner.ts";
+import { collectSnapshots, resolveLinearWorkflowStatuses, runOnce, runPoll } from "./runner.ts";
 
 describe("runOnce", () => {
   it("uses the service's explicit Linear team ID", () => {
@@ -480,15 +480,15 @@ describe("runOnce", () => {
       });
       store.syncDefinitions(config.services, config.linearTeams);
 
-      await assert.rejects(
-        runOnce({
-          config,
-          store,
-          slackClient: fakeSlackClient([]),
-          slackChannelId: "C123",
-        }),
-        /Could not fetch Linear creator for notification: ENG-62/,
-      );
+      const warnings: string[] = [];
+      context.mock.method(console, "warn", (message) => warnings.push(String(message)));
+      await runPoll({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+      });
+      assert.deepEqual(warnings, ["Could not fetch Linear creator for notification: ENG-62"]);
       assert.deepEqual(store.getSnapshots()["service-a"], {
         running: [],
         retrying: [],
@@ -1000,6 +1000,11 @@ describe("runOnce", () => {
           },
         ],
         linearTeams: linearTeams(["Backlog", "Done"]),
+        mention: {
+          targets: ["<!subteam^SREVIEWERS>"],
+          statuses: [],
+          events: ["retrying", "recovered"],
+        },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": activeSnapshot });
@@ -1018,6 +1023,7 @@ describe("runOnce", () => {
         [["retrying", "watcher:service-a"]],
       );
       assert.equal(store.getSnapshots()["service-a"]?.running[0]?.issue_identifier, "ENG-62");
+      assert.match(JSON.stringify(calls), /Mentions: <!subteam\^SREVIEWERS>/);
 
       unavailable = false;
       const recovery = await runOnce({
