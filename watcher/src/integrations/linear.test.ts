@@ -84,7 +84,7 @@ describe("createLinearWorkpadReply", () => {
     );
   });
 
-  it("attributes a Slack reply with its display name and avatar", async (context) => {
+  it("includes the Slack display name in the reply body", async (context) => {
     const requests: Array<{ query: string; variables: Record<string, string> }> = [];
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
@@ -108,10 +108,7 @@ describe("createLinearWorkpadReply", () => {
       await createLinearWorkpadReply("ENG-62", "Please add a test.", {
         apiKey: "lin_test",
         idempotencyKey: "C123:2.000",
-        author: {
-          name: "Hiroppy",
-          avatarUrl: "https://avatars.slack-edge.com/hiroppy.png",
-        },
+        authorName: "Hiroppy",
       }),
       true,
     );
@@ -120,8 +117,6 @@ describe("createLinearWorkpadReply", () => {
       issueId: "issue-uuid",
       parentId: "active",
       body: "Slack投稿者: Hiroppy\n\nPlease add a test.",
-      createAsUser: "Hiroppy",
-      displayIconUrl: "https://avatars.slack-edge.com/hiroppy.png",
     });
   });
 

@@ -36,10 +36,7 @@ interface SlackReplyImage {
 export interface SlackThreadReply {
   text: string;
   images: SlackReplyImage[];
-  author: {
-    name: string;
-    avatarUrl?: string;
-  };
+  authorName: string;
 }
 
 export type LinearWorkpadReplier = (
@@ -101,12 +98,12 @@ export async function handleThreadReply(
 
     if (!replyRecorded) {
       try {
-        const author = await resolveSlackUserProfile(client, reply.user, logger);
+        const authorName = await resolveSlackDisplayName(client, { id: reply.user }, logger);
         const created = await createLinearWorkpadReply(
           task,
           {
             text: reply.text,
-            author,
+            authorName,
             images: reply.files.map((file) => ({
               filename: file.name,
               contentType: file.mimetype,
@@ -682,41 +679,29 @@ function selectedStatusFromAction(action: unknown): string | undefined {
 }
 
 async function resolveSlackDisplayName(
-  client: SlackClient,
+  client: Pick<SlackClient, "users">,
   user?: StatusActionBody["user"],
   logger?: StatusActionArguments["logger"],
 ): Promise<string> {
-  return (await resolveSlackUserProfile(client, user?.id, logger)).name;
-}
-
-async function resolveSlackUserProfile(
-  client: Pick<SlackClient, "users">,
-  userId?: string,
-  logger?: { error(error: unknown): void },
-): Promise<SlackThreadReply["author"]> {
-  const fallback = userId ?? "Unknown user";
-  if (!userId || !client.users) return { name: fallback };
+  const fallback = user?.id ?? "Unknown user";
+  if (!user?.id || !client.users) return fallback;
 
   try {
-    const response = await client.users.info({ user: userId });
-    const name =
+    const response = await client.users.info({ user: user.id });
+    return (
       response.user?.profile?.display_name ||
       response.user?.real_name ||
       response.user?.name ||
-      fallback;
-    const avatarUrl = response.user?.profile?.image_72;
-    return {
-      name,
-      ...(avatarUrl ? { avatarUrl } : {}),
-    };
+      fallback
+    );
   } catch (error) {
     logger?.error(
       new Error(
-        `Failed to resolve Slack user profile for ${userId}: ${
+        `Failed to resolve Slack display name for ${user.id}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       ),
     );
-    return { name: fallback };
+    return fallback;
   }
 }

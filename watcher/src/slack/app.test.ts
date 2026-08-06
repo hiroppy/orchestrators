@@ -737,17 +737,14 @@ describe("Slack app behavior", () => {
           reply: {
             text: "Please cover the retry path.",
             images: [],
-            author: {
-              name: "Hiroppy",
-              avatarUrl: "https://avatars.slack-edge.com/hiroppy.png",
-            },
+            authorName: "Hiroppy",
           },
         },
         {
           issueIdentifier: "ENG-62",
           reply: {
             text: "Screenshot attached.",
-            author: { name: "No Avatar" },
+            authorName: "No Avatar",
             images: [
               {
                 filename: "first screenshot.png",
@@ -768,7 +765,7 @@ describe("Slack app behavior", () => {
           issueIdentifier: "ENG-62",
           reply: {
             text: "",
-            author: { name: "Real Name" },
+            authorName: "Real Name",
             images: [
               {
                 filename: "image only.gif",
@@ -832,11 +829,11 @@ describe("Slack app behavior", () => {
         {
           text: "Please retry.",
           images: [],
-          author: { name: "U123" },
+          authorName: "U123",
         },
       ]);
       assert.equal(errors.length, 1);
-      assert.match(String(errors[0]), /Failed to resolve Slack user profile for U123/);
+      assert.match(String(errors[0]), /Failed to resolve Slack display name for U123/);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 1);
     });
   });

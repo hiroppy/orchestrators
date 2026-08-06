@@ -102,19 +102,8 @@ const COMMENT_REPLY_CREATE_MUTATION = `
     $issueId: String!
     $parentId: String!
     $body: String!
-    $createAsUser: String
-    $displayIconUrl: String
   ) {
-    commentCreate(
-      input: {
-        id: $id
-        issueId: $issueId
-        parentId: $parentId
-        body: $body
-        createAsUser: $createAsUser
-        displayIconUrl: $displayIconUrl
-      }
-    ) {
+    commentCreate(input: { id: $id, issueId: $issueId, parentId: $parentId, body: $body }) {
       success
     }
   }
@@ -179,10 +168,7 @@ interface FetchLinearOptions extends LinearRequestOptions {
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
   idempotencyKey: string;
   images?: LinearReplyImage[];
-  author?: {
-    name: string;
-    avatarUrl?: string;
-  };
+  authorName?: string;
 }
 
 interface LinearReplyImage {
@@ -317,7 +303,7 @@ export async function createLinearWorkpadReply(
     apiKey,
     idempotencyKey,
     images,
-    author,
+    authorName,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     retryDelayMs = DEFAULT_RETRY_DELAY_MS,
@@ -334,7 +320,7 @@ export async function createLinearWorkpadReply(
   if (replyImages.length > 0 && (await linearCommentExists(commentId, requestOptions))) return true;
 
   const imageMarkdown = await uploadReplyImages(replyImages, requestOptions);
-  const authorLabel = author ? `Slack投稿者: ${author.name}` : undefined;
+  const authorLabel = authorName ? `Slack投稿者: ${authorName}` : undefined;
   const replyBody = [authorLabel, body, ...imageMarkdown].filter(Boolean).join("\n\n");
   for (let attempt = 1; ; attempt += 1) {
     try {
@@ -348,8 +334,6 @@ export async function createLinearWorkpadReply(
           issueId: workpad.issueId,
           parentId: workpad.commentId,
           body: replyBody,
-          ...(author ? { createAsUser: author.name } : {}),
-          ...(author?.avatarUrl ? { displayIconUrl: author.avatarUrl } : {}),
         },
         timeoutMs,
       );
