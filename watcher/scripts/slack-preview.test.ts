@@ -154,6 +154,7 @@ describe("Slack preview", () => {
       { category: "thread", type: "reaction-limit" },
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
+      { category: "post", type: "watcher-started" },
     ] as const;
     const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
 
@@ -178,6 +179,12 @@ describe("Slack preview", () => {
       false,
     );
     assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125.*PREVIEW-126/);
+    assert.deepEqual(
+      messages[4].blocks.map(({ type }) => type),
+      ["section", "section"],
+    );
+    assert.doesNotMatch(JSON.stringify(messages[4].blocks), /Monitoring/);
+    assert.match(JSON.stringify(messages[4].blocks), /Services.*mf-dashboard/s);
   });
 
   it("previews the configured attention target in parent and thread messages", () => {
@@ -245,6 +252,7 @@ describe("Slack preview", () => {
       "reaction-limit",
       "closed",
       "next",
+      "watcher-started",
     ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
@@ -277,6 +285,10 @@ describe("Slack preview", () => {
     assert.throws(
       () => resolveSlackPreviewCase("thread", "closed"),
       /closed is only available for post previews/,
+    );
+    assert.throws(
+      () => resolveSlackPreviewCase("thread", "watcher-started"),
+      /watcher-started is only available for post previews/,
     );
   });
 

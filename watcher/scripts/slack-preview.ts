@@ -22,6 +22,8 @@ import {
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  buildWatcherStartedMessage,
+  buildWatcherStartedMessageBlocks,
   type TaskCard,
 } from "../src/slack/views.ts";
 
@@ -45,6 +47,7 @@ export const SLACK_PREVIEW_TYPES = [
   "reaction-limit",
   "closed",
   "next",
+  "watcher-started",
 ] as const;
 
 type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
@@ -126,6 +129,11 @@ export function resolveSlackPreviewCase(
   }
   if (category === "thread" && type === "closed") {
     throw new Error(`Slack preview type closed is only available for post previews.\n${usage}`);
+  }
+  if (category === "thread" && type === "watcher-started") {
+    throw new Error(
+      `Slack preview type watcher-started is only available for post previews.\n${usage}`,
+    );
   }
   if (extraValue !== undefined) {
     throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
@@ -220,6 +228,13 @@ export function buildSlackPreviewMessage(
     return {
       text: buildRelatedIssuesMessage(issues),
       blocks: buildRelatedIssuesMessageBlocks(issues),
+    };
+  }
+  if (type === "watcher-started") {
+    const serviceNames = ["mf-dashboard", "tmux-agent-sidebar", "iiba", "orchestrators"];
+    return {
+      text: buildWatcherStartedMessage(serviceNames),
+      blocks: buildWatcherStartedMessageBlocks(serviceNames),
     };
   }
 

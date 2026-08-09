@@ -281,6 +281,17 @@ export function buildTaskClosedMessageBlocks(
   ]);
 }
 
+export function buildWatcherStartedMessage(serviceNames: string[]): string {
+  const serviceLabel = serviceNames.length === 1 ? "service" : "services";
+  const heading = `Watcher started | monitoring ${serviceNames.length} ${serviceLabel}`;
+  return [heading, ...serviceNames.map((name) => `- ${name}`)].join("\n");
+}
+
+export function buildWatcherStartedMessageBlocks(serviceNames: string[]): SectionBlock[] {
+  const services = serviceNames.map((name) => `• ${escapeSlack(name)}`).join("\n");
+  return [buildTextSection("*Watcher started*"), buildTextSection(`*Services*\n${services}`)];
+}
+
 export function buildRelatedIssuesMessage(issues: RelatedIssue[]): string {
   return truncateThreadBody(
     ["Next task", ...issues.map((issue) => formatRelatedIssue(issue))].join(" | "),

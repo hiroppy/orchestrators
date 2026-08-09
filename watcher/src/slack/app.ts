@@ -22,6 +22,8 @@ import {
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  buildWatcherStartedMessage,
+  buildWatcherStartedMessageBlocks,
 } from "./views.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
@@ -475,35 +477,10 @@ export async function publishWatcherStarted(
   destinationChannel: string,
   serviceNames: string[],
 ): Promise<void> {
-  const serviceLabel = serviceNames.length === 1 ? "service" : "services";
-  const heading = `Watcher started | monitoring ${serviceNames.length} ${serviceLabel}`;
   await client.chat.postMessage({
     channel: destinationChannel,
-    text: [heading, ...serviceNames.map((name) => `- ${name}`)].join("\n"),
-    blocks: [
-      {
-        type: "rich_text",
-        elements: [
-          {
-            type: "rich_text_section",
-            elements: [
-              {
-                type: "text",
-                text: heading,
-              },
-            ],
-          },
-          {
-            type: "rich_text_list",
-            style: "bullet",
-            elements: serviceNames.map((name) => ({
-              type: "rich_text_section",
-              elements: [{ type: "text", text: name }],
-            })),
-          },
-        ],
-      },
-    ],
+    text: buildWatcherStartedMessage(serviceNames),
+    blocks: buildWatcherStartedMessageBlocks(serviceNames),
   });
 }
 

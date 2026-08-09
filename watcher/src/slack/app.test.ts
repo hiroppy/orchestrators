@@ -33,36 +33,15 @@ describe("Slack app behavior", () => {
           ].join("\n"),
           blocks: [
             {
-              type: "rich_text",
-              elements: [
-                {
-                  type: "rich_text_section",
-                  elements: [
-                    {
-                      type: "text",
-                      text: "Watcher started | monitoring 3 services",
-                    },
-                  ],
-                },
-                {
-                  type: "rich_text_list",
-                  style: "bullet",
-                  elements: [
-                    {
-                      type: "rich_text_section",
-                      elements: [{ type: "text", text: "service-a" }],
-                    },
-                    {
-                      type: "rich_text_section",
-                      elements: [{ type: "text", text: "service-b" }],
-                    },
-                    {
-                      type: "rich_text_section",
-                      elements: [{ type: "text", text: "service-c" }],
-                    },
-                  ],
-                },
-              ],
+              type: "section",
+              text: { type: "mrkdwn", text: "*Watcher started*" },
+            },
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: "*Services*\n• service-a\n• service-b\n• service-c",
+              },
             },
           ],
         },
