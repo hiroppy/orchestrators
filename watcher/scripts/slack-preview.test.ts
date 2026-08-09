@@ -22,19 +22,19 @@ describe("Slack preview", () => {
 
     for (const [index, message] of messages.entries()) {
       assert.ok("metadata" in message);
-      assert.match(blocks[index], new RegExp(`Event: ${expectedEventLabels[index]}`));
+      assert.match(blocks[index], new RegExp(`\\*Event\\*\\\\n${expectedEventLabels[index]}`));
       assert.equal(
         message.blocks.some((block) => block.type === "actions"),
         false,
       );
     }
-    assert.equal(messages[0].text, "[preview-service] Confirm the watcher Slack output");
+    assert.equal(messages[0].text, "🔥 Preview [preview-service] Confirm the watcher Slack output");
     assert.equal(messages[0].metadata.event_payload.task_id, "preview-service:PREVIEW-123");
     assert.match(blocks[0], /PR#123/);
-    assert.match(blocks[1], /Event: Updated/);
-    assert.match(blocks[1], /Turns: 12/);
-    assert.match(blocks[1], /Tokens: 12\.3k/);
-    assert.match(blocks[2], /Attempt: 2/);
+    assert.match(blocks[1], /\*Event\*\\nUpdated/);
+    assert.doesNotMatch(blocks[1], /Turns:|Tokens:/);
+    assert.match(blocks[2], /Retrying \(attempt 2\)/);
+    assert.doesNotMatch(blocks[2], /Attempt: 2/);
     assert.match(blocks[2], /Temporary orchestrator failure/);
     assert.match(blocks[3], /Waiting for required credentials/);
     for (const blockText of blocks) {
@@ -43,9 +43,9 @@ describe("Slack preview", () => {
     for (const blockText of blocks) {
       assert.doesNotMatch(blockText, /UpdatedAt:/);
     }
-    assert.match(blocks[4], /Tokens: 98\.8k/);
-    assert.equal(messages[5].text, "[preview-service] Symphony connection");
-    assert.match(blocks[5], /Status: Available/);
+    assert.doesNotMatch(blocks[4], /Turns:|Tokens:/);
+    assert.equal(messages[5].text, "🔥 Preview [preview-service] Symphony connection");
+    assert.match(blocks[5], /\*Status\*\\nAvailable/);
     assert.equal(
       messages[5].metadata.event_payload.task_id,
       "preview-service:watcher:preview-service",
@@ -127,16 +127,29 @@ describe("Slack preview", () => {
       options,
     );
 
-    assert.match(JSON.stringify(parent.blocks), /Creator: <@UCREATOR>/);
-    assert.match(JSON.stringify(parent.blocks), /Mentions: <!subteam\^SREVIEWERS>/);
-    assert.match(thread.text, /Creator: <@UCREATOR>/);
-    assert.match(thread.text, /Mentions: <!subteam\^SREVIEWERS>/);
+    assert.match(JSON.stringify(parent.blocks), /\*Creator\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(parent.blocks), /\*Mentions\*\\n<!subteam\^SREVIEWERS>/);
+    assert.match(JSON.stringify(parent.blocks), /PR#123/);
+    assert.equal(
+      thread.text,
+      "*PR created* | Creator: <@UCREATOR> | Mentions: <!subteam^SREVIEWERS> | <https://github.com/example/preview/pull/123|PR#123>",
+    );
+    assert.doesNotMatch(JSON.stringify(parent.blocks), /Waiting for required credentials/);
+    assert.doesNotMatch(thread.text, /Waiting for required credentials/);
+
+    const blocked = buildSlackPreviewMessage(
+      { category: "post", type: "block" },
+      new Date("2026-07-29T00:00:00.000Z"),
+      options,
+    );
+    assert.match(JSON.stringify(blocked.blocks), /\*Creator\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(blocked.blocks), /\*Mentions\*\\n<!subteam\^SREVIEWERS>/);
 
     const defaults = buildSlackPreviewMessage(
       { category: "post", type: "attention" },
       new Date("2026-07-29T00:00:00.000Z"),
     );
-    assert.match(JSON.stringify(defaults.blocks), /Mentions: @reviewer-one @reviewer-two/);
+    assert.match(JSON.stringify(defaults.blocks), /\*Mentions\*\\n@reviewer-one @reviewer-two/);
   });
 
   it("requires a supported category and event type", () => {
@@ -231,7 +244,7 @@ describe("Slack preview", () => {
     assert.equal(response.ts, "1.000");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].channel, "C123");
-    assert.equal(calls[0].text, "[preview-service] Confirm the watcher Slack output");
+    assert.equal(calls[0].text, "🔥 Preview [preview-service] Confirm the watcher Slack output");
     assert.match(JSON.stringify(calls[0].blocks), /Waiting for required credentials/);
   });
 });

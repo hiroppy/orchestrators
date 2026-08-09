@@ -1,7 +1,13 @@
 import type { ChatPostMessageArguments, ChatPostMessageResponse } from "@slack/web-api";
 import { WebClient } from "@slack/web-api";
+import { desc, isNotNull } from "drizzle-orm";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import type { EventType, WatcherEvent } from "../src/domain/types.ts";
+import type { EventType, Task, WatcherEvent } from "../src/domain/types.ts";
+import { createDatabase } from "../src/persistence/database.ts";
+import { tasks } from "../src/persistence/schema.ts";
+import { DEFAULT_DATABASE_PATH, WatcherStore } from "../src/persistence/store.ts";
 import {
   buildTaskCard,
   buildStatusChangedMessage,
@@ -63,6 +69,9 @@ export interface SlackPreviewConfig {
 export interface SlackPreviewOptions {
   mentionTarget?: string;
   mentions?: string[];
+  task?: Task;
+  configuredStatuses?: string[];
+  interactive?: boolean;
 }
 
 export interface SlackPreviewClient {
@@ -150,12 +159,12 @@ export function buildSlackPreviewMessage(
     };
   }
 
-  const eventPreviewType = type === "attention" ? "block" : type;
+  const eventPreviewType = type === "attention" ? "start" : type;
   const mentionTarget =
-    type === "attention" ? (options.mentionTarget ?? DEFAULT_ATTENTION_TARGET) : undefined;
-  const mentions = type === "attention" ? (options.mentions ?? DEFAULT_MENTION_TARGETS) : [];
-  const service = "preview-service";
-  const issueIdentifier = "PREVIEW-123";
+    options.mentionTarget ?? (type === "attention" ? DEFAULT_ATTENTION_TARGET : undefined);
+  const mentions = options.mentions ?? (type === "attention" ? DEFAULT_MENTION_TARGETS : []);
+  const service = options.task?.serviceName ?? "preview-service";
+  const issueIdentifier = options.task?.issueIdentifier ?? "PREVIEW-123";
   const eventType = PREVIEW_EVENT_TYPES[eventPreviewType];
   const recovered = eventType === "recovered";
   const eventIssueIdentifier = recovered ? `watcher:${service}` : issueIdentifier;
@@ -171,19 +180,22 @@ export function buildSlackPreviewMessage(
     };
   }
 
-  return buildTaskCard(
-    {
+  const task =
+    options.task ??
+    ({
       id: `${service}:${eventIssueIdentifier}`,
       serviceName: service,
       issueIdentifier: eventIssueIdentifier,
       title: recovered ? eventIssueIdentifier : "Confirm the watcher Slack output",
       status,
       updatedAt: now.toISOString(),
-    },
-    PREVIEW_STATUSES,
+    } satisfies Task);
+  return buildTaskCard(
+    task,
+    options.configuredStatuses ?? PREVIEW_STATUSES,
     event,
     mentionTarget,
-    { interactive: false, mentions },
+    { interactive: options.interactive ?? false, mentions, titlePrefix: "🔥 Preview" },
   );
 }
 
@@ -276,14 +288,42 @@ function shiftedIso(now: Date, minutes: number): string {
 }
 
 if (import.meta.main) {
+  let database: ReturnType<typeof createDatabase> | undefined;
   try {
     const [category, type, extra] = process.argv.slice(2).filter((value) => value !== "--");
     const previewCase = resolveSlackPreviewCase(category, type, extra);
     const { botToken, channelId } = resolveSlackPreviewConfig();
-    const response = await postSlackPreview(new WebClient(botToken), channelId, previewCase);
+    let options: SlackPreviewOptions | undefined;
+    if (previewCase.category === "post") {
+      const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+      database = createDatabase(resolve(repositoryRoot, DEFAULT_DATABASE_PATH));
+      const store = new WatcherStore(database.db);
+      const latest = database.db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(isNotNull(tasks.parentMessageTs))
+        .orderBy(desc(tasks.updatedAt))
+        .get();
+      const task = latest ? store.getTask(latest.id) : undefined;
+      if (!task) throw new Error("No existing Slack-backed task is available for post preview.");
+      options = {
+        task,
+        configuredStatuses: store.getSelectableStatuses(task.serviceName),
+        interactive: true,
+      };
+    }
+    const response = await postSlackPreview(
+      new WebClient(botToken),
+      channelId,
+      previewCase,
+      undefined,
+      options,
+    );
     console.log(`Slack preview posted to ${response.channel ?? channelId} (ts: ${response.ts}).`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
+  } finally {
+    database?.close();
   }
 }
