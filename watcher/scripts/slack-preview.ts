@@ -195,7 +195,7 @@ export function buildSlackPreviewMessage(
     options.configuredStatuses ?? PREVIEW_STATUSES,
     event,
     mentionTarget,
-    { interactive: options.interactive ?? false, mentions, titlePrefix: "🔥 Preview" },
+    { interactive: options.interactive ?? false, titlePrefix: "🔥 Preview" },
   );
 }
 
@@ -247,7 +247,11 @@ function previewEvent(
         activity: "Inspecting the watcher Slack output",
         turnCount: 1,
         tokens: { total: 1_250 },
-        pullRequest: { url: "https://github.com/example/preview/pull/123", number: 123 },
+        pullRequest: {
+          url: "https://github.com/example/preview/pull/123",
+          number: 123,
+          title: "Improve the watcher Slack preview",
+        },
       };
     case "updated":
       return {

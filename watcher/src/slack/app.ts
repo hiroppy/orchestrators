@@ -295,7 +295,6 @@ export async function publishWatcherEvent(
     store.getSelectableStatuses(task.serviceName),
     event,
     notifications?.creator,
-    { mentions: notifications?.mentions },
   );
   const summary = JSON.stringify(card);
   const announceTerminalParent =

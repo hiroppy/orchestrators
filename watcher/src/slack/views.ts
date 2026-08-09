@@ -29,7 +29,6 @@ export interface TaskCard {
 
 export interface TaskCardOptions {
   interactive?: boolean;
-  mentions?: string[];
   titlePrefix?: string;
 }
 
@@ -70,11 +69,8 @@ export function buildTaskCard(
       : null,
   ].filter(isPresent);
   const secondaryFields = [
-    event?.pullRequest && !showStatusSelect
-      ? `*PR*\n${formatPullRequest(event.pullRequest)}`
-      : null,
     mentionTarget ? `*Creator*\n${mentionTarget}` : null,
-    options.mentions?.length ? `*Mentions*\n${options.mentions.join(" ")}` : null,
+    event?.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
   ].filter(isPresent);
   const eventDetails = event ? compactEventDetails(event, false, false, false, false) : [];
   const overviewBlocks = [primaryFields, secondaryFields]
@@ -83,10 +79,9 @@ export function buildTaskCard(
       type: "section",
       fields: fields.map((text) => ({ type: "mrkdwn", text })),
     }));
-  const attentionTargets = [mentionTarget, ...(options.mentions ?? [])].filter(isPresent);
   const fallbackText =
-    attentionTargets.length > 0
-      ? `${displayTitle}. Attention requested from ${attentionTargets.join(" ")}`
+    mentionTarget
+      ? `${displayTitle}. Created by ${mentionTarget}`
       : displayTitle;
   return {
     text: fallbackText,
@@ -116,19 +111,6 @@ export function buildTaskCard(
                   options: selectOptions,
                   ...(selected ? { initial_option: selected } : {}),
                 },
-                ...(event?.pullRequest
-                  ? [
-                      {
-                        type: "button",
-                        action_id: `task_pr:${encodeURIComponent(task.id)}`,
-                        text: {
-                          type: "plain_text",
-                          text: pullRequestLabel(event.pullRequest),
-                        },
-                        url: event.pullRequest.url,
-                      },
-                    ]
-                  : []),
               ],
             },
           ]
@@ -279,6 +261,11 @@ function truncateThreadBody(body: string): string {
   return body.length <= MAX_THREAD_BODY_LENGTH
     ? body
     : `${body.slice(0, MAX_THREAD_BODY_LENGTH - 1)}…`;
+}
+
+function formatParentPullRequestField(pullRequest: PullRequest): string {
+  const title = pullRequest.title?.trim() || "View pull request";
+  return `*${pullRequestLabel(pullRequest)}*\n<${pullRequest.url}|${escapeSlack(title)}>`;
 }
 
 function formatPullRequest(pullRequest: PullRequest): string {

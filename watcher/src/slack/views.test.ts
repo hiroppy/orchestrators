@@ -32,6 +32,7 @@ describe("Slack rendering", () => {
       pullRequest: {
         url: "https://github.com/acme/example/pull/42",
         number: 42,
+        title: "Improve the Slack card",
       },
     });
     const actions = card.blocks.find((block) => block.type === "actions") as {
@@ -41,8 +42,6 @@ describe("Slack rendering", () => {
         action_id: string;
         options?: Array<{ value: string }>;
         initial_option?: { value: string };
-        text?: { text: string };
-        url?: string;
       }>;
     };
 
@@ -53,16 +52,17 @@ describe("Slack rendering", () => {
     );
     assert.deepEqual(
       card.blocks.map(({ type }) => type),
-      ["section", "actions", "section"],
+      ["section", "actions", "section", "section"],
     );
     const overview = card.blocks.filter(
       (block) => block.type === "section" && "fields" in block,
     ) as Array<{ fields: Array<{ text: string }> }>;
     assert.deepEqual(overview.map(({ fields }) => fields.map(({ text }) => text)), [
       ["*Event*\nStarted", "*Activity*\nRunning tests"],
+      ["*PR#42*\n<https://github.com/acme/example/pull/42|Improve the Slack card>"],
     ]);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
-    assert.equal(actions.elements.length, 2);
+    assert.equal(actions.elements.length, 1);
     assert.equal(card.metadata.event_payload.task_id, task.id);
     assert.equal(
       new Set(card.blocks.map((block) => block.block_id).filter(Boolean)).size,
@@ -74,12 +74,6 @@ describe("Slack rendering", () => {
       ["Todo", "In Progress", "QA", "Done"],
     );
     assert.equal(actions.elements[0].initial_option?.value, "In Progress");
-    assert.deepEqual(actions.elements[1], {
-      type: "button",
-      action_id: "task_pr:service-a%3AENG-62",
-      text: { type: "plain_text", text: "PR#42" },
-      url: "https://github.com/acme/example/pull/42",
-    });
     assert.equal(taskIdFromBlockId(actions.block_id), task.id);
 
     const updatedCard = buildTaskCard({ ...task, status: "In Review" }, [
@@ -298,22 +292,19 @@ describe("Slack rendering", () => {
 
     assert.equal(
       card.text,
-      "[service-a] Build the Slack control plane. Attention requested from <@UCREATOR> <!subteam^SXXXXXXXX>",
+      "[service-a] Build the Slack control plane. Created by <@UCREATOR>",
     );
     const overview = card.blocks.filter(
       (block) => block.type === "section" && "fields" in block,
     ) as Array<{ fields: Array<{ text: string }> }>;
     assert.deepEqual(overview.map(({ fields }) => fields.map(({ text }) => text)), [
       ["*Event*\nEnded"],
-      ["*Creator*\n<@UCREATOR>", "*Mentions*\n<!subteam^SXXXXXXXX>"],
+      ["*Creator*\n<@UCREATOR>"],
     ]);
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Mentions/);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
     assert.match(thread, /\*Updated\* \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>/);
 
-    const withoutMentions = buildTaskCard(task, ["In Progress"], undefined, undefined, {
-      mentions: [],
-    });
-    assert.doesNotMatch(JSON.stringify(withoutMentions), /Mentions:/);
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
       /\*Rework\* → \*In Review\* by Example User/,

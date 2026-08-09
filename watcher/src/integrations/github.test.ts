@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,state,isDraft,reviewDecision,headRefName",
+            "url,number,title,state,isDraft,reviewDecision,headRefName",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -60,6 +60,7 @@ describe("findPullRequest", () => {
             stdout: JSON.stringify({
               url: "https://github.com/example/example-service/pull/123",
               number: 123,
+              title: "Add the contact form",
               state: "OPEN",
               isDraft: false,
               reviewDecision: "REVIEW_REQUIRED",
@@ -73,6 +74,7 @@ describe("findPullRequest", () => {
     assert.deepEqual(result, {
       url: "https://github.com/example/example-service/pull/123",
       number: 123,
+      title: "Add the contact form",
       state: "OPEN",
       isDraft: false,
       reviewDecision: "REVIEW_REQUIRED",
@@ -90,7 +92,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,state,isDraft,reviewDecision,headRefName,reactionGroups",
+            "url,number,title,state,isDraft,reviewDecision,headRefName,reactionGroups",
           ]);
           return {
             stdout: JSON.stringify({
@@ -171,7 +173,7 @@ describe("findPullRequestByUrl", () => {
           "view",
           url,
           "--json",
-          "url,number,state,isDraft,reviewDecision,headRefName,reactionGroups",
+          "url,number,title,state,isDraft,reviewDecision,headRefName,reactionGroups",
         ]);
         assert.equal(options.cwd, undefined);
         return {

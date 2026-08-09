@@ -128,8 +128,9 @@ describe("Slack preview", () => {
     );
 
     assert.match(JSON.stringify(parent.blocks), /\*Creator\*\\n<@UCREATOR>/);
-    assert.match(JSON.stringify(parent.blocks), /\*Mentions\*\\n<!subteam\^SREVIEWERS>/);
+    assert.doesNotMatch(JSON.stringify(parent.blocks), /Mentions/);
     assert.match(JSON.stringify(parent.blocks), /PR#123/);
+    assert.match(JSON.stringify(parent.blocks), /Improve the watcher Slack preview/);
     assert.equal(
       thread.text,
       "*PR created* | Creator: <@UCREATOR> | Mentions: <!subteam^SREVIEWERS> | <https://github.com/example/preview/pull/123|PR#123>",
@@ -143,13 +144,13 @@ describe("Slack preview", () => {
       options,
     );
     assert.match(JSON.stringify(blocked.blocks), /\*Creator\*\\n<@UCREATOR>/);
-    assert.match(JSON.stringify(blocked.blocks), /\*Mentions\*\\n<!subteam\^SREVIEWERS>/);
+    assert.doesNotMatch(JSON.stringify(blocked.blocks), /Mentions/);
 
     const defaults = buildSlackPreviewMessage(
       { category: "post", type: "attention" },
       new Date("2026-07-29T00:00:00.000Z"),
     );
-    assert.match(JSON.stringify(defaults.blocks), /\*Mentions\*\\n@reviewer-one @reviewer-two/);
+    assert.doesNotMatch(JSON.stringify(defaults.blocks), /Mentions/);
   });
 
   it("requires a supported category and event type", () => {
