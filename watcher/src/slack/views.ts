@@ -69,16 +69,16 @@ export function buildTaskCard(
   const primaryFields = [
     watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
     event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
-    activity
-      ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}`
-      : null,
+    activity ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}` : null,
   ].filter(isPresent);
   const secondaryFields = [
     mentionTarget ? `*Creator*\n${mentionTarget}` : null,
     event?.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
   ].filter(isPresent);
   const overviewBlocks = buildFieldSections(primaryFields, secondaryFields);
-  const fallbackText = mentionTarget ? `${displayTitle}. Created by ${mentionTarget}` : displayTitle;
+  const fallbackText = mentionTarget
+    ? `${displayTitle}. Created by ${mentionTarget}`
+    : displayTitle;
   return {
     text: fallbackText,
     metadata: {

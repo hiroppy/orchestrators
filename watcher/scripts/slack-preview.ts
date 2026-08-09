@@ -192,13 +192,10 @@ export function buildSlackPreviewMessage(
       status,
       updatedAt: now.toISOString(),
     } satisfies Task);
-  return buildTaskCard(
-    task,
-    options.configuredStatuses ?? PREVIEW_STATUSES,
-    event,
-    mentionTarget,
-    { interactive: options.interactive ?? false, titlePrefix: "🔥 Preview" },
-  );
+  return buildTaskCard(task, options.configuredStatuses ?? PREVIEW_STATUSES, event, mentionTarget, {
+    interactive: options.interactive ?? false,
+    titlePrefix: "🔥 Preview",
+  });
 }
 
 export function postSlackPreview(
