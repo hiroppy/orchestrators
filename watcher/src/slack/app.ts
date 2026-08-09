@@ -14,6 +14,7 @@ import {
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
+  buildStatusChangedMessageBlocks,
   buildRelatedIssueMessage,
   buildTaskCard,
   buildTaskClosedMessage,
@@ -225,6 +226,7 @@ export async function handleStatusAction(
         channel: existingTask.parentChannelId,
         thread_ts: existingTask.parentMessageTs,
         text: historyLine,
+        blocks: buildStatusChangedMessageBlocks(actorDisplayName, fromStatus, selectedStatus),
       });
       store.addEvent({
         taskId: task.id,
@@ -295,7 +297,6 @@ export async function publishWatcherEvent(
     store.getSelectableStatuses(task.serviceName),
     event,
     notifications?.creator,
-    { mentions: notifications?.mentions },
   );
   const summary = JSON.stringify(card);
   const announceTerminalParent =

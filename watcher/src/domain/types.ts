@@ -63,6 +63,7 @@ export interface ServiceDefinition {
 export interface PullRequest {
   url: string;
   number?: number | null;
+  title?: string | null;
   state?: string | null;
   isDraft?: boolean | null;
   reviewDecision?: string | null;

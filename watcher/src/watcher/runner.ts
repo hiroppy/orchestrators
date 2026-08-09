@@ -234,7 +234,6 @@ export async function runOnce({
                 linearTeamForService(config, task.serviceName)?.statuses ?? [],
                 enrichedEvent,
                 notificationTargets?.creator,
-                { mentions: notificationTargets?.mentions },
               ),
               thread: buildThreadMessage(enrichedEvent, notificationTargets?.creator, {
                 mentions: notificationTargets?.mentions,

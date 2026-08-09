@@ -3,6 +3,13 @@ import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 
 const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ACTIVITY_LENGTH = 180;
+const MAX_FIELD_LENGTH = 2_000;
+type MrkdwnText = { type: "mrkdwn"; text: string };
+interface SectionBlock extends Record<string, unknown> {
+  type: "section";
+  text?: MrkdwnText;
+  fields?: MrkdwnText[];
+}
 
 const EVENT_LABELS: Record<EventType, string> = {
   started: "Started",
@@ -12,6 +19,11 @@ const EVENT_LABELS: Record<EventType, string> = {
   ended: "Ended",
   recovered: "Recovered",
 };
+
+function parentEventLabel(event: WatcherEvent): string {
+  const label = EVENT_LABELS[event.type];
+  return event.type === "retrying" && event.attempt ? `${label} (attempt ${event.attempt})` : label;
+}
 
 export interface TaskCard {
   text: string;
@@ -24,7 +36,7 @@ export interface TaskCard {
 
 export interface TaskCardOptions {
   interactive?: boolean;
-  mentions?: string[];
+  titlePrefix?: string;
 }
 
 export function buildTaskCard(
@@ -34,7 +46,6 @@ export function buildTaskCard(
   mentionTarget?: string,
   options: TaskCardOptions = {},
 ): TaskCard {
-  const notifications = notificationLabels(mentionTarget, options.mentions);
   const watcherErrorTask = isWatcherErrorTask(task);
   const issueUrl = event?.issueUrl ?? task.linkUrl;
   const issueTitle = watcherErrorTask
@@ -42,7 +53,9 @@ export function buildTaskCard(
     : task.title === task.issueIdentifier
       ? undefined
       : task.title;
-  const displayTitle = [`[${task.serviceName}]`, issueTitle].filter(isPresent).join(" ");
+  const displayTitle = [options.titlePrefix, `[${task.serviceName}]`, issueTitle]
+    .filter(isPresent)
+    .join(" ");
   const linkedTitle = issueUrl
     ? `<${issueUrl}|${escapeSlack(displayTitle)}>`
     : escapeSlack(displayTitle);
@@ -52,24 +65,23 @@ export function buildTaskCard(
   }));
   const selected = selectOptions.find(({ value }) => value === task.status);
   const blockId = taskBlockId(task.id, task.status);
-  const eventDetails = event ? compactEventDetails(event) : [];
-  const detailLines = [
-    [
-      watcherErrorTask ? `Status: ${escapeSlack(capitalize(task.status))}` : null,
-      event ? `Event: ${escapeSlack(EVENT_LABELS[event.type])}` : null,
-      ...notifications,
-    ]
-      .filter(isPresent)
-      .join(" | "),
-    event?.activity
-      ? `Activity: ${escapeSlack(truncate(event.activity, MAX_ACTIVITY_LENGTH))}`
-      : "",
-    eventDetails.join(" | "),
-  ].filter((line) => line.length > 0);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
-
+  const activity = event ? formatActivity(event) : undefined;
+  const primaryFields = [
+    watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
+    event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
+    activity ? `*Activity*\n${activity}` : null,
+  ].filter(isPresent);
+  const secondaryFields = [
+    mentionTarget ? `*Creator*\n${mentionTarget}` : null,
+    event?.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
+  ].filter(isPresent);
+  const overviewBlocks = buildFieldSections(primaryFields, secondaryFields);
+  const fallbackText = mentionTarget
+    ? `${displayTitle}. Created by ${mentionTarget}`
+    : displayTitle;
   return {
-    text: [displayTitle, ...notifications].filter(isPresent).join(" "),
+    text: fallbackText,
     metadata: {
       event_type: "watcher_task",
       event_payload: { task_id: task.id },
@@ -100,15 +112,7 @@ export function buildTaskCard(
             },
           ]
         : []),
-      {
-        type: "context",
-        elements: [
-          {
-            type: "mrkdwn",
-            text: detailLines.join("\n"),
-          },
-        ],
-      },
+      ...overviewBlocks,
     ],
   };
 }
@@ -123,27 +127,26 @@ export function buildThreadMessageBlocks(
   event: WatcherEvent,
   mentionTarget?: string,
   context: ThreadMessageContext = {},
-): Array<Record<string, unknown>> | undefined {
+): Array<Record<string, unknown>> {
   const transition = statusTransitionDetails(event, mentionTarget, context);
-  if (!transition) return undefined;
+  const headline = transition?.headline ?? threadHeadline(event);
+  const activity = formatActivity(event);
+  const primaryFields = [
+    `*Event*\n${escapeSlack(parentEventLabel(event))}`,
+    activity ? `*Activity*\n${activity}` : null,
+  ].filter(isPresent);
+  const notificationFields = [
+    mentionTarget ? `*Creator*\n${mentionTarget}` : null,
+    event.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
+  ].filter(isPresent);
+  const detailFields = [
+    formatUsage(event.turnCount, event.tokens?.total),
+    context.mentions?.length ? formatMentions(context.mentions) : null,
+  ].filter(isPresent);
 
   return [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: transition.headline,
-      },
-    },
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: transition.details.join("\n"),
-        },
-      ],
-    },
+    buildTextSection(headline),
+    ...buildFieldSections(primaryFields, notificationFields, detailFields),
   ];
 }
 
@@ -213,6 +216,17 @@ export function buildStatusChangedMessage(
   )}`;
 }
 
+export function buildStatusChangedMessageBlocks(
+  actorDisplayName: string,
+  fromStatus: string,
+  toStatus: string,
+): SectionBlock[] {
+  return [
+    buildTextSection(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`),
+    ...buildFieldSections([`*Changed by*\n${escapeSlack(actorDisplayName)}`]),
+  ];
+}
+
 export function buildTaskClosedMessage(status: string, parentPermalink: string): string {
   return `Task closed | *${escapeSlack(status)}*\n${parentPermalink}`;
 }
@@ -220,6 +234,64 @@ export function buildTaskClosedMessage(status: string, parentPermalink: string):
 export function buildRelatedIssueMessage(issue: RelatedIssue): string {
   const label = [issue.identifier, issue.title].filter(isPresent).join(": ");
   return `Next task | ${issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label)}`;
+}
+
+function buildTextSection(text: string): SectionBlock {
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
+function buildFieldSections(...groups: string[][]): SectionBlock[] {
+  return groups
+    .filter((fields) => fields.length > 0)
+    .map((fields) => ({
+      type: "section",
+      fields: fields.map((text) => ({ type: "mrkdwn", text })),
+    }));
+}
+
+function threadHeadline(event: WatcherEvent): string {
+  if (event.pullRequest) return "*PR created*";
+  return `*${EVENT_LABELS[event.type]}*`;
+}
+
+function formatUsage(turnCount?: number, totalTokens?: number): string | undefined {
+  const values = [
+    positiveNumber(turnCount) ? `${formatNumber(turnCount)} turns` : null,
+    positiveNumber(totalTokens) ? `${formatCompactNumber(totalTokens)} tokens` : null,
+  ].filter(isPresent);
+  return values.length > 0 ? `*Usage*\n${values.join(" | ")}` : undefined;
+}
+
+function formatActivity(event: WatcherEvent): string | undefined {
+  const activity = event.activity ? escapeSlack(event.activity) : undefined;
+  const error = event.error ? escapeSlack(event.error) : undefined;
+  if (!activity || !error) {
+    const text = activity ?? error;
+    return text ? truncate(text, MAX_ACTIVITY_LENGTH) : undefined;
+  }
+
+  const separator = "\n⚠️ ";
+  const availableLength = MAX_ACTIVITY_LENGTH - separator.length;
+  const errorLength = Math.min(error.length, Math.ceil(availableLength / 2));
+  const activityText = truncate(activity, availableLength - errorLength);
+  const errorText = truncate(error, availableLength - activityText.length);
+  return `${activityText}${separator}${errorText}`;
+}
+
+function formatMentions(mentions: string[]): string {
+  const label = "*Mentions*\n";
+  const availableLength = MAX_FIELD_LENGTH - label.length;
+  const targets: string[] = [];
+  let length = 0;
+
+  for (const mention of mentions) {
+    const addedLength = mention.length + (targets.length > 0 ? 1 : 0);
+    if (length + addedLength > availableLength) break;
+    targets.push(mention);
+    length += addedLength;
+  }
+
+  return `${label}${targets.join(" ")}`;
 }
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
@@ -240,9 +312,18 @@ function truncateThreadBody(body: string): string {
     : `${body.slice(0, MAX_THREAD_BODY_LENGTH - 1)}…`;
 }
 
+function formatParentPullRequestField(pullRequest: PullRequest): string {
+  const title = pullRequest.title?.trim() || "View pull request";
+  return `*${pullRequestLabel(pullRequest)}*\n<${pullRequest.url}|${escapeSlack(title)}>`;
+}
+
 function formatPullRequest(pullRequest: PullRequest): string {
+  return `<${pullRequest.url}|${pullRequestLabel(pullRequest)}>`;
+}
+
+function pullRequestLabel(pullRequest: PullRequest): string {
   const number = pullRequest.number ?? pullRequestNumberFromUrl(pullRequest.url);
-  return `<${pullRequest.url}|PR${number ? `#${number}` : ""}>`;
+  return `PR${number ? `#${number}` : ""}`;
 }
 
 function pullRequestNumberFromUrl(url: string): string | undefined {

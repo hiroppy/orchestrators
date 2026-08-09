@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
+  buildStatusChangedMessageBlocks,
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
@@ -32,14 +33,16 @@ describe("Slack rendering", () => {
       pullRequest: {
         url: "https://github.com/acme/example/pull/42",
         number: 42,
+        title: "Improve the Slack card",
       },
     });
     const actions = card.blocks.find((block) => block.type === "actions") as {
       block_id: string;
       elements: Array<{
+        type: string;
         action_id: string;
-        options: Array<{ value: string }>;
-        initial_option: { value: string };
+        options?: Array<{ value: string }>;
+        initial_option?: { value: string };
       }>;
     };
 
@@ -48,18 +51,21 @@ describe("Slack rendering", () => {
       (card.blocks[0].text as { text: string }).text,
       "*<https://linear.app/acme/issue/ENG-62/example|[service-a] Build the Slack control plane>*",
     );
-    assert.doesNotMatch(JSON.stringify(card.blocks), /🚧|In Progress.*service-a/);
     assert.deepEqual(
       card.blocks.map(({ type }) => type),
-      ["section", "actions", "context"],
+      ["section", "actions", "section", "section"],
     );
-    const context = card.blocks.find((block) => block.type === "context") as {
-      elements: Array<{ text: string }>;
-    };
-    assert.match(
-      context.elements[0].text,
-      /^Event: Started\nActivity: Running tests\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42> \| Turns: 1 \| Tokens: 74\.4k$/,
+    const overview = card.blocks.filter(
+      (block) => block.type === "section" && "fields" in block,
+    ) as Array<{ fields: Array<{ text: string }> }>;
+    assert.deepEqual(
+      overview.map(({ fields }) => fields.map(({ text }) => text)),
+      [
+        ["*Event*\nStarted", "*Activity*\nRunning tests"],
+        ["*PR#42*\n<https://github.com/acme/example/pull/42|Improve the Slack card>"],
+      ],
     );
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
     assert.equal(actions.elements.length, 1);
     assert.equal(card.metadata.event_payload.task_id, task.id);
     assert.equal(
@@ -68,10 +74,10 @@ describe("Slack rendering", () => {
     );
     assert.equal(actions.elements[0].action_id, TASK_STATUS_ACTION_ID);
     assert.deepEqual(
-      actions.elements[0].options.map(({ value }) => value),
+      actions.elements[0].options?.map(({ value }) => value),
       ["Todo", "In Progress", "QA", "Done"],
     );
-    assert.equal(actions.elements[0].initial_option.value, "In Progress");
+    assert.equal(actions.elements[0].initial_option?.value, "In Progress");
     assert.equal(taskIdFromBlockId(actions.block_id), task.id);
 
     const updatedCard = buildTaskCard({ ...task, status: "In Review" }, [
@@ -110,13 +116,29 @@ describe("Slack rendering", () => {
       issueIdentifier: "ENG-62",
       activity: `<unsafe> & ${"x".repeat(200)}`,
     });
-    const context = card.blocks.find((block) => block.type === "context") as {
-      elements: Array<{ text: string }>;
+    const overview = card.blocks.find((block) => block.type === "section" && "fields" in block) as {
+      fields: Array<{ text: string }>;
     };
 
-    assert.match(context.elements[0].text, /Activity: &lt;unsafe&gt; &amp; /);
-    assert.doesNotMatch(context.elements[0].text, /<unsafe>/);
-    assert.match(context.elements[0].text, /…$/);
+    const activity = overview.fields.find(({ text }) => text.startsWith("*Activity*\n"))?.text;
+    assert.match(activity!, /&lt;unsafe&gt; &amp; /);
+    assert.doesNotMatch(activity!, /<unsafe>/);
+    assert.match(activity!, /…$/);
+  });
+
+  it("keeps an error visible when activity is also present", () => {
+    const event = {
+      type: "blocked" as const,
+      service: "service-a",
+      issueIdentifier: "ENG-62",
+      activity: `Running tests ${"x".repeat(200)}`,
+      error: "Test command failed",
+    };
+    const card = buildTaskCard(task, ["In Progress"], event);
+    const blocks = buildThreadMessageBlocks(event);
+
+    assert.match(JSON.stringify(card.blocks), /Running tests.*…\\n⚠️ Test command failed/);
+    assert.match(JSON.stringify(blocks), /Running tests.*…\\n⚠️ Test command failed/);
   });
 
   it("does not render a status select for watcher fetch errors", () => {
@@ -147,12 +169,16 @@ describe("Slack rendering", () => {
       (card.blocks[0].text as { text: string }).text,
       "*[service-a] Symphony connection*",
     );
-    const context = card.blocks.find((block) => block.type === "context") as {
-      elements: Array<{ text: string }>;
+    const overview = card.blocks.find((block) => block.type === "section" && "fields" in block) as {
+      fields: Array<{ text: string }>;
     };
-    assert.match(
-      context.elements[0].text,
-      /^Status: Unavailable \| Event: Retrying\nError: fetch failed$/,
+    assert.deepEqual(
+      overview.fields.map(({ text }) => text),
+      ["*Status*\nUnavailable", "*Event*\nRetrying", "*Activity*\nfetch failed"],
+    );
+    assert.equal(
+      card.blocks.some((block) => block.type === "context"),
+      false,
     );
   });
 
@@ -173,12 +199,15 @@ describe("Slack rendering", () => {
         state: "available",
       },
     );
-    const context = card.blocks.find((block) => block.type === "context") as {
-      elements: Array<{ text: string }>;
+    const overview = card.blocks.find((block) => block.type === "section" && "fields" in block) as {
+      fields: Array<{ text: string }>;
     };
 
     assert.equal(card.text, "[service-a] Symphony connection");
-    assert.equal(context.elements[0].text, "Status: Available | Event: Recovered");
+    assert.deepEqual(
+      overview.fields.map(({ text }) => text),
+      ["*Status*\nAvailable", "*Event*\nRecovered"],
+    );
   });
 
   it("keeps thread output bounded and records Slack status actors", () => {
@@ -251,7 +280,7 @@ describe("Slack rendering", () => {
           toStatus: "In Review",
         },
       )?.map(({ type }) => type),
-      ["section", "context"],
+      ["section", "section", "section", "section"],
     );
   });
 
@@ -282,28 +311,58 @@ describe("Slack rendering", () => {
       { mentions },
     );
 
-    assert.match(card.text, /Creator: <@UCREATOR>/);
-    assert.match(card.text, /Mentions: <!subteam\^SXXXXXXXX>/);
-    const context = card.blocks.find((block) => block.type === "context") as {
-      elements: Array<{ text: string }>;
-    };
-    assert.match(
-      context.elements[0].text,
-      /^Event: Ended \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>\nTurns: 1 \| Tokens: 1\.4m$/,
+    assert.equal(card.text, "[service-a] Build the Slack control plane. Created by <@UCREATOR>");
+    const overview = card.blocks.filter(
+      (block) => block.type === "section" && "fields" in block,
+    ) as Array<{ fields: Array<{ text: string }> }>;
+    assert.deepEqual(
+      overview.map(({ fields }) => fields.map(({ text }) => text)),
+      [["*Event*\nEnded"], ["*Creator*\n<@UCREATOR>"]],
     );
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Mentions/);
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
     assert.match(thread, /\*Updated\* \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>/);
 
-    const withoutMentions = buildTaskCard(task, ["In Progress"], undefined, undefined, {
-      mentions: [],
-    });
-    assert.doesNotMatch(JSON.stringify(withoutMentions), /Mentions:/);
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
       /\*Rework\* → \*In Review\* by Example User/,
     );
+    assert.deepEqual(buildStatusChangedMessageBlocks("Example User", "Rework", "In Review"), [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "*Rework* → *In Review*" },
+      },
+      {
+        type: "section",
+        fields: [{ type: "mrkdwn", text: "*Changed by*\nExample User" }],
+      },
+    ]);
     assert.doesNotMatch(
       buildStatusChangedMessage("Example User", "In Review", "Done"),
       /SXXXXXXXX/,
     );
+  });
+
+  it("keeps the mentions field within Slack's text limit", () => {
+    const mentions = Array.from(
+      { length: 300 },
+      (_, index) => `<@U${String(index).padStart(8, "0")}>`,
+    );
+    const blocks = buildThreadMessageBlocks(
+      {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+      },
+      undefined,
+      { mentions },
+    );
+    const mentionsField = blocks
+      .flatMap((block) => ("fields" in block ? (block.fields as Array<{ text: string }>) : []))
+      .find(({ text }) => text.startsWith("*Mentions*\n"));
+
+    assert.ok(mentionsField);
+    assert.ok(mentionsField.text.length <= 2_000);
+    assert.match(mentionsField.text, />$/);
   });
 });
