@@ -125,27 +125,45 @@ export function buildThreadMessageBlocks(
   event: WatcherEvent,
   mentionTarget?: string,
   context: ThreadMessageContext = {},
-): Array<Record<string, unknown>> | undefined {
+): Array<Record<string, unknown>> {
   const transition = statusTransitionDetails(event, mentionTarget, context);
-  if (!transition) return undefined;
+  const headline = transition?.headline ?? (event.pullRequest ? "*PR created*" : `*${EVENT_LABELS[event.type]}*`);
+  const activity = event.activity ?? event.error;
+  const totalTokens = event.tokens?.total;
+  const primaryFields = [
+    `*Event*\n${escapeSlack(parentEventLabel(event))}`,
+    activity ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}` : null,
+  ].filter(isPresent);
+  const notificationFields = [
+    mentionTarget ? `*Creator*\n${mentionTarget}` : null,
+    event.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
+  ].filter(isPresent);
+  const detailFields = [
+    positiveNumber(event.turnCount) || positiveNumber(totalTokens)
+      ? `*Usage*\n${[
+          positiveNumber(event.turnCount) ? `${formatNumber(event.turnCount)} turns` : null,
+          positiveNumber(totalTokens) ? `${formatCompactNumber(totalTokens)} tokens` : null,
+        ]
+          .filter(isPresent)
+          .join(" | ")}`
+      : null,
+    context.mentions?.length ? `*Mentions*\n${context.mentions.join(" ")}` : null,
+  ].filter(isPresent);
 
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: transition.headline,
+        text: headline,
       },
     },
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: transition.details.join("\n"),
-        },
-      ],
-    },
+    ...[primaryFields, notificationFields, detailFields]
+      .filter((fields) => fields.length > 0)
+      .map((fields) => ({
+        type: "section",
+        fields: fields.map((text) => ({ type: "mrkdwn", text })),
+      })),
   ];
 }
 
@@ -213,6 +231,35 @@ export function buildStatusChangedMessage(
   return `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}* by ${escapeSlack(
     actorDisplayName,
   )}`;
+}
+
+export function buildStatusChangedMessageBlocks(
+  actorDisplayName: string,
+  fromStatus: string,
+  toStatus: string,
+): Array<{
+  type: "section";
+  text?: { type: "mrkdwn"; text: string };
+  fields?: Array<{ type: "mrkdwn"; text: string }>;
+}> {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`,
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Changed by*\n${escapeSlack(actorDisplayName)}`,
+        },
+      ],
+    },
+  ];
 }
 
 export function buildTaskClosedMessage(status: string, parentPermalink: string): string {

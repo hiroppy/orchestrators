@@ -77,8 +77,7 @@ describe("Slack preview", () => {
       assert.equal(call.channel, "C123");
       assert.equal("thread_ts" in call, false);
     }
-    assert.equal("blocks" in calls[0], false);
-    for (const call of calls.slice(1)) {
+    for (const call of calls) {
       assert.ok(Array.isArray(call.blocks));
     }
     assert.equal(
@@ -90,6 +89,7 @@ describe("Slack preview", () => {
       /^\*In Progress\* → \*In Review\*\nEvent: Updated\nTurns: 12 \| Tokens: 12\.3k$/,
     );
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
+    assert.match(JSON.stringify(calls[1].blocks), /\*Usage\*\\n12 turns \| 12\.3k tokens/);
     assert.match(String(calls[5].text), /^\*unavailable\* → \*available\*\nEvent: Recovered$/);
   });
 
@@ -108,7 +108,7 @@ describe("Slack preview", () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].text, "*In Review* → *Rework* by Hiroppy");
-    assert.equal("blocks" in calls[0], false);
+    assert.match(JSON.stringify(calls[0].blocks), /\*Changed by\*\\nHiroppy/);
   });
 
   it("previews the configured attention target in parent and thread messages", () => {

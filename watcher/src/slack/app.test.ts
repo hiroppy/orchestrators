@@ -108,7 +108,7 @@ describe("Slack app behavior", () => {
       assert.equal(updates[0].args.ts, "1.000");
       assert.deepEqual(
         (threadPosts[0].args.blocks as Array<{ type: string }>).map(({ type }) => type),
-        ["section", "context"],
+        ["section", "section"],
       );
 
       const initialActions = (topLevelPosts[0].args.blocks as Array<Record<string, unknown>>).find(
@@ -433,16 +433,15 @@ describe("Slack app behavior", () => {
       )[2].args.blocks as Array<Record<string, unknown>>;
       assert.deepEqual(
         statusTransitionBlocks.map(({ type }) => type),
-        ["section", "context"],
+        ["section", "section", "section"],
       );
       assert.equal(
         (statusTransitionBlocks[0].text as { text: string }).text,
         "*In Progress* → *In Review*",
       );
-      assert.match(
-        (statusTransitionBlocks[1].elements as Array<{ text: string }>)[0].text,
-        /^Event: Updated \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
-      );
+      assert.match(JSON.stringify(statusTransitionBlocks), /\*Event\*\\nUpdated/);
+      assert.match(JSON.stringify(statusTransitionBlocks), /\*Creator\*\\n<@UHIROPPY>/);
+      assert.match(JSON.stringify(statusTransitionBlocks), /PR#42/);
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,
         "https://linear.app/acme/issue/ENG-62/example",

@@ -11,6 +11,7 @@ import { DEFAULT_DATABASE_PATH, WatcherStore } from "../src/persistence/store.ts
 import {
   buildTaskCard,
   buildStatusChangedMessage,
+  buildStatusChangedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
   type TaskCard,
@@ -156,6 +157,7 @@ export function buildSlackPreviewMessage(
     }
     return {
       text: buildStatusChangedMessage("Hiroppy", "In Review", "Rework"),
+      blocks: buildStatusChangedMessageBlocks("Hiroppy", "In Review", "Rework"),
     };
   }
 

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
+  buildStatusChangedMessageBlocks,
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
@@ -259,7 +260,7 @@ describe("Slack rendering", () => {
           toStatus: "In Review",
         },
       )?.map(({ type }) => type),
-      ["section", "context"],
+      ["section", "section", "section", "section"],
     );
   });
 
@@ -308,6 +309,19 @@ describe("Slack rendering", () => {
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
       /\*Rework\* → \*In Review\* by Example User/,
+    );
+    assert.deepEqual(
+      buildStatusChangedMessageBlocks("Example User", "Rework", "In Review"),
+      [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "*Rework* → *In Review*" },
+        },
+        {
+          type: "section",
+          fields: [{ type: "mrkdwn", text: "*Changed by*\nExample User" }],
+        },
+      ],
     );
     assert.doesNotMatch(
       buildStatusChangedMessage("Example User", "In Review", "Done"),
