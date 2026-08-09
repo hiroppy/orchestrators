@@ -326,9 +326,11 @@ async function reconcileLinearStatuses({
       (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
     const reaction = reviewReactionForStatus(config, linearIssue.state);
     if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
-    if (reaction && pullRequest?.url) {
-      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction });
-      if (!enrichedPullRequest && hasPendingReconciliation) continue;
+    if (pullRequest?.url) {
+      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
+        ...(reaction ? { reaction } : {}),
+      });
+      if (reaction && !enrichedPullRequest && hasPendingReconciliation) continue;
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
 
@@ -763,15 +765,13 @@ async function enrichEvent(
   let pullRequest = (await github.findPullRequest(event, { reaction })) ?? undefined;
   let reactionLookupSucceeded = !reaction || pullRequest?.hasConfiguredReaction !== undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
+    const enrichedPullRequest = await github.findPullRequestByUrl(linearIssue.pullRequest.url, {
+      ...(reaction ? { reaction } : {}),
+    });
     if (reaction) {
-      const enrichedPullRequest = await github.findPullRequestByUrl(linearIssue.pullRequest.url, {
-        reaction,
-      });
       reactionLookupSucceeded = enrichedPullRequest?.hasConfiguredReaction !== undefined;
-      pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
-    } else {
-      pullRequest = linearIssue.pullRequest;
     }
+    pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
   }
   return {
     event: compactObject({

@@ -1071,6 +1071,11 @@ describe("runOnce", () => {
         store,
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
+        findPullRequestByUrl: async (url) => ({
+          url,
+          number: 42,
+          title: "Ship the reconciled pull request",
+        }),
       });
 
       assert.equal(store.getTask(task.id)?.status, "Done");
@@ -1086,6 +1091,12 @@ describe("runOnce", () => {
       assert.match(
         String(calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.text),
         /^\*In Review\* → \*Done\*\nEvent: Updated\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+      );
+      assert.match(
+        JSON.stringify(
+          calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.blocks,
+        ),
+        /Ship the reconciled pull request/,
       );
 
       await runOnce({
