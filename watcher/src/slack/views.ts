@@ -265,8 +265,17 @@ function formatUsage(turnCount?: number, totalTokens?: number): string | undefin
 function formatActivity(event: WatcherEvent): string | undefined {
   const activity = event.activity ? escapeSlack(event.activity) : undefined;
   const error = event.error ? escapeSlack(event.error) : undefined;
-  const text = activity && error ? `${activity}\n⚠️ ${error}` : (activity ?? error);
-  return text ? truncate(text, MAX_ACTIVITY_LENGTH) : undefined;
+  if (!activity || !error) {
+    const text = activity ?? error;
+    return text ? truncate(text, MAX_ACTIVITY_LENGTH) : undefined;
+  }
+
+  const separator = "\n⚠️ ";
+  const availableLength = MAX_ACTIVITY_LENGTH - separator.length;
+  const errorLength = Math.min(error.length, Math.ceil(availableLength / 2));
+  const activityText = truncate(activity, availableLength - errorLength);
+  const errorText = truncate(error, availableLength - activityText.length);
+  return `${activityText}${separator}${errorText}`;
 }
 
 function formatMentions(mentions: string[]): string {

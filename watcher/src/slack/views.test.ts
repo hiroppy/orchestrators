@@ -131,14 +131,14 @@ describe("Slack rendering", () => {
       type: "blocked" as const,
       service: "service-a",
       issueIdentifier: "ENG-62",
-      activity: "Running tests",
+      activity: `Running tests ${"x".repeat(200)}`,
       error: "Test command failed",
     };
     const card = buildTaskCard(task, ["In Progress"], event);
     const blocks = buildThreadMessageBlocks(event);
 
-    assert.match(JSON.stringify(card.blocks), /Running tests\\n⚠️ Test command failed/);
-    assert.match(JSON.stringify(blocks), /Running tests\\n⚠️ Test command failed/);
+    assert.match(JSON.stringify(card.blocks), /Running tests.*…\\n⚠️ Test command failed/);
+    assert.match(JSON.stringify(blocks), /Running tests.*…\\n⚠️ Test command failed/);
   });
 
   it("does not render a status select for watcher fetch errors", () => {
