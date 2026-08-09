@@ -58,6 +58,8 @@ export const tasks = sqliteTable(
       .references(() => statuses.id),
     linearStateType: text("linear_state_type"),
     linkUrl: text("link_url"),
+    pullRequestUrl: text("pull_request_url"),
+    pullRequestNumber: integer("pull_request_number"),
     parentChannelId: text("parent_channel_id"),
     parentMessageTs: text("parent_message_ts"),
     lastRenderedSummary: text("last_rendered_summary"),

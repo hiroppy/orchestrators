@@ -113,6 +113,7 @@ export interface Task {
   status: string;
   linearStateType?: string;
   linkUrl?: string;
+  pullRequest?: PullRequest;
   parentChannelId?: string;
   parentMessageTs?: string;
   lastRenderedSummary?: string;

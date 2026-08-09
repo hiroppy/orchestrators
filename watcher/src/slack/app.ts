@@ -155,7 +155,7 @@ async function handleStatusCommand({
   const tasks = store
     .getTasksForLinearSync()
     .filter((task) => STATUS_COMMAND_STATUS_NAMES.has(normalizeStatus(task.status)));
-  const links = new Map<string, string>();
+  const slackLinks = new Map<string, string>();
 
   await Promise.all(
     tasks.map(async (task) => {
@@ -165,19 +165,20 @@ async function handleStatusCommand({
             channel: task.parentChannelId,
             message_ts: task.parentMessageTs,
           });
-          if (response.permalink) links.set(task.id, response.permalink);
+          if (response.permalink) slackLinks.set(task.id, response.permalink);
         } catch (error) {
           logger.error(error);
         }
       }
-      if (!links.has(task.id) && task.linkUrl) links.set(task.id, task.linkUrl);
     }),
   );
 
   await client.chat.postMessage({
     channel: event.channel,
-    text: buildStatusSummary(tasks, links),
-    blocks: buildStatusSummaryBlocks(tasks, links),
+    text: buildStatusSummary(tasks, slackLinks),
+    blocks: buildStatusSummaryBlocks(tasks, slackLinks),
+    unfurl_links: false,
+    unfurl_media: false,
   });
 }
 

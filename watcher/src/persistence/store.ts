@@ -325,6 +325,8 @@ export class WatcherStore {
         statusId,
         linearStateType: event.resolvedStateType,
         linkUrl: event.issueUrl,
+        pullRequestUrl: event.pullRequest?.url,
+        pullRequestNumber: event.pullRequest?.number,
         lastEventAt: event.lastEventAt ?? timestamp,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -336,6 +338,8 @@ export class WatcherStore {
           statusId,
           linearStateType: event.resolvedStateType ?? existing?.linearStateType,
           linkUrl: event.issueUrl ?? existing?.linkUrl,
+          pullRequestUrl: event.pullRequest?.url ?? existing?.pullRequest?.url,
+          pullRequestNumber: event.pullRequest?.number ?? existing?.pullRequest?.number,
           lastEventAt: event.lastEventAt ?? timestamp,
           updatedAt: timestamp,
         },
@@ -630,6 +634,12 @@ function taskFromRow(
     status: statusName,
     linearStateType: row.linearStateType,
     linkUrl: row.linkUrl ?? observationIssueUrl,
+    pullRequest: row.pullRequestUrl
+      ? {
+          url: row.pullRequestUrl,
+          ...(row.pullRequestNumber === null ? {} : { number: row.pullRequestNumber }),
+        }
+      : undefined,
     parentChannelId: row.parentChannelId,
     parentMessageTs: row.parentMessageTs,
     lastRenderedSummary: row.lastRenderedSummary,

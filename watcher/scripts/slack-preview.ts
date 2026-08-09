@@ -244,15 +244,15 @@ export function buildSlackPreviewMessage(
   }
   if (type === "status") {
     const tasks = previewStatusTasks(now);
-    const links = new Map(
+    const slackLinks = new Map(
       tasks.map((task) => [
         task.id,
         `https://example.slack.com/archives/C123/p${task.issueIdentifier.replace(/\D/g, "")}`,
       ]),
     );
     return {
-      text: buildStatusSummary(tasks, links),
-      blocks: buildStatusSummaryBlocks(tasks, links),
+      text: buildStatusSummary(tasks, slackLinks),
+      blocks: buildStatusSummaryBlocks(tasks, slackLinks),
     };
   }
 
@@ -308,6 +308,17 @@ function previewStatusTasks(now: Date): Task[] {
       issueIdentifier: "PREVIEW-120",
       title: "Plan the Slack status command",
       status: "Todo",
+      linkUrl: "https://linear.app/example/issue/PREVIEW-120/plan-the-slack-status-command",
+      updatedAt: now.toISOString(),
+    },
+    {
+      id: "preview-service:PREVIEW-123",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-123",
+      title: "Define the status response accessibility requirements",
+      status: "Todo",
+      linkUrl:
+        "https://linear.app/example/issue/PREVIEW-123/define-the-status-response-accessibility-requirements",
       updatedAt: now.toISOString(),
     },
     {
@@ -316,6 +327,21 @@ function previewStatusTasks(now: Date): Task[] {
       issueIdentifier: "PREVIEW-121",
       title: "Implement the Slack status command",
       status: "In Progress",
+      linkUrl: "https://linear.app/example/issue/PREVIEW-121/implement-the-slack-status-command",
+      pullRequest: {
+        url: "https://github.com/example/preview/pull/121",
+        number: 121,
+      },
+      updatedAt: now.toISOString(),
+    },
+    {
+      id: "preview-service:PREVIEW-124",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-124",
+      title: "Add destination links to every active task",
+      status: "In Progress",
+      linkUrl:
+        "https://linear.app/example/issue/PREVIEW-124/add-destination-links-to-every-active-task",
       updatedAt: now.toISOString(),
     },
     {
@@ -324,6 +350,25 @@ function previewStatusTasks(now: Date): Task[] {
       issueIdentifier: "PREVIEW-122",
       title: "Review the Slack status command",
       status: "In Review",
+      linkUrl: "https://linear.app/example/issue/PREVIEW-122/review-the-slack-status-command",
+      pullRequest: {
+        url: "https://github.com/example/preview/pull/122",
+        number: 122,
+      },
+      updatedAt: now.toISOString(),
+    },
+    {
+      id: "preview-service:PREVIEW-125",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-125",
+      title: "Verify the compact layout with several pull requests",
+      status: "In Review",
+      linkUrl:
+        "https://linear.app/example/issue/PREVIEW-125/verify-the-compact-layout-with-several-pull-requests",
+      pullRequest: {
+        url: "https://github.com/example/preview/pull/125",
+        number: 125,
+      },
       updatedAt: now.toISOString(),
     },
   ];
@@ -339,6 +384,9 @@ export function postSlackPreview(
   return client.chat.postMessage({
     channel: channelId,
     ...buildSlackPreviewMessage(previewCase, now, options),
+    ...(previewCase.category === "mentions" && previewCase.type === "status"
+      ? { unfurl_links: false, unfurl_media: false }
+      : {}),
   });
 }
 

@@ -293,25 +293,25 @@ export function buildWatcherStartedMessageBlocks(serviceNames: string[]): Sectio
   return [buildTextSection("*Watcher started*"), buildTextSection(`*Services*\n${services}`)];
 }
 
-export function buildStatusSummary(tasks: Task[], links: ReadonlyMap<string, string>): string {
-  return STATUS_SUMMARY_STATUSES.map((status) => statusSectionText(tasks, status, links)).join(
+export function buildStatusSummary(tasks: Task[], slackLinks: ReadonlyMap<string, string>): string {
+  return STATUS_SUMMARY_STATUSES.map((status) => statusSectionText(tasks, status, slackLinks)).join(
     "\n\n",
   );
 }
 
 export function buildStatusSummaryBlocks(
   tasks: Task[],
-  links: ReadonlyMap<string, string>,
+  slackLinks: ReadonlyMap<string, string>,
 ): SectionBlock[] {
   return STATUS_SUMMARY_STATUSES.map((status) =>
-    buildTextSection(statusSectionText(tasks, status, links)),
+    buildTextSection(statusSectionText(tasks, status, slackLinks)),
   );
 }
 
 function statusSectionText(
   tasks: Task[],
   status: string,
-  links: ReadonlyMap<string, string>,
+  slackLinks: ReadonlyMap<string, string>,
 ): string {
   const matching = tasks
     .filter((task) => normalizeStatus(task.status) === normalizeStatus(status))
@@ -320,15 +320,28 @@ function statusSectionText(
         left.serviceName.localeCompare(right.serviceName) ||
         left.issueIdentifier.localeCompare(right.issueIdentifier),
     );
-  const taskLines = matching.map((task) => {
-    const label = escapeSlack(`[${task.serviceName}] ${task.issueIdentifier}: ${task.title}`);
-    const link = links.get(task.id);
-    return `• ${link ? `<${link}|${label}>` : label}`;
-  });
+  const taskLines = matching.map((task) => statusTaskText(task, slackLinks.get(task.id)));
   return [
     `*${status} (${matching.length})*`,
     ...(taskLines.length > 0 ? taskLines : ["• None"]),
   ].join("\n");
+}
+
+function statusTaskText(task: Task, slackUrl?: string): string {
+  const label = escapeSlack(`[${task.serviceName}] ${task.issueIdentifier}: ${task.title}`);
+  const links = [
+    formatStatusLink(slackUrl, "Slack"),
+    formatStatusLink(task.linkUrl, "Linear"),
+    task.pullRequest
+      ? formatStatusLink(task.pullRequest.url, pullRequestLabel(task.pullRequest))
+      : undefined,
+  ].filter((link): link is string => link !== undefined);
+  const linkLine = links.length > 0 ? `\n  ${links.join(" | ")}` : "";
+  return `• ${label}${linkLine}`;
+}
+
+function formatStatusLink(url: string | undefined, label: string): string | undefined {
+  return url ? `<${url}|${escapeSlack(label)}>` : undefined;
 }
 
 export function buildRelatedIssuesMessage(issues: RelatedIssue[]): string {

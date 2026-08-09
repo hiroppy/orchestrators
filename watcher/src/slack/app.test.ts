@@ -62,14 +62,18 @@ describe("Slack app behavior", () => {
       });
       assert.equal(calls[1].method, "postMessage");
       assert.equal(calls[1].args.channel, "C999");
+      assert.equal(calls[1].args.unfurl_links, false);
+      assert.equal(calls[1].args.unfurl_media, false);
       assert.equal(
         calls[1].args.text,
         [
           "*Todo (1)*",
-          "• <https://example.slack.com/archives/C123/p10000|[service-a] ENG-60: Plan the change>",
+          "• [service-a] ENG-60: Plan the change",
+          "  <https://example.slack.com/archives/C123/p10000|Slack> | <https://linear.app/example/issue/ENG-60/plan|Linear>",
           "",
           "*In Progress (1)*",
-          "• <https://linear.app/example/issue/ENG-61/build|[service-a] ENG-61: Build the change>",
+          "• [service-a] ENG-61: Build the change",
+          "  <https://linear.app/example/issue/ENG-61/build|Linear>",
           "",
           "*In Review (0)*",
           "• None",
@@ -80,7 +84,7 @@ describe("Slack app behavior", () => {
         blocks.map(({ type }) => type),
         ["section", "section", "section"],
       );
-      assert.match(JSON.stringify(blocks), /<https.*ENG-60.*<https.*ENG-61/);
+      assert.match(JSON.stringify(blocks), /Slack.*Linear.*ENG-61/s);
     });
   });
 
