@@ -738,7 +738,7 @@ describe("runOnce", () => {
           findPullRequestByUrl: async (url, options) => {
             if (failReactionLookupOnce) {
               failReactionLookupOnce = false;
-              return null;
+              return { url, number: 42 };
             }
             return {
               url,
@@ -873,7 +873,8 @@ describe("runOnce", () => {
       store.setTaskLinearStateType("service-a:ENG-62", "completed");
       failReactionLookupOnce = true;
       omitLinearPullRequestOnce = true;
-      // Phase 5: a terminal task reuses its stored PR, but failed reaction lookup stays pending.
+      // Phase 5: a terminal task reuses its stored PR, but a non-authoritative reaction lookup
+      // stays pending.
       await run("In Review");
       assert.equal(
         store.countEventsAfterLatest(
@@ -1066,16 +1067,20 @@ describe("runOnce", () => {
       store.setParentMessage(task.id, "C123", "1.000", "{}");
 
       const calls: Array<Record<string, unknown>> = [];
+      let pullRequestLookups = 0;
       await runOnce({
         config,
         store,
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
-        findPullRequestByUrl: async (url) => ({
-          url,
-          number: 42,
-          title: "Ship the reconciled pull request",
-        }),
+        findPullRequestByUrl: async (url) => {
+          pullRequestLookups += 1;
+          return {
+            url,
+            number: 42,
+            title: "Ship the reconciled pull request",
+          };
+        },
       });
 
       assert.equal(store.getTask(task.id)?.status, "Done");
@@ -1104,8 +1109,13 @@ describe("runOnce", () => {
         store,
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
+        findPullRequestByUrl: async () => {
+          pullRequestLookups += 1;
+          throw new Error("A no-op reconciliation must not fetch PR metadata");
+        },
       });
       assert.equal(linearFetches, 1);
+      assert.equal(pullRequestLookups, 1);
     });
   });
 

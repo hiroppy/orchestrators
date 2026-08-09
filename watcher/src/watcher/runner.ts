@@ -321,16 +321,28 @@ async function reconcileLinearStatuses({
       linearIssue.stateType,
     );
     const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
+    const reaction = reviewReactionForStatus(config, linearIssue.state);
+    if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
+      if (linearIssue.stateType) {
+        store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
+      }
+      markReviewRequeueReconciled(store, task.id);
+      continue;
+    }
     let pullRequest =
       linearIssue.pullRequest ??
       (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
-    const reaction = reviewReactionForStatus(config, linearIssue.state);
     if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
-      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
-        ...(reaction ? { reaction } : {}),
-      });
-      if (reaction && !enrichedPullRequest && hasPendingReconciliation) continue;
+      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction }).catch(
+        () => null,
+      );
+      if (
+        reaction &&
+        hasPendingReconciliation &&
+        enrichedPullRequest?.hasConfiguredReaction === undefined
+      )
+        continue;
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
 
@@ -765,9 +777,9 @@ async function enrichEvent(
   let pullRequest = (await github.findPullRequest(event, { reaction })) ?? undefined;
   let reactionLookupSucceeded = !reaction || pullRequest?.hasConfiguredReaction !== undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
-    const enrichedPullRequest = await github.findPullRequestByUrl(linearIssue.pullRequest.url, {
-      ...(reaction ? { reaction } : {}),
-    });
+    const enrichedPullRequest = await github
+      .findPullRequestByUrl(linearIssue.pullRequest.url, { reaction })
+      .catch(() => null);
     if (reaction) {
       reactionLookupSucceeded = enrichedPullRequest?.hasConfiguredReaction !== undefined;
     }
