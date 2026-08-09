@@ -15,9 +15,11 @@ import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
-  buildRelatedIssueMessage,
+  buildRelatedIssuesMessage,
+  buildRelatedIssuesMessageBlocks,
   buildTaskCard,
   buildTaskClosedMessage,
+  buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
 } from "./views.ts";
@@ -393,6 +395,7 @@ async function postParentPermalink(
   return client.chat.postMessage({
     channel,
     text: buildTaskClosedMessage(status, response.permalink),
+    blocks: buildTaskClosedMessageBlocks(status, response.permalink),
   });
 }
 
@@ -408,16 +411,15 @@ async function postRelatedIssues(
     return;
   }
 
-  for (const issue of relatedIssues) {
-    try {
-      await client.chat.postMessage({
-        channel,
-        thread_ts: closedMessageTs,
-        text: buildRelatedIssueMessage(issue),
-      });
-    } catch (error) {
-      console.error(`Failed to post related issue ${issue.identifier}:`, error);
-    }
+  try {
+    await client.chat.postMessage({
+      channel,
+      thread_ts: closedMessageTs,
+      text: buildRelatedIssuesMessage(relatedIssues),
+      blocks: buildRelatedIssuesMessageBlocks(relatedIssues),
+    });
+  } catch (error) {
+    console.error("Failed to post related issues:", error);
   }
 }
 

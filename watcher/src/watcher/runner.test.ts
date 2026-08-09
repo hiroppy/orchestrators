@@ -760,6 +760,12 @@ describe("runOnce", () => {
         calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
         1,
       );
+      assert.match(
+        JSON.stringify(
+          calls.find(({ text }) => String(text).includes("👀 review reaction detected"))?.blocks,
+        ),
+        /Review reaction detected/,
+      );
       assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
 
       await run("In Progress");
@@ -824,6 +830,13 @@ describe("runOnce", () => {
         calls.find(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
           ?.client_msg_id,
         rejectedClientMessageId,
+      );
+      assert.match(
+        JSON.stringify(
+          calls.find(({ text }) => String(text).includes("review requeue limit reached (3/3)"))
+            ?.blocks,
+        ),
+        /Review requeue limit reached.*Requeues/s,
       );
       assert.match(JSON.stringify(calls), /<@U123>/);
       const blockedMentionCallCount = calls.filter((call) =>

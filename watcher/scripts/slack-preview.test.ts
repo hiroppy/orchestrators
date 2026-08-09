@@ -148,6 +148,38 @@ describe("Slack preview", () => {
     assert.match(JSON.stringify(calls[0].blocks), /\*Changed by\*\\nHiroppy/);
   });
 
+  it("previews every standalone notification with blocks", () => {
+    const cases = [
+      { category: "thread", type: "reaction" },
+      { category: "thread", type: "reaction-limit" },
+      { category: "post", type: "closed" },
+      { category: "thread", type: "next" },
+    ] as const;
+    const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
+
+    for (const message of messages.slice(0, 3)) {
+      assert.ok(message.blocks.length >= 2);
+      assert.deepEqual(
+        message.blocks.map(({ type }) => type),
+        ["section", "section"],
+      );
+    }
+    assert.match(JSON.stringify(messages[0].blocks), /Review reaction detected/);
+    assert.match(JSON.stringify(messages[1].blocks), /Review requeue limit reached/);
+    assert.match(JSON.stringify(messages[1].blocks), /\*Requeues\*\\n3\/3/);
+    assert.match(JSON.stringify(messages[2].blocks), /\*Task closed\*/);
+    assert.match(JSON.stringify(messages[3].blocks), /\*Next task\*/);
+    assert.deepEqual(
+      messages[3].blocks.map(({ type }) => type),
+      ["section", "section", "section", "section"],
+    );
+    assert.equal(
+      messages[3].blocks.some(({ fields }) => fields !== undefined),
+      false,
+    );
+    assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125.*PREVIEW-126/);
+  });
+
   it("previews the configured attention target in parent and thread messages", () => {
     const options = {
       mentionTarget: "<@UCREATOR>",
@@ -209,6 +241,10 @@ describe("Slack preview", () => {
       "recover",
       "manual",
       "attention",
+      "reaction",
+      "reaction-limit",
+      "closed",
+      "next",
     ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
@@ -237,6 +273,10 @@ describe("Slack preview", () => {
     assert.throws(
       () => resolveSlackPreviewCase("post", "manual"),
       /manual is only available for thread previews/,
+    );
+    assert.throws(
+      () => resolveSlackPreviewCase("thread", "closed"),
+      /closed is only available for post previews/,
     );
   });
 

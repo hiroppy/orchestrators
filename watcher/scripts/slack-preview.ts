@@ -9,9 +9,17 @@ import { createDatabase } from "../src/persistence/database.ts";
 import { tasks } from "../src/persistence/schema.ts";
 import { DEFAULT_DATABASE_PATH, WatcherStore } from "../src/persistence/store.ts";
 import {
+  buildRelatedIssuesMessage,
+  buildRelatedIssuesMessageBlocks,
+  buildReviewRequeueLimitMessage,
+  buildReviewRequeueLimitMessageBlocks,
+  buildReviewRequeueMessage,
+  buildReviewRequeueMessageBlocks,
   buildTaskCard,
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
+  buildTaskClosedMessage,
+  buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
   type TaskCard,
@@ -29,7 +37,15 @@ export const SLACK_PREVIEW_EVENT_TYPES = [
   "end",
   "recover",
 ] as const;
-export const SLACK_PREVIEW_TYPES = [...SLACK_PREVIEW_EVENT_TYPES, "manual", "attention"] as const;
+export const SLACK_PREVIEW_TYPES = [
+  ...SLACK_PREVIEW_EVENT_TYPES,
+  "manual",
+  "attention",
+  "reaction",
+  "reaction-limit",
+  "closed",
+  "next",
+] as const;
 
 type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
 type SlackPreviewType = (typeof SLACK_PREVIEW_TYPES)[number];
@@ -104,8 +120,12 @@ export function resolveSlackPreviewCase(
       : "Missing Slack preview type.";
     throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
   }
-  if (category === "post" && type === "manual") {
-    throw new Error(`Slack preview type manual is only available for thread previews.\n${usage}`);
+  const threadOnly = ["manual", "reaction", "reaction-limit", "next"];
+  if (category === "post" && threadOnly.includes(type)) {
+    throw new Error(`Slack preview type ${type} is only available for thread previews.\n${usage}`);
+  }
+  if (category === "thread" && type === "closed") {
+    throw new Error(`Slack preview type closed is only available for post previews.\n${usage}`);
   }
   if (extraValue !== undefined) {
     throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
@@ -158,6 +178,48 @@ export function buildSlackPreviewMessage(
     return {
       text: buildStatusChangedMessage("Hiroppy", "In Review", "Rework"),
       blocks: buildStatusChangedMessageBlocks("Hiroppy", "In Review", "Rework"),
+    };
+  }
+  if (type === "reaction") {
+    return {
+      text: buildReviewRequeueMessage("👀", "In Review", "In Progress"),
+      blocks: buildReviewRequeueMessageBlocks("👀", "In Review", "In Progress"),
+    };
+  }
+  if (type === "reaction-limit") {
+    return {
+      text: buildReviewRequeueLimitMessage("👀", 3, "In Review", "In Progress"),
+      blocks: buildReviewRequeueLimitMessageBlocks("👀", 3, "In Review", "In Progress"),
+    };
+  }
+  if (type === "closed") {
+    const permalink = "https://example.slack.com/archives/C123/p123456789";
+    return {
+      text: buildTaskClosedMessage("Done", permalink),
+      blocks: buildTaskClosedMessageBlocks("Done", permalink),
+    };
+  }
+  if (type === "next") {
+    const issues = [
+      {
+        identifier: "PREVIEW-124",
+        title: "Verify the watcher Slack output",
+        url: "https://linear.app/example/issue/PREVIEW-124/verify-the-watcher-slack-output",
+      },
+      {
+        identifier: "PREVIEW-125",
+        title: "Deploy the watcher notification update",
+        url: "https://linear.app/example/issue/PREVIEW-125/deploy-the-watcher-notification-update",
+      },
+      {
+        identifier: "PREVIEW-126",
+        title: "Document the new Slack layout",
+        url: "https://linear.app/example/issue/PREVIEW-126/document-the-new-slack-layout",
+      },
+    ];
+    return {
+      text: buildRelatedIssuesMessage(issues),
+      blocks: buildRelatedIssuesMessageBlocks(issues),
     };
   }
 

@@ -31,7 +31,14 @@ import {
   publishWatcherStarted,
   publishWatcherEvent,
 } from "../slack/app.ts";
-import { buildTaskCard, buildThreadMessage } from "../slack/views.ts";
+import {
+  buildReviewRequeueLimitMessage,
+  buildReviewRequeueLimitMessageBlocks,
+  buildReviewRequeueMessage,
+  buildReviewRequeueMessageBlocks,
+  buildTaskCard,
+  buildThreadMessage,
+} from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
@@ -427,7 +434,12 @@ async function processWatcherEvent({
     await slackClient.chat.postMessage({
       channel: task.parentChannelId!,
       thread_ts: task.parentMessageTs!,
-      text: reviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
+      text: buildReviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
+      blocks: buildReviewRequeueMessageBlocks(
+        review.reaction,
+        task.status,
+        review.inProgressStatus,
+      ),
     });
   }
 
@@ -438,7 +450,7 @@ async function processWatcherEvent({
     task.id,
     review.inProgressStatus,
   );
-  const auditBody = reviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
+  const auditBody = buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
   const requeueEvent = {
     taskId: task.id,
     type: REVIEW_REQUEUE_EVENT,
@@ -449,7 +461,7 @@ async function processWatcherEvent({
   };
 
   if (reviewDecision.reachesLimit) {
-    const limitMessage = reviewRequeueLimitMessage(
+    const limitMessage = buildReviewRequeueLimitMessage(
       review.reaction,
       review.maxRequeues,
       fromStatus,
@@ -463,7 +475,12 @@ async function processWatcherEvent({
         actor: "watcher",
         fromStatus,
         toStatus: requeuedTask.status,
-        body: JSON.stringify({ message: limitMessage, event: withoutCreatorDetails(event) }),
+        body: JSON.stringify({
+          message: limitMessage,
+          event: withoutCreatorDetails(event),
+          reaction: review.reaction,
+          maxRequeues: review.maxRequeues,
+        }),
       },
     ]);
     await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
@@ -537,6 +554,12 @@ async function deliverPendingReviewLimitNotification(
       channel: task.parentChannelId,
       thread_ts: task.parentMessageTs,
       text: payload.message,
+      blocks: buildReviewRequeueLimitMessageBlocks(
+        payload.reaction ?? reviewReactionFromMessage(payload.message),
+        payload.maxRequeues ?? reviewRequeueLimitFromMessage(payload.message),
+        pending.fromStatus,
+        pending.toStatus,
+      ),
       client_msg_id: slackClientMessageId(pending.id),
     };
     await slackClient.chat.postMessage(message);
@@ -592,12 +615,30 @@ function slackClientMessageId(eventId: number): string {
 function parseReviewRequeuePendingPayload(body: string): {
   message: string;
   event: WatcherEvent;
+  reaction?: string;
+  maxRequeues?: number;
 } {
-  const payload = JSON.parse(body) as { message?: unknown; event?: unknown };
+  const payload = JSON.parse(body) as {
+    message?: unknown;
+    event?: unknown;
+    reaction?: unknown;
+    maxRequeues?: unknown;
+  };
   if (typeof payload.message !== "string" || typeof payload.event !== "object") {
     throw new Error("Invalid review requeue pending payload");
   }
-  return payload as { message: string; event: WatcherEvent };
+  if (payload.reaction !== undefined && typeof payload.reaction !== "string") {
+    throw new Error("Invalid review requeue pending reaction");
+  }
+  if (payload.maxRequeues !== undefined && typeof payload.maxRequeues !== "number") {
+    throw new Error("Invalid review requeue pending limit");
+  }
+  return payload as {
+    message: string;
+    event: WatcherEvent;
+    reaction?: string;
+    maxRequeues?: number;
+  };
 }
 
 function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void {
@@ -724,17 +765,12 @@ function pendingReviewPullRequest(store: WatcherStore, taskId: string): PullRequ
   }
 }
 
-function reviewRequeueMessage(reaction: string, fromStatus: string, toStatus: string): string {
-  return `${reaction} review reaction detected | *${fromStatus}* → *${toStatus}*`;
+function reviewReactionFromMessage(message: string): string {
+  return message.match(/^(.*?) review requeue limit reached/)?.[1] ?? "";
 }
 
-function reviewRequeueLimitMessage(
-  reaction: string,
-  maxRequeues: number,
-  fromStatus: string,
-  toStatus: string,
-): string {
-  return `${reaction} review requeue limit reached (${maxRequeues}/${maxRequeues}) | *${fromStatus}* → *${toStatus}*`;
+function reviewRequeueLimitFromMessage(message: string): number {
+  return Number(message.match(/review requeue limit reached \((\d+)\//)?.[1] ?? 0);
 }
 
 function taskIdsInSnapshots(snapshots: SnapshotsByService): string[] {

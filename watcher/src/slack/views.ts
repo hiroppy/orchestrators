@@ -4,6 +4,7 @@ import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ACTIVITY_LENGTH = 180;
 const MAX_FIELD_LENGTH = 2_000;
+const MAX_RELATED_ISSUE_BLOCKS = 48;
 type MrkdwnText = { type: "mrkdwn"; text: string };
 interface SectionBlock extends Record<string, unknown> {
   type: "section";
@@ -227,13 +228,84 @@ export function buildStatusChangedMessageBlocks(
   ];
 }
 
+export function buildReviewRequeueMessage(
+  reaction: string,
+  fromStatus: string,
+  toStatus: string,
+): string {
+  return `${reaction} review reaction detected | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
+}
+
+export function buildReviewRequeueMessageBlocks(
+  reaction: string,
+  fromStatus: string,
+  toStatus: string,
+): SectionBlock[] {
+  return buildNotificationBlocks(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`, [
+    `*Event*\n${escapeSlack(reaction)} Review reaction detected`,
+  ]);
+}
+
+export function buildReviewRequeueLimitMessage(
+  reaction: string,
+  maxRequeues: number,
+  fromStatus: string,
+  toStatus: string,
+): string {
+  return `${reaction} review requeue limit reached (${maxRequeues}/${maxRequeues}) | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
+}
+
+export function buildReviewRequeueLimitMessageBlocks(
+  reaction: string,
+  maxRequeues: number,
+  fromStatus: string,
+  toStatus: string,
+): SectionBlock[] {
+  return buildNotificationBlocks(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`, [
+    `*Event*\n${escapeSlack(reaction)} Review requeue limit reached`,
+    `*Requeues*\n${formatNumber(maxRequeues)}/${formatNumber(maxRequeues)}`,
+  ]);
+}
+
 export function buildTaskClosedMessage(status: string, parentPermalink: string): string {
   return `Task closed | *${escapeSlack(status)}*\n${parentPermalink}`;
 }
 
-export function buildRelatedIssueMessage(issue: RelatedIssue): string {
+export function buildTaskClosedMessageBlocks(
+  status: string,
+  parentPermalink: string,
+): SectionBlock[] {
+  return buildNotificationBlocks("*Task closed*", [
+    `*Status*\n${escapeSlack(status)}`,
+    `*Task*\n<${parentPermalink}|View task thread>`,
+  ]);
+}
+
+export function buildRelatedIssuesMessage(issues: RelatedIssue[]): string {
+  return truncateThreadBody(
+    ["Next task", ...issues.map((issue) => formatRelatedIssue(issue))].join(" | "),
+  );
+}
+
+export function buildRelatedIssuesMessageBlocks(issues: RelatedIssue[]): SectionBlock[] {
+  const visibleIssues = issues.slice(0, MAX_RELATED_ISSUE_BLOCKS);
+  const remainingCount = issues.length - visibleIssues.length;
+  const overflowBlocks =
+    remainingCount > 0 ? [buildTextSection(`_and ${formatNumber(remainingCount)} more…_`)] : [];
+  return [
+    buildTextSection("*Next task*"),
+    ...visibleIssues.map((issue) => buildTextSection(formatRelatedIssue(issue))),
+    ...overflowBlocks,
+  ];
+}
+
+function formatRelatedIssue(issue: RelatedIssue): string {
   const label = [issue.identifier, issue.title].filter(isPresent).join(": ");
-  return `Next task | ${issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label)}`;
+  return issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label);
+}
+
+function buildNotificationBlocks(headline: string, fields: string[]): SectionBlock[] {
+  return [buildTextSection(headline), ...buildFieldSections(fields)];
 }
 
 function buildTextSection(text: string): SectionBlock {

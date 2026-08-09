@@ -181,16 +181,39 @@ describe("Slack app behavior", () => {
       assert.deepEqual(topLevelPosts[1].args, {
         channel: "C123",
         text: "Task closed | *Done*\nhttps://example.slack.com/archives/C123/p1000",
-      });
-      assert.deepEqual(
-        calls
-          .filter(({ method, args }) => method === "postMessage" && args.thread_ts === "2.000")
-          .map(({ args }) => args.text),
-        [
-          "Next task | <https://linear.app/example/issue/ENG-63/deploy|ENG-63: Deploy the merged change>",
-          "Next task | <https://linear.app/example/issue/ENG-64/verify|ENG-64: Verify production>",
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: "*Task closed*" } },
+          {
+            type: "section",
+            fields: [
+              { type: "mrkdwn", text: "*Status*\nDone" },
+              {
+                type: "mrkdwn",
+                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|View task thread>",
+              },
+            ],
+          },
         ],
+      });
+      const nextTaskPosts = calls.filter(
+        ({ method, args }) => method === "postMessage" && args.thread_ts === "2.000",
       );
+      assert.equal(nextTaskPosts.length, 1);
+      assert.equal(
+        nextTaskPosts[0].args.text,
+        "Next task | <https://linear.app/example/issue/ENG-63/deploy|ENG-63: Deploy the merged change> | <https://linear.app/example/issue/ENG-64/verify|ENG-64: Verify production>",
+      );
+      const nextTaskBlocks = nextTaskPosts[0].args.blocks as Array<Record<string, unknown>>;
+      assert.deepEqual(
+        nextTaskBlocks.map(({ type }) => type),
+        ["section", "section", "section"],
+      );
+      assert.equal(
+        nextTaskBlocks.some(({ fields }) => fields !== undefined),
+        false,
+      );
+      assert.match(JSON.stringify(nextTaskBlocks[1]), /ENG-63/);
+      assert.match(JSON.stringify(nextTaskBlocks[2]), /ENG-64/);
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, "1.000");
       assert.deepEqual(
         calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
@@ -207,7 +230,7 @@ describe("Slack app behavior", () => {
       context.mock.method(console, "error", (...args) => errors.push(args));
       const postMessage = client.chat.postMessage;
       client.chat.postMessage = async (args) => {
-        if (String(args.text).includes("ENG-64")) {
+        if (String(args.text).startsWith("Next task")) {
           throw new Error("Slack related issue post failed");
         }
         return postMessage(args);
@@ -259,17 +282,11 @@ describe("Slack app behavior", () => {
         calls.filter(
           ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-63"),
         ).length,
-        1,
-      );
-      assert.equal(
-        calls.filter(
-          ({ method, args }) => method === "postMessage" && String(args.text).includes("ENG-65"),
-        ).length,
-        1,
+        0,
       );
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
       assert.equal(errors.length, 1);
-      assert.match(String(errors[0][0]), /Failed to post related issue ENG-64/);
+      assert.match(String(errors[0][0]), /Failed to post related issues/);
     });
   });
 
