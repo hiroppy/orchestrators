@@ -5,6 +5,7 @@ const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ACTIVITY_LENGTH = 180;
 const MAX_FIELD_LENGTH = 2_000;
 const MAX_RELATED_ISSUE_BLOCKS = 48;
+export const STATUS_SUMMARY_STATUSES = ["Todo", "In Progress", "In Review"] as const;
 type MrkdwnText = { type: "mrkdwn"; text: string };
 interface SectionBlock extends Record<string, unknown> {
   type: "section";
@@ -290,6 +291,44 @@ export function buildWatcherStartedMessage(serviceNames: string[]): string {
 export function buildWatcherStartedMessageBlocks(serviceNames: string[]): SectionBlock[] {
   const services = serviceNames.map((name) => `• ${escapeSlack(name)}`).join("\n");
   return [buildTextSection("*Watcher started*"), buildTextSection(`*Services*\n${services}`)];
+}
+
+export function buildStatusSummary(tasks: Task[], links: ReadonlyMap<string, string>): string {
+  return STATUS_SUMMARY_STATUSES.map((status) => statusSectionText(tasks, status, links)).join(
+    "\n\n",
+  );
+}
+
+export function buildStatusSummaryBlocks(
+  tasks: Task[],
+  links: ReadonlyMap<string, string>,
+): SectionBlock[] {
+  return STATUS_SUMMARY_STATUSES.map((status) =>
+    buildTextSection(statusSectionText(tasks, status, links)),
+  );
+}
+
+function statusSectionText(
+  tasks: Task[],
+  status: string,
+  links: ReadonlyMap<string, string>,
+): string {
+  const matching = tasks
+    .filter((task) => normalizeStatus(task.status) === normalizeStatus(status))
+    .sort(
+      (left, right) =>
+        left.serviceName.localeCompare(right.serviceName) ||
+        left.issueIdentifier.localeCompare(right.issueIdentifier),
+    );
+  const taskLines = matching.map((task) => {
+    const label = escapeSlack(`[${task.serviceName}] ${task.issueIdentifier}: ${task.title}`);
+    const link = links.get(task.id);
+    return `• ${link ? `<${link}|${label}>` : label}`;
+  });
+  return [
+    `*${status} (${matching.length})*`,
+    ...(taskLines.length > 0 ? taskLines : ["• None"]),
+  ].join("\n");
 }
 
 export function buildRelatedIssuesMessage(issues: RelatedIssue[]): string {

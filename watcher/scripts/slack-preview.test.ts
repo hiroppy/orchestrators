@@ -155,6 +155,7 @@ describe("Slack preview", () => {
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
       { category: "post", type: "watcher-started" },
+      { category: "mentions", type: "status" },
     ] as const;
     const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
 
@@ -185,6 +186,23 @@ describe("Slack preview", () => {
     );
     assert.doesNotMatch(JSON.stringify(messages[4].blocks), /Monitoring/);
     assert.match(JSON.stringify(messages[4].blocks), /Services.*mf-dashboard/s);
+    assert.equal(
+      messages[5].text,
+      [
+        "*Todo (1)*",
+        "• <https://example.slack.com/archives/C123/p120|[preview-service] PREVIEW-120: Plan the Slack status command>",
+        "",
+        "*In Progress (1)*",
+        "• <https://example.slack.com/archives/C123/p121|[preview-service] PREVIEW-121: Implement the Slack status command>",
+        "",
+        "*In Review (1)*",
+        "• <https://example.slack.com/archives/C123/p122|[preview-service] PREVIEW-122: Review the Slack status command>",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      messages[5].blocks?.map(({ type }) => type),
+      ["section", "section", "section"],
+    );
   });
 
   it("previews the configured attention target in parent and thread messages", () => {
@@ -238,7 +256,11 @@ describe("Slack preview", () => {
       category: "thread",
       type: "update",
     });
-    assert.deepEqual(SLACK_PREVIEW_CATEGORIES, ["post", "thread"]);
+    assert.deepEqual(resolveSlackPreviewCase("mentions", "status"), {
+      category: "mentions",
+      type: "status",
+    });
+    assert.deepEqual(SLACK_PREVIEW_CATEGORIES, ["post", "thread", "mentions"]);
     assert.deepEqual(SLACK_PREVIEW_TYPES, [
       "start",
       "update",
@@ -253,10 +275,11 @@ describe("Slack preview", () => {
       "closed",
       "next",
       "watcher-started",
+      "status",
     ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
-      /Missing Slack preview category.*Usage: pnpm slack:preview <post\|thread> <type>/s,
+      /Missing Slack preview category.*Usage: pnpm slack:preview <post\|thread\|mentions> <type>/s,
     );
     assert.throws(
       () => resolveSlackPreviewCase("unknown", "start"),
@@ -268,7 +291,7 @@ describe("Slack preview", () => {
     );
     assert.throws(
       () => resolveSlackPreviewCase("post", "unknown"),
-      /Unknown Slack preview type: unknown.*Usage: pnpm slack:preview <post\|thread> <type>/s,
+      /Unknown Slack preview type: unknown.*Usage: pnpm slack:preview <post\|thread\|mentions> <type>/s,
     );
     assert.throws(
       () => resolveSlackPreviewCase("post", "start", "extra"),
@@ -301,6 +324,20 @@ describe("Slack preview", () => {
       {
         botToken: "xoxb-test",
         channelId: "C123",
+      },
+    );
+
+    assert.deepEqual(
+      resolveSlackPreviewConfig(
+        {},
+        {
+          botToken: " xoxb-config ",
+          channelId: " C456 ",
+        },
+      ),
+      {
+        botToken: "xoxb-config",
+        channelId: "C456",
       },
     );
 

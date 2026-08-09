@@ -13,6 +13,7 @@
   "oauth_config": {
     "scopes": {
       "bot": [
+        "app_mentions:read",
         "channels:history",
         "chat:write",
         "files:read",
@@ -25,7 +26,7 @@
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": ["message.channels", "message.groups"]
+      "bot_events": ["app_mention", "message.channels", "message.groups"]
     },
     "interactivity": {
       "is_enabled": true

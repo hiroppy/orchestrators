@@ -15,6 +15,8 @@ import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
+  buildStatusSummary,
+  buildStatusSummaryBlocks,
   buildRelatedIssuesMessage,
   buildRelatedIssuesMessageBlocks,
   buildTaskCard,
@@ -24,6 +26,7 @@ import {
   buildThreadMessageBlocks,
   buildWatcherStartedMessage,
   buildWatcherStartedMessageBlocks,
+  STATUS_SUMMARY_STATUSES,
 } from "./views.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
@@ -57,6 +60,11 @@ const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
+type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
+const mentionCommandHandlers: Record<string, MentionCommandHandler> = {
+  status: handleStatusCommand,
+};
 
 export interface SlackAppOptions {
   botToken: string;
@@ -80,10 +88,97 @@ export function createSlackApp({
   });
 
   registerStatusAction(app, store, updateLinearStatus);
+  app.event("app_mention", async (args) => {
+    await handleAppMention(args, store);
+  });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply);
   });
   return app;
+}
+
+export async function handleAppMention(
+  { event, client, logger }: AppMentionArguments,
+  store: WatcherStore,
+): Promise<void> {
+  const mention = parseMentionCommand(event);
+  if (!mention) return;
+  const handler = mentionCommandHandlers[mention.command];
+  if (!handler) return;
+
+  try {
+    await handler({ event: mention.event, client, logger, store, args: mention.args });
+  } catch (error) {
+    logger.error(error);
+    await client.chat.postMessage({
+      channel: mention.event.channel,
+      text: "Failed to load the current task status.",
+    });
+  }
+}
+
+function parseMentionCommand(
+  event: unknown,
+): { event: AppMentionEvent; command: string; args: string[] } | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const value = event as Record<string, unknown>;
+  if (
+    typeof value.channel !== "string" ||
+    typeof value.ts !== "string" ||
+    typeof value.text !== "string" ||
+    value.bot_id !== undefined
+  ) {
+    return undefined;
+  }
+
+  const [command, ...args] = value.text
+    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .trim()
+    .split(/\s+/);
+  if (!command) return undefined;
+  return {
+    event: { channel: value.channel, ts: value.ts, text: value.text },
+    command: command.toLowerCase(),
+    args,
+  };
+}
+
+async function handleStatusCommand({
+  event,
+  client,
+  logger,
+  store,
+  args,
+}: MentionCommandContext): Promise<void> {
+  if (args.length > 0) return;
+
+  const tasks = store
+    .getTasksForLinearSync()
+    .filter((task) => STATUS_COMMAND_STATUS_NAMES.has(normalizeStatus(task.status)));
+  const links = new Map<string, string>();
+
+  await Promise.all(
+    tasks.map(async (task) => {
+      if (task.parentChannelId && task.parentMessageTs) {
+        try {
+          const response = await client.chat.getPermalink({
+            channel: task.parentChannelId,
+            message_ts: task.parentMessageTs,
+          });
+          if (response.permalink) links.set(task.id, response.permalink);
+        } catch (error) {
+          logger.error(error);
+        }
+      }
+      if (!links.has(task.id) && task.linkUrl) links.set(task.id, task.linkUrl);
+    }),
+  );
+
+  await client.chat.postMessage({
+    channel: event.channel,
+    text: buildStatusSummary(tasks, links),
+    blocks: buildStatusSummaryBlocks(tasks, links),
+  });
 }
 
 export async function handleThreadReply(
@@ -530,6 +625,26 @@ interface MessageArguments {
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
+}
+
+interface AppMentionEvent {
+  channel: string;
+  ts: string;
+  text: string;
+}
+
+interface AppMentionArguments {
+  event: unknown;
+  client: Pick<SlackClient, "chat">;
+  logger: { error(error: unknown): void };
+}
+
+interface MentionCommandContext {
+  event: AppMentionEvent;
+  client: Pick<SlackClient, "chat">;
+  logger: { error(error: unknown): void };
+  store: WatcherStore;
+  args: string[];
 }
 
 interface UserThreadReply {

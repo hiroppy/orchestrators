@@ -1,6 +1,7 @@
 import type { ChatPostMessageArguments, ChatPostMessageResponse } from "@slack/web-api";
 import { WebClient } from "@slack/web-api";
 import { desc, isNotNull } from "drizzle-orm";
+import type { SlackConfig } from "orchestrator-config";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +19,8 @@ import {
   buildTaskCard,
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
+  buildStatusSummary,
+  buildStatusSummaryBlocks,
   buildTaskClosedMessage,
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
@@ -30,7 +33,7 @@ import {
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 const DEFAULT_ATTENTION_TARGET = "@attention-target";
 const DEFAULT_MENTION_TARGETS = ["@reviewer-one", "@reviewer-two"];
-export const SLACK_PREVIEW_CATEGORIES = ["post", "thread"] as const;
+export const SLACK_PREVIEW_CATEGORIES = ["post", "thread", "mentions"] as const;
 export const SLACK_PREVIEW_EVENT_TYPES = [
   "start",
   "update",
@@ -48,6 +51,7 @@ export const SLACK_PREVIEW_TYPES = [
   "closed",
   "next",
   "watcher-started",
+  "status",
 ] as const;
 
 type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
@@ -105,7 +109,7 @@ export function resolveSlackPreviewCase(
   typeValue?: string,
   extraValue?: string,
 ): SlackPreviewCase {
-  const usage = "Usage: pnpm slack:preview <post|thread> <type>";
+  const usage = "Usage: pnpm slack:preview <post|thread|mentions> <type>";
   const category = SLACK_PREVIEW_CATEGORIES.find((candidate) => candidate === categoryValue);
 
   if (!category) {
@@ -144,9 +148,10 @@ export function resolveSlackPreviewCase(
 
 export function resolveSlackPreviewConfig(
   environment: NodeJS.ProcessEnv = process.env,
+  slack?: SlackConfig,
 ): SlackPreviewConfig {
-  const botToken = environment.SLACK_BOT_TOKEN?.trim();
-  const channelId = environment.SLACK_CHANNEL_ID?.trim();
+  const botToken = environment.SLACK_BOT_TOKEN?.trim() || slack?.botToken?.trim();
+  const channelId = environment.SLACK_CHANNEL_ID?.trim() || slack?.channelId?.trim();
   const missing = [
     botToken ? undefined : "SLACK_BOT_TOKEN",
     channelId ? undefined : "SLACK_CHANNEL_ID",
@@ -237,6 +242,19 @@ export function buildSlackPreviewMessage(
       blocks: buildWatcherStartedMessageBlocks(serviceNames),
     };
   }
+  if (type === "status") {
+    const tasks = previewStatusTasks(now);
+    const links = new Map(
+      tasks.map((task) => [
+        task.id,
+        `https://example.slack.com/archives/C123/p${task.issueIdentifier.replace(/\D/g, "")}`,
+      ]),
+    );
+    return {
+      text: buildStatusSummary(tasks, links),
+      blocks: buildStatusSummaryBlocks(tasks, links),
+    };
+  }
 
   const eventPreviewType = type === "attention" ? "start" : type;
   const mentionTarget =
@@ -280,6 +298,35 @@ export function buildSlackPreviewMessage(
     interactive: options.interactive ?? false,
     titlePrefix: "🔥 Preview",
   });
+}
+
+function previewStatusTasks(now: Date): Task[] {
+  return [
+    {
+      id: "preview-service:PREVIEW-120",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-120",
+      title: "Plan the Slack status command",
+      status: "Todo",
+      updatedAt: now.toISOString(),
+    },
+    {
+      id: "preview-service:PREVIEW-121",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-121",
+      title: "Implement the Slack status command",
+      status: "In Progress",
+      updatedAt: now.toISOString(),
+    },
+    {
+      id: "preview-service:PREVIEW-122",
+      serviceName: "preview-service",
+      issueIdentifier: "PREVIEW-122",
+      title: "Review the Slack status command",
+      status: "In Review",
+      updatedAt: now.toISOString(),
+    },
+  ];
 }
 
 export function postSlackPreview(
@@ -379,7 +426,8 @@ if (import.meta.main) {
   try {
     const [category, type, extra] = process.argv.slice(2).filter((value) => value !== "--");
     const previewCase = resolveSlackPreviewCase(category, type, extra);
-    const { botToken, channelId } = resolveSlackPreviewConfig();
+    const { default: config } = await import("orchestrator-config/runtime");
+    const { botToken, channelId } = resolveSlackPreviewConfig(process.env, config.slack);
     let options: SlackPreviewOptions | undefined;
     if (previewCase.category === "post") {
       const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");

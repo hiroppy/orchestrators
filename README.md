@@ -14,6 +14,8 @@ efficiently keep many tasks moving, even while away from your desk.
 - Get notified when tasks change state, open pull requests, become blocked, or
   finish
 - Update Linear issue statuses directly from Slack
+- Ask `@Orchestrators status` for tracked Todo, In Progress, and In Review tasks,
+  with links to their Slack task threads when available
 - Reply to a Linear workpad from its Slack task thread, so you can keep
   Symphony work moving directly from Slack
 - Keep work moving during automated code review by requeuing Linear issues when
@@ -72,6 +74,7 @@ manifest enables Socket Mode and interactivity. It grants only the bot scopes
 used by the watcher:
 
 - `chat:write` — post and update task messages
+- `app_mentions:read` — respond to the `@Orchestrators status` command
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
 - `files:read` — download images attached to task thread replies for copying to
@@ -79,6 +82,15 @@ used by the watcher:
 - `reactions:write` — acknowledge successfully copied replies with a check mark
 - `users:read` — resolve the display name of a user who changes a status
 - `users:read.email` — match a Linear issue creator to their Slack account
+
+Preview the status-command response with:
+
+```sh
+pnpm --filter orchestrator-slack-watcher slack:preview mentions status
+```
+
+The preview uses `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` when set, otherwise it
+falls back to `slack.botToken` and `slack.channelId` in `config.ts`.
 
 After adding or updating a scope for an existing Slack app, reinstall the
 app to the workspace and replace the configured bot token if Slack issues a new

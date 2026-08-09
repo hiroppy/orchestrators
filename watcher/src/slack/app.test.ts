@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import { createDatabase } from "../persistence/database.ts";
 import {
+  handleAppMention,
   handleStatusAction,
   handleThreadReply,
   publishWatcherStarted,
@@ -15,6 +16,99 @@ import {
 import { WatcherStore } from "../persistence/store.ts";
 
 describe("Slack app behavior", () => {
+  it("replies to an exact status mention with tracked tasks grouped by status", async () => {
+    await withStore(async (store) => {
+      const todo = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-60",
+        issueTitle: "Plan the change",
+        issueUrl: "https://linear.app/example/issue/ENG-60/plan",
+        resolvedState: "Todo",
+        resolvedStateType: "unstarted",
+      });
+      store.setParentMessage(todo.id, "C123", "10.000", "{}");
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-61",
+        issueTitle: "Build the change",
+        issueUrl: "https://linear.app/example/issue/ENG-61/build",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-99",
+        issueTitle: "Already shipped",
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+      });
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "20.000", text: "<@U123> status" },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+
+      assert.deepEqual(calls[0], {
+        method: "getPermalink",
+        args: { channel: "C123", message_ts: "10.000" },
+      });
+      assert.equal(calls[1].method, "postMessage");
+      assert.equal(calls[1].args.channel, "C999");
+      assert.equal(
+        calls[1].args.text,
+        [
+          "*Todo (1)*",
+          "• <https://example.slack.com/archives/C123/p10000|[service-a] ENG-60: Plan the change>",
+          "",
+          "*In Progress (1)*",
+          "• <https://linear.app/example/issue/ENG-61/build|[service-a] ENG-61: Build the change>",
+          "",
+          "*In Review (0)*",
+          "• None",
+        ].join("\n"),
+      );
+      const blocks = calls[1].args.blocks as Array<{ type: string }>;
+      assert.deepEqual(
+        blocks.map(({ type }) => type),
+        ["section", "section", "section"],
+      );
+      assert.match(JSON.stringify(blocks), /<https.*ENG-60.*<https.*ENG-61/);
+    });
+  });
+
+  it("ignores unknown commands and arguments unsupported by status", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "20.000", text: "<@U123> status please" },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "21.000", text: "<@U123> unknown" },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+
+      assert.deepEqual(calls, []);
+    });
+  });
+
   it("posts one top-level channel message when the watcher starts", async () => {
     const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
