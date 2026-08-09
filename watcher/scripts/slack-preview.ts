@@ -182,16 +182,23 @@ export function buildSlackPreviewMessage(
     };
   }
 
-  const task =
-    options.task ??
-    ({
-      id: `${service}:${eventIssueIdentifier}`,
-      serviceName: service,
-      issueIdentifier: eventIssueIdentifier,
-      title: recovered ? eventIssueIdentifier : "Confirm the watcher Slack output",
-      status,
-      updatedAt: now.toISOString(),
-    } satisfies Task);
+  const task = options.task
+    ? {
+        ...options.task,
+        id: `preview:${service}:${eventIssueIdentifier}`,
+        issueIdentifier: eventIssueIdentifier,
+        title: recovered ? eventIssueIdentifier : options.task.title,
+        status,
+        updatedAt: now.toISOString(),
+      }
+    : ({
+        id: `${service}:${eventIssueIdentifier}`,
+        serviceName: service,
+        issueIdentifier: eventIssueIdentifier,
+        title: recovered ? eventIssueIdentifier : "Confirm the watcher Slack output",
+        status,
+        updatedAt: now.toISOString(),
+      } satisfies Task);
   return buildTaskCard(task, options.configuredStatuses ?? PREVIEW_STATUSES, event, mentionTarget, {
     interactive: options.interactive ?? false,
     titlePrefix: "🔥 Preview",
@@ -308,12 +315,13 @@ if (import.meta.main) {
         .orderBy(desc(tasks.updatedAt))
         .get();
       const task = latest ? store.getTask(latest.id) : undefined;
-      if (!task) throw new Error("No existing Slack-backed task is available for post preview.");
-      options = {
-        task,
-        configuredStatuses: store.getSelectableStatuses(task.serviceName),
-        interactive: true,
-      };
+      if (task) {
+        options = {
+          task,
+          configuredStatuses: store.getSelectableStatuses(task.serviceName),
+          interactive: true,
+        };
+      }
     }
     const response = await postSlackPreview(
       new WebClient(botToken),

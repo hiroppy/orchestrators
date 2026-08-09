@@ -3,6 +3,7 @@ import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 
 const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ACTIVITY_LENGTH = 180;
+const MAX_FIELD_LENGTH = 2_000;
 type MrkdwnText = { type: "mrkdwn"; text: string };
 interface SectionBlock extends Record<string, unknown> {
   type: "section";
@@ -65,11 +66,11 @@ export function buildTaskCard(
   const selected = selectOptions.find(({ value }) => value === task.status);
   const blockId = taskBlockId(task.id, task.status);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
-  const activity = event?.activity ?? event?.error;
+  const activity = event ? formatActivity(event) : undefined;
   const primaryFields = [
     watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
     event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
-    activity ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}` : null,
+    activity ? `*Activity*\n${activity}` : null,
   ].filter(isPresent);
   const secondaryFields = [
     mentionTarget ? `*Creator*\n${mentionTarget}` : null,
@@ -129,10 +130,10 @@ export function buildThreadMessageBlocks(
 ): Array<Record<string, unknown>> {
   const transition = statusTransitionDetails(event, mentionTarget, context);
   const headline = transition?.headline ?? threadHeadline(event);
-  const activity = event.activity ?? event.error;
+  const activity = formatActivity(event);
   const primaryFields = [
     `*Event*\n${escapeSlack(parentEventLabel(event))}`,
-    activity ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}` : null,
+    activity ? `*Activity*\n${activity}` : null,
   ].filter(isPresent);
   const notificationFields = [
     mentionTarget ? `*Creator*\n${mentionTarget}` : null,
@@ -140,7 +141,7 @@ export function buildThreadMessageBlocks(
   ].filter(isPresent);
   const detailFields = [
     formatUsage(event.turnCount, event.tokens?.total),
-    context.mentions?.length ? `*Mentions*\n${context.mentions.join(" ")}` : null,
+    context.mentions?.length ? formatMentions(context.mentions) : null,
   ].filter(isPresent);
 
   return [
@@ -259,6 +260,29 @@ function formatUsage(turnCount?: number, totalTokens?: number): string | undefin
     positiveNumber(totalTokens) ? `${formatCompactNumber(totalTokens)} tokens` : null,
   ].filter(isPresent);
   return values.length > 0 ? `*Usage*\n${values.join(" | ")}` : undefined;
+}
+
+function formatActivity(event: WatcherEvent): string | undefined {
+  const activity = event.activity ? escapeSlack(event.activity) : undefined;
+  const error = event.error ? escapeSlack(event.error) : undefined;
+  const text = activity && error ? `${activity}\n⚠️ ${error}` : (activity ?? error);
+  return text ? truncate(text, MAX_ACTIVITY_LENGTH) : undefined;
+}
+
+function formatMentions(mentions: string[]): string {
+  const label = "*Mentions*\n";
+  const availableLength = MAX_FIELD_LENGTH - label.length;
+  const targets: string[] = [];
+  let length = 0;
+
+  for (const mention of mentions) {
+    const addedLength = mention.length + (targets.length > 0 ? 1 : 0);
+    if (length + addedLength > availableLength) break;
+    targets.push(mention);
+    length += addedLength;
+  }
+
+  return `${label}${targets.join(" ")}`;
 }
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {

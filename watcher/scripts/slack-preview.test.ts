@@ -52,6 +52,43 @@ describe("Slack preview", () => {
     );
   });
 
+  it("uses stored task presentation without exposing its persisted identity or state", () => {
+    const storedTask = {
+      id: "service-a:ENG-62",
+      serviceName: "service-a",
+      issueIdentifier: "ENG-62",
+      title: "Build the Slack control plane",
+      status: "In Progress",
+      updatedAt: "2026-07-28T00:00:00.000Z",
+    };
+    const options = {
+      task: storedTask,
+      configuredStatuses: ["In Progress", "Done"],
+      interactive: true,
+    };
+    const started = buildSlackPreviewMessage(
+      { category: "post", type: "start" },
+      new Date("2026-07-29T00:00:00.000Z"),
+      options,
+    );
+    const recovered = buildSlackPreviewMessage(
+      { category: "post", type: "recover" },
+      new Date("2026-07-29T00:00:00.000Z"),
+      options,
+    );
+
+    assert.equal(started.metadata.event_payload.task_id, "preview:service-a:ENG-62");
+    assert.notEqual(started.metadata.event_payload.task_id, storedTask.id);
+    assert.match(JSON.stringify(started.blocks), /Build the Slack control plane/);
+    assert.equal(recovered.metadata.event_payload.task_id, "preview:service-a:watcher:service-a");
+    assert.match(JSON.stringify(recovered.blocks), /Symphony connection/);
+    assert.match(JSON.stringify(recovered.blocks), /\*Status\*\\nAvailable/);
+    assert.equal(
+      recovered.blocks.some((block) => block.type === "actions"),
+      false,
+    );
+  });
+
   it("builds every thread event as a parent post", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const client: SlackPreviewClient = {

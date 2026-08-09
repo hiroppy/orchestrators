@@ -126,6 +126,21 @@ describe("Slack rendering", () => {
     assert.match(activity!, /…$/);
   });
 
+  it("keeps an error visible when activity is also present", () => {
+    const event = {
+      type: "blocked" as const,
+      service: "service-a",
+      issueIdentifier: "ENG-62",
+      activity: "Running tests",
+      error: "Test command failed",
+    };
+    const card = buildTaskCard(task, ["In Progress"], event);
+    const blocks = buildThreadMessageBlocks(event);
+
+    assert.match(JSON.stringify(card.blocks), /Running tests\\n⚠️ Test command failed/);
+    assert.match(JSON.stringify(blocks), /Running tests\\n⚠️ Test command failed/);
+  });
+
   it("does not render a status select for watcher fetch errors", () => {
     const card = buildTaskCard(
       {
@@ -326,5 +341,28 @@ describe("Slack rendering", () => {
       buildStatusChangedMessage("Example User", "In Review", "Done"),
       /SXXXXXXXX/,
     );
+  });
+
+  it("keeps the mentions field within Slack's text limit", () => {
+    const mentions = Array.from(
+      { length: 300 },
+      (_, index) => `<@U${String(index).padStart(8, "0")}>`,
+    );
+    const blocks = buildThreadMessageBlocks(
+      {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+      },
+      undefined,
+      { mentions },
+    );
+    const mentionsField = blocks
+      .flatMap((block) => ("fields" in block ? (block.fields as Array<{ text: string }>) : []))
+      .find(({ text }) => text.startsWith("*Mentions*\n"));
+
+    assert.ok(mentionsField);
+    assert.ok(mentionsField.text.length <= 2_000);
+    assert.match(mentionsField.text, />$/);
   });
 });
