@@ -59,30 +59,25 @@ export function buildTaskCard(
   const selected = selectOptions.find(({ value }) => value === task.status);
   const blockId = taskBlockId(task.id, task.status);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
+  const activity = event?.activity ?? event?.error;
   const primaryFields = [
     watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
     event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
-    event?.activity ?? event?.error
-      ? `*Activity*\n${escapeSlack(
-          truncate((event.activity ?? event.error)!, MAX_ACTIVITY_LENGTH),
-        )}`
+    activity
+      ? `*Activity*\n${escapeSlack(truncate(activity, MAX_ACTIVITY_LENGTH))}`
       : null,
   ].filter(isPresent);
   const secondaryFields = [
     mentionTarget ? `*Creator*\n${mentionTarget}` : null,
     event?.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
   ].filter(isPresent);
-  const eventDetails = event ? compactEventDetails(event, false, false, false, false) : [];
   const overviewBlocks = [primaryFields, secondaryFields]
     .filter((fields) => fields.length > 0)
     .map((fields) => ({
       type: "section",
       fields: fields.map((text) => ({ type: "mrkdwn", text })),
     }));
-  const fallbackText =
-    mentionTarget
-      ? `${displayTitle}. Created by ${mentionTarget}`
-      : displayTitle;
+  const fallbackText = mentionTarget ? `${displayTitle}. Created by ${mentionTarget}` : displayTitle;
   return {
     text: fallbackText,
     metadata: {
@@ -116,14 +111,6 @@ export function buildTaskCard(
           ]
         : []),
       ...overviewBlocks,
-      ...(eventDetails.length > 0
-        ? [
-            {
-              type: "context",
-              elements: [{ type: "mrkdwn", text: eventDetails.join("  ·  ") }],
-            },
-          ]
-        : []),
     ],
   };
 }
@@ -237,21 +224,13 @@ export function buildRelatedIssueMessage(issue: RelatedIssue): string {
   return `Next task | ${issue.url ? `<${issue.url}|${escapeSlack(label)}>` : escapeSlack(label)}`;
 }
 
-function compactEventDetails(
-  event: WatcherEvent,
-  includeAttempt = true,
-  includePullRequest = true,
-  includeMetrics = true,
-  includeError = true,
-): string[] {
+function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
   return [
-    includePullRequest && event.pullRequest ? formatPullRequest(event.pullRequest) : null,
+    event.pullRequest ? formatPullRequest(event.pullRequest) : null,
     includeAttempt && event.attempt ? `Attempt: ${event.attempt}` : null,
-    includeError && event.error ? `Error: ${escapeSlack(truncate(event.error, 180))}` : null,
-    includeMetrics && positiveNumber(event.turnCount)
-      ? `Turns: ${formatNumber(event.turnCount)}`
-      : null,
-    includeMetrics && positiveNumber(event.tokens?.total)
+    event.error ? `Error: ${escapeSlack(truncate(event.error, 180))}` : null,
+    positiveNumber(event.turnCount) ? `Turns: ${formatNumber(event.turnCount)}` : null,
+    positiveNumber(event.tokens?.total)
       ? `Tokens: ${formatCompactNumber(event.tokens?.total)}`
       : null,
   ].filter(isPresent);
