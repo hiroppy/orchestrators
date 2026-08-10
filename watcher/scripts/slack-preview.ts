@@ -428,7 +428,8 @@ function previewEvent(
         pullRequest: {
           url: "https://github.com/example/preview/pull/123",
           number: 123,
-          title: "Improve the watcher Slack preview",
+          title:
+            "Improve the watcher Slack preview layout for long pull request titles across desktop and mobile clients",
         },
       };
     case "updated":
