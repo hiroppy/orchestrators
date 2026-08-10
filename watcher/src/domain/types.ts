@@ -71,6 +71,7 @@ export interface PullRequest {
   isDraft?: boolean | null;
   reviewDecision?: string | null;
   headRefName?: string | null;
+  headRefOid?: string | null;
   hasConfiguredReaction?: boolean;
 }
 

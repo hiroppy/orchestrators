@@ -54,6 +54,7 @@ export interface StatusHookContext {
     isDraft?: boolean | null;
     reviewDecision?: string | null;
     headRefName?: string | null;
+    headRefOid?: string | null;
   };
 }
 
