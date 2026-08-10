@@ -11,6 +11,9 @@ export default defineConfig({
       reaction: "👀", // e.g. Codex code review in progress
       maxRequeues: 3,
     },
+    // Put local TypeScript hooks in ./hooks and import them from config.ts.
+    // A hook's returned string is posted back to the task's Slack thread.
+    statusHooks: [],
   },
   slack: {
     botToken: process.env.SLACK_BOT_TOKEN ?? "", // xoxb-...

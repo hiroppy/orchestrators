@@ -9,6 +9,10 @@ export type {
   OrchestratorConfig,
   ReviewReactionConfig,
   SlackConfig,
+  StatusHookConfig,
+  StatusHookContext,
+  StatusHookHelpers,
+  StatusHookSlackThreadMessageOptions,
 } from "orchestrator-config";
 
 export interface TokenCounts {

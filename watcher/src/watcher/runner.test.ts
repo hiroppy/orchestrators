@@ -252,6 +252,31 @@ describe("runOnce", () => {
     }
   });
 
+  it("resolves and validates TypeScript status hooks", async () => {
+    const run = () => "ready";
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: { statusHooks: [{ status: " In Review ", run }] },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.statusHooks, [{ status: "In Review", run, timeoutMs: 60_000 }]);
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          { ...baseConfig(), watcher: { statusHooks: [{ status: "In Review" } as never] } },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.run must be a function/,
+    );
+  });
+
   it("rejects duplicate ports and non-boolean enabled values", () => {
     assert.throws(
       () =>

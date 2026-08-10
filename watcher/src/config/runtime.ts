@@ -8,6 +8,7 @@ import type {
   ReviewReactionConfig,
   ServiceDefinition,
   SlackConfig,
+  StatusHookConfig,
 } from "../domain/types.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -23,6 +24,7 @@ const EVENT_TYPES: EventType[] = [
   "ended",
   "recovered",
 ];
+const DEFAULT_STATUS_HOOK_TIMEOUT_MS = 60_000;
 
 interface ResolvedSlackConfig {
   botToken: string;
@@ -45,6 +47,7 @@ export interface WatcherRuntimeConfig {
     delayMs: number;
   };
   reviewReaction?: ResolvedReviewReactionConfig;
+  statusHooks: ResolvedStatusHookConfig[];
   mention?: ResolvedMentionConfig;
   slack?: ResolvedSlackConfig;
 }
@@ -55,6 +58,10 @@ export interface ResolvedWatcherRuntimeConfig extends Omit<WatcherRuntimeConfig,
 
 interface ResolvedReviewReactionConfig extends ReviewReactionConfig {
   reaction: string;
+}
+
+export interface ResolvedStatusHookConfig extends StatusHookConfig {
+  timeoutMs: number;
 }
 
 export interface SupervisorInstance {
@@ -94,6 +101,7 @@ export function resolveWatcherConfig(
   validatePollInterval(pollIntervalMs);
   validateEndedTaskRetry(endedTaskRetry);
   const reviewReaction = resolveReviewReactionConfig(config.watcher?.reviewReaction);
+  const statusHooks = resolveStatusHooks(config.watcher?.statusHooks);
 
   return {
     services,
@@ -101,9 +109,32 @@ export function resolveWatcherConfig(
     pollIntervalMs,
     endedTaskRetry,
     reviewReaction,
+    statusHooks,
     mention: resolveMentionConfig(config.slack?.mentions),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedStatusHookConfig[] {
+  if (config === undefined) return [];
+  if (!Array.isArray(config)) {
+    throw new Error("watcher.statusHooks must be an array.");
+  }
+
+  return config.map((hook, index) => {
+    const label = `watcher.statusHooks[${index}]`;
+    if (!hook || typeof hook !== "object" || Array.isArray(hook)) {
+      throw new Error(`${label} must be an object.`);
+    }
+    const status = hook.status?.trim();
+    const timeoutMs = Number(hook.timeoutMs ?? DEFAULT_STATUS_HOOK_TIMEOUT_MS);
+    if (!status) throw new Error(`${label}.status must be a non-empty string.`);
+    if (typeof hook.run !== "function") throw new Error(`${label}.run must be a function.`);
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      throw new Error(`${label}.timeoutMs must be a positive integer.`);
+    }
+    return { status, run: hook.run, timeoutMs };
+  });
 }
 
 function resolveReviewReactionConfig(

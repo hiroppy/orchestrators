@@ -32,6 +32,59 @@ export interface ReviewReactionConfig {
   maxRequeues: number;
 }
 
+export interface StatusHookContext {
+  event: "issue.status_changed";
+  service: string;
+  issue: {
+    identifier: string;
+    url?: string;
+    title?: string | null;
+  };
+  transition: {
+    from: string;
+    to: string;
+  };
+  pullRequest?: {
+    url: string;
+    number?: number | null;
+    title?: string | null;
+    state?: string | null;
+    isDraft?: boolean | null;
+    reviewDecision?: string | null;
+    headRefName?: string | null;
+  };
+}
+
+export interface StatusHookHelpers {
+  slack: {
+    postMessage: (text: string, options?: StatusHookSlackMessageOptions) => Promise<void>;
+    postThreadMessage: (
+      text: string,
+      options?: StatusHookSlackThreadMessageOptions,
+    ) => Promise<void>;
+  };
+}
+
+export interface StatusHookSlackMessageOptions {
+  blocks?: unknown[];
+  unfurlLinks?: boolean;
+  unfurlMedia?: boolean;
+  mrkdwn?: boolean;
+}
+
+export interface StatusHookSlackThreadMessageOptions extends StatusHookSlackMessageOptions {
+  replyBroadcast?: boolean;
+}
+
+export interface StatusHookConfig {
+  status: string;
+  run: (
+    context: StatusHookContext,
+    helpers: StatusHookHelpers,
+  ) => string | void | Promise<string | void>;
+  timeoutMs?: number;
+}
+
 export interface WatcherSettings {
   pollIntervalMs?: number;
   endedTaskRetry?: {
@@ -39,6 +92,7 @@ export interface WatcherSettings {
     delayMs?: number;
   };
   reviewReaction?: ReviewReactionConfig;
+  statusHooks?: StatusHookConfig[];
 }
 
 export interface OrchestratorConfig {

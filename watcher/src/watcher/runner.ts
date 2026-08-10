@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { WebClient } from "@slack/web-api";
+import { WebClient, type ChatPostMessageArguments } from "@slack/web-api";
 
 import {
   resolveWatcherConfig,
@@ -47,9 +47,11 @@ import type {
   ServiceDefinition,
   Snapshot,
   SnapshotsByService,
+  StatusHookSlackThreadMessageOptions,
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
+import { runStatusHooks } from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
@@ -428,6 +430,7 @@ async function processWatcherEvent({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
+  const previousTask = store.getTask(taskId);
   await publishWatcherEvent(
     slackClient,
     store,
@@ -436,6 +439,66 @@ async function processWatcherEvent({
     shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
     { forceMention: reviewDecision.deliverDeferredMention },
   );
+  const taskAfterPublish = store.getTask(taskId)!;
+  const statusChanged =
+    previousTask !== undefined &&
+    normalizeStatus(previousTask.status) !== normalizeStatus(taskAfterPublish.status);
+  if (
+    statusChanged &&
+    taskAfterPublish.parentChannelId &&
+    taskAfterPublish.parentMessageTs &&
+    (config.statusHooks?.length ?? 0) > 0
+  ) {
+    const hookResults = await runStatusHooks(
+      config.statusHooks ?? [],
+      {
+        event: "issue.status_changed",
+        service: taskAfterPublish.serviceName,
+        issue: {
+          identifier: taskAfterPublish.issueIdentifier,
+          url: taskAfterPublish.linkUrl,
+          title: taskAfterPublish.title,
+        },
+        transition: { from: previousTask.status, to: taskAfterPublish.status },
+        pullRequest: taskAfterPublish.pullRequest,
+      },
+      {
+        slack: {
+          postMessage: async (text, options) => {
+            await slackClient.chat.postMessage({
+              channel: taskAfterPublish.parentChannelId!,
+              ...statusHookSlackMessage(text, options),
+            } as ChatPostMessageArguments);
+          },
+          postThreadMessage: async (text, options) => {
+            await slackClient.chat.postMessage({
+              channel: taskAfterPublish.parentChannelId!,
+              thread_ts: taskAfterPublish.parentMessageTs!,
+              ...statusHookSlackMessage(text, options),
+            } as ChatPostMessageArguments);
+          },
+        },
+      },
+    );
+    for (const result of hookResults) {
+      if (result.error) {
+        console.error(`Status hook failed for ${taskAfterPublish.issueIdentifier}:`, result.error);
+      } else if (result.output) {
+        try {
+          await slackClient.chat.postMessage({
+            channel: taskAfterPublish.parentChannelId,
+            thread_ts: taskAfterPublish.parentMessageTs,
+            text: result.output,
+          });
+        } catch (error) {
+          console.error(
+            `Failed to post status hook output for ${taskAfterPublish.issueIdentifier}:`,
+            error,
+          );
+        }
+      }
+    }
+  }
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
 
@@ -509,6 +572,27 @@ async function processWatcherEvent({
     ...card,
   });
   store.setRenderedSummary(requeuedTask.id, JSON.stringify(card));
+}
+
+function statusHookSlackMessage(
+  text: string,
+  options: StatusHookSlackThreadMessageOptions = {},
+): {
+  text: string;
+  blocks?: unknown[];
+  unfurl_links?: boolean;
+  unfurl_media?: boolean;
+  mrkdwn?: boolean;
+  reply_broadcast?: boolean;
+} {
+  return {
+    text,
+    blocks: options.blocks,
+    unfurl_links: options.unfurlLinks,
+    unfurl_media: options.unfurlMedia,
+    mrkdwn: options.mrkdwn,
+    reply_broadcast: options.replyBroadcast,
+  };
 }
 
 async function deliverPendingReviewLimitNotifications(
@@ -1088,6 +1172,9 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
   }
   for (const status of config.mention?.statuses ?? []) {
     rules.push(["slack.mentions.statuses", status]);
+  }
+  for (const [index, hook] of config.statusHooks.entries()) {
+    rules.push([`watcher.statusHooks[${index}].status`, hook.status]);
   }
 
   for (const [label, expected] of rules) {
