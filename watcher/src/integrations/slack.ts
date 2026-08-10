@@ -1,7 +1,7 @@
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
-const MAX_SLACK_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_SLACK_FILE_BYTES = 25 * 1024 * 1024;
 
 interface SlackFileDownloadOptions {
   expectedSize: number;
@@ -25,9 +25,9 @@ export async function downloadSlackFile(
     throw new Error(`Refusing to download a file from a non-Slack URL: ${url.hostname}`);
   }
   if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) {
-    throw new Error(`Invalid Slack image size: ${expectedSize}.`);
+    throw new Error(`Invalid Slack file size: ${expectedSize}.`);
   }
-  if (expectedSize > MAX_SLACK_IMAGE_BYTES) {
+  if (expectedSize > MAX_SLACK_FILE_BYTES) {
     throw new SlackFileTooLargeError(expectedSize);
   }
 
@@ -64,7 +64,7 @@ function isSlackHostname(hostname: string): boolean {
 
 async function readBoundedResponse(response: Response): Promise<ArrayBuffer> {
   const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_SLACK_IMAGE_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > MAX_SLACK_FILE_BYTES) {
     throw new SlackFileTooLargeError(contentLength);
   }
   if (!response.body) return new ArrayBuffer(0);
@@ -76,7 +76,7 @@ async function readBoundedResponse(response: Response): Promise<ArrayBuffer> {
     const { done, value } = await reader.read();
     if (done) break;
     totalBytes += value.byteLength;
-    if (totalBytes > MAX_SLACK_IMAGE_BYTES) {
+    if (totalBytes > MAX_SLACK_FILE_BYTES) {
       await reader.cancel();
       throw new SlackFileTooLargeError(totalBytes);
     }
@@ -114,7 +114,7 @@ function retryDelay(response: Response, fallbackMs: number): number {
 
 class SlackFileTooLargeError extends Error {
   constructor(size: number) {
-    super(`Slack image exceeds the 25 MiB transfer limit (${size} bytes).`);
+    super(`Slack file exceeds the 25 MiB transfer limit (${size} bytes).`);
   }
 }
 

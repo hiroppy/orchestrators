@@ -167,11 +167,11 @@ interface FetchLinearOptions extends LinearRequestOptions {
 
 interface CreateLinearWorkpadReplyOptions extends FetchLinearOptions {
   idempotencyKey: string;
-  images?: LinearReplyImage[];
+  files?: LinearReplyFile[];
   authorName?: string;
 }
 
-interface LinearReplyImage {
+interface LinearReplyFile {
   filename: string;
   contentType: string;
   loadData(): Promise<ArrayBuffer>;
@@ -302,7 +302,7 @@ export async function createLinearWorkpadReply(
   {
     apiKey,
     idempotencyKey,
-    images,
+    files,
     authorName,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
@@ -316,12 +316,12 @@ export async function createLinearWorkpadReply(
   if (!workpad) return false;
 
   const commentId = stableUuid(idempotencyKey);
-  const replyImages = images ?? [];
-  if (replyImages.length > 0 && (await linearCommentExists(commentId, requestOptions))) return true;
+  const replyFiles = files ?? [];
+  if (replyFiles.length > 0 && (await linearCommentExists(commentId, requestOptions))) return true;
 
-  const imageMarkdown = await uploadReplyImages(replyImages, requestOptions);
+  const fileMarkdown = await uploadReplyFiles(replyFiles, requestOptions);
   const authorLabel = authorName ? `Slack投稿者: ${authorName}` : undefined;
-  const replyBody = [authorLabel, body, ...imageMarkdown].filter(Boolean).join("\n\n");
+  const replyBody = [authorLabel, body, ...fileMarkdown].filter(Boolean).join("\n\n");
   for (let attempt = 1; ; attempt += 1) {
     try {
       const result = await linearRequest<{
@@ -353,28 +353,28 @@ export async function createLinearWorkpadReply(
   }
 }
 
-async function uploadReplyImages(
-  images: LinearReplyImage[],
+async function uploadReplyFiles(
+  files: LinearReplyFile[],
   options: WorkpadRequestOptions,
 ): Promise<string[]> {
   const markdown: string[] = [];
-  for (const image of images) {
-    markdown.push(await uploadReplyImage(image, options));
+  for (const file of files) {
+    markdown.push(await uploadReplyFile(file, options));
   }
   return markdown;
 }
 
-async function uploadReplyImage(
-  image: LinearReplyImage,
+async function uploadReplyFile(
+  file: LinearReplyFile,
   options: WorkpadRequestOptions,
 ): Promise<string> {
-  const data = await image.loadData();
+  const data = await file.loadData();
   let lastTransferError: Error | undefined;
   for (let attempt = 1; ; attempt += 1) {
-    const upload = await requestLinearFileUpload(image, data.byteLength, options);
+    const upload = await requestLinearFileUpload(file, data.byteLength, options);
     const headers = new Headers({
       "Cache-Control": "public, max-age=31536000",
-      "Content-Type": image.contentType,
+      "Content-Type": file.contentType,
     });
     for (const header of upload.headers) headers.set(header.key, header.value);
 
@@ -386,7 +386,7 @@ async function uploadReplyImage(
         signal: AbortSignal.timeout(options.timeoutMs),
       });
       if (response.ok) {
-        return `![${escapeMarkdownLabel(image.filename)}](${upload.assetUrl})`;
+        return `![${escapeMarkdownLabel(file.filename)}](${upload.assetUrl})`;
       }
 
       lastTransferError = new Error(`Linear file upload returned HTTP ${response.status}.`);
@@ -402,7 +402,7 @@ async function uploadReplyImage(
 }
 
 async function requestLinearFileUpload(
-  image: LinearReplyImage,
+  file: LinearReplyFile,
   size: number,
   options: WorkpadRequestOptions,
 ): Promise<{
@@ -425,8 +425,8 @@ async function requestLinearFileUpload(
         options.apiKey,
         FILE_UPLOAD_MUTATION,
         {
-          filename: image.filename,
-          contentType: image.contentType,
+          filename: file.filename,
+          contentType: file.contentType,
           size,
         },
         options.timeoutMs,
@@ -435,7 +435,7 @@ async function requestLinearFileUpload(
   );
   const upload = result.fileUpload?.uploadFile;
   if (!result.fileUpload?.success || !upload) {
-    throw new Error(`Linear rejected file upload for ${image.filename}.`);
+    throw new Error(`Linear rejected file upload for ${file.filename}.`);
   }
   return upload;
 }

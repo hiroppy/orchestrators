@@ -60,7 +60,7 @@ describe("downloadSlackFile", () => {
     assert.deepEqual(new Uint8Array(data), new Uint8Array([1, 2, 3]));
   });
 
-  it("rejects oversized images before downloading them", async (context) => {
+  it("rejects oversized files before downloading them", async (context) => {
     const fetchMock = context.mock.method(globalThis, "fetch");
 
     await assert.rejects(

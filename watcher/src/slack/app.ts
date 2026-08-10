@@ -34,7 +34,7 @@ import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
-interface SlackReplyImage {
+interface SlackReplyFile {
   filename: string;
   contentType: string;
   downloadUrl: string;
@@ -43,7 +43,7 @@ interface SlackReplyImage {
 
 export interface SlackThreadReply {
   text: string;
-  images: SlackReplyImage[];
+  files: SlackReplyFile[];
   authorName: string;
 }
 
@@ -54,11 +54,14 @@ export type LinearWorkpadReplier = (
 ) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
 const threadReplyQueues = new Map<string, Promise<void>>();
-const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
+const SUPPORTED_FILE_CONTENT_TYPES = new Set([
   "image/gif",
   "image/jpeg",
   "image/png",
   "image/webp",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
 ]);
 const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
@@ -205,7 +208,7 @@ export async function handleThreadReply(
           {
             text: reply.text,
             authorName,
-            images: reply.files.map((file) => ({
+            files: reply.files.map((file) => ({
               filename: file.name,
               contentType: file.mimetype,
               downloadUrl: file.url_private_download ?? file.url_private,
@@ -654,10 +657,10 @@ interface UserThreadReply {
   ts: string;
   user: string;
   text: string;
-  files: SlackImageFile[];
+  files: SlackFile[];
 }
 
-interface SlackImageFile {
+interface SlackFile {
   name: string;
   mimetype: string;
   size: number;
@@ -724,7 +727,7 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
   if (!message || typeof message !== "object") return undefined;
 
   const event = message as Record<string, unknown>;
-  const files = Array.isArray(event.files) ? event.files.filter(isSlackImageFile) : [];
+  const files = Array.isArray(event.files) ? event.files.filter(isSupportedSlackFile) : [];
   const isSupportedSubtype =
     event.subtype === undefined ||
     event.subtype === "thread_broadcast" ||
@@ -752,14 +755,14 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
   };
 }
 
-function isSlackImageFile(file: unknown): file is SlackImageFile {
+function isSupportedSlackFile(file: unknown): file is SlackFile {
   if (!file || typeof file !== "object") return false;
 
   const value = file as Record<string, unknown>;
   return (
     typeof value.name === "string" &&
     typeof value.mimetype === "string" &&
-    SUPPORTED_IMAGE_CONTENT_TYPES.has(value.mimetype) &&
+    SUPPORTED_FILE_CONTENT_TYPES.has(value.mimetype) &&
     typeof value.size === "number" &&
     Number.isSafeInteger(value.size) &&
     value.size >= 0 &&
