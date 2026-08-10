@@ -152,7 +152,6 @@ export default defineConfig({
       {
         status: "In Review",
         run: inReviewHook,
-        timeoutMs: 60_000,
       },
     ],
   },
@@ -163,8 +162,9 @@ export default defineConfig({
 </details>
 
 Hooks run only on a transition edge, not on every poll.
-Failures and timeouts are logged without stopping the watcher; hooks should
-therefore be idempotent. For asynchronous work, such as an App Distribution
+Failures are logged without stopping the watcher. Hooks are trusted in-process
+TypeScript and must not perform blocking synchronous work; they should also be
+idempotent. For asynchronous work, such as an App Distribution
 build, make that build a required CI check and use the hook to read its completed
 result instead of waiting for CI inside the hook.
 

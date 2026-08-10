@@ -262,7 +262,7 @@ describe("runOnce", () => {
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.statusHooks, [{ status: "In Review", run, timeoutMs: 60_000 }]);
+    assert.deepEqual(config.statusHooks, [{ status: "In Review", run }]);
     await assert.rejects(
       resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
       /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,

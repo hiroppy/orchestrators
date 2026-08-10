@@ -34,6 +34,12 @@ import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
+export type StatusTransitionHandler = (
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+  client: SlackClient,
+) => Promise<void>;
 interface SlackReplyFile {
   filename: string;
   contentType: string;
@@ -79,6 +85,7 @@ export interface SlackAppOptions {
   store: WatcherStore;
   botUserId: string;
   configuredMentionTargets?: string[];
+  onStatusTransition?: StatusTransitionHandler;
 }
 
 export function createSlackApp({
@@ -89,13 +96,14 @@ export function createSlackApp({
   store,
   botUserId,
   configuredMentionTargets = [],
+  onStatusTransition,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
     appToken,
     socketMode: true,
   });
-  registerStatusAction(app, store, updateLinearStatus);
+  registerStatusAction(app, store, updateLinearStatus, onStatusTransition);
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
@@ -338,9 +346,10 @@ function registerStatusAction(
   app: App,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
+  onStatusTransition?: StatusTransitionHandler,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
-    await handleStatusAction(args, store, updateLinearStatus);
+    await handleStatusAction(args, store, updateLinearStatus, onStatusTransition);
   });
 }
 
@@ -348,6 +357,7 @@ export async function handleStatusAction(
   { ack, action, body, client, logger }: StatusActionArguments,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
+  onStatusTransition?: StatusTransitionHandler,
 ): Promise<void> {
   await ack();
 
@@ -401,6 +411,7 @@ export async function handleStatusAction(
       });
       const { task, fromStatus } = store.updateTaskStatus(taskId, selectedStatus);
       store.setRenderedSummary(task.id, JSON.stringify(card));
+      await onStatusTransition?.(task, fromStatus, selectedStatus, client);
 
       const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
       const statusChangedLine = buildStatusChangedMessage(

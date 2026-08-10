@@ -82,7 +82,6 @@ export interface StatusHookConfig {
     context: StatusHookContext,
     helpers: StatusHookHelpers,
   ) => string | void | Promise<string | void>;
-  timeoutMs?: number;
 }
 
 export interface WatcherSettings {

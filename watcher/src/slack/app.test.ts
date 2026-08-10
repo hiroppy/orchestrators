@@ -793,6 +793,7 @@ describe("Slack app behavior", () => {
       calls.length = 0;
       let acknowledged = false;
       const linearUpdates: string[] = [];
+      const hookTransitions: string[] = [];
 
       await handleStatusAction(
         {
@@ -836,9 +837,14 @@ describe("Slack app behavior", () => {
           assert.equal(task.issueIdentifier, "ENG-62");
           linearUpdates.push(status);
         },
+        async (task, fromStatus, toStatus) => {
+          assert.equal(task.status, "Rework");
+          hookTransitions.push(`${fromStatus} -> ${toStatus}`);
+        },
       );
 
       assert.deepEqual(linearUpdates, ["Rework"]);
+      assert.deepEqual(hookTransitions, ["In Review -> Rework"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "Rework");
       assert.equal(calls.filter(({ method }) => method === "update").length, 1);
       assert.match(

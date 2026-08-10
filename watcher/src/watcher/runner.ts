@@ -50,7 +50,7 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import { runStatusHooks } from "./status-hooks.ts";
+import { dispatchStatusHooks } from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
@@ -113,6 +113,16 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           store,
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
+          onStatusTransition: async (task, fromStatus, toStatus, slackClient) => {
+            await dispatchStatusHooks({
+              hooks: runtimeConfig.statusHooks,
+              task,
+              fromStatus,
+              toStatus,
+              slackClient,
+              watcherChannelId: slackConfig.channelId,
+            });
+          },
         })
       : undefined;
 
@@ -442,61 +452,16 @@ async function processWatcherEvent({
   const statusChanged =
     previousTask !== undefined &&
     normalizeStatus(previousTask.status) !== normalizeStatus(taskAfterPublish.status);
-  if (
-    statusChanged &&
-    taskAfterPublish.parentChannelId &&
-    taskAfterPublish.parentMessageTs &&
-    (config.statusHooks?.length ?? 0) > 0
-  ) {
-    const hookResults = await runStatusHooks(
-      config.statusHooks ?? [],
-      {
-        event: "issue.status_changed",
-        service: taskAfterPublish.serviceName,
-        issue: {
-          identifier: taskAfterPublish.issueIdentifier,
-          url: taskAfterPublish.linkUrl,
-          title: taskAfterPublish.title,
-        },
-        transition: { from: previousTask.status, to: taskAfterPublish.status },
-        pullRequest: taskAfterPublish.pullRequest,
-      },
-      {
-        slack: {
-          postMessage: async (message) => {
-            await slackClient.chat.postMessage({
-              ...message,
-              channel: taskAfterPublish.parentChannelId!,
-            });
-          },
-          postThreadMessage: async (message) => {
-            await slackClient.chat.postMessage({
-              ...message,
-              channel: taskAfterPublish.parentChannelId!,
-              thread_ts: taskAfterPublish.parentMessageTs!,
-            });
-          },
-        },
-      },
-    );
-    for (const result of hookResults) {
-      if (result.error) {
-        console.error(`Status hook failed for ${taskAfterPublish.issueIdentifier}:`, result.error);
-      } else if (result.output) {
-        try {
-          await slackClient.chat.postMessage({
-            channel: taskAfterPublish.parentChannelId,
-            thread_ts: taskAfterPublish.parentMessageTs,
-            text: result.output,
-          });
-        } catch (error) {
-          console.error(
-            `Failed to post status hook output for ${taskAfterPublish.issueIdentifier}:`,
-            error,
-          );
-        }
-      }
-    }
+  if (statusChanged) {
+    await dispatchStatusHooks({
+      hooks: config.statusHooks ?? [],
+      task: taskAfterPublish,
+      fromStatus: previousTask.status,
+      toStatus: taskAfterPublish.status,
+      pullRequest: event.pullRequest,
+      slackClient,
+      watcherChannelId: slackChannelId,
+    });
   }
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
@@ -522,6 +487,15 @@ async function processWatcherEvent({
     task.id,
     review.inProgressStatus,
   );
+  await dispatchStatusHooks({
+    hooks: config.statusHooks ?? [],
+    task: requeuedTask,
+    fromStatus,
+    toStatus: requeuedTask.status,
+    pullRequest: event.pullRequest,
+    slackClient,
+    watcherChannelId: slackChannelId,
+  });
   const auditBody = buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
   const requeueEvent = {
     taskId: task.id,

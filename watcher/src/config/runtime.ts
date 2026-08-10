@@ -24,7 +24,6 @@ const EVENT_TYPES: EventType[] = [
   "ended",
   "recovered",
 ];
-const DEFAULT_STATUS_HOOK_TIMEOUT_MS = 60_000;
 
 interface ResolvedSlackConfig {
   botToken: string;
@@ -60,9 +59,7 @@ interface ResolvedReviewReactionConfig extends ReviewReactionConfig {
   reaction: string;
 }
 
-export interface ResolvedStatusHookConfig extends StatusHookConfig {
-  timeoutMs: number;
-}
+export type ResolvedStatusHookConfig = StatusHookConfig;
 
 export interface SupervisorInstance {
   name: string;
@@ -127,13 +124,9 @@ function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedSta
       throw new Error(`${label} must be an object.`);
     }
     const status = hook.status?.trim();
-    const timeoutMs = Number(hook.timeoutMs ?? DEFAULT_STATUS_HOOK_TIMEOUT_MS);
     if (!status) throw new Error(`${label}.status must be a non-empty string.`);
     if (typeof hook.run !== "function") throw new Error(`${label}.run must be a function.`);
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
-      throw new Error(`${label}.timeoutMs must be a positive integer.`);
-    }
-    return { status, run: hook.run, timeoutMs };
+    return { status, run: hook.run };
   });
 }
 
