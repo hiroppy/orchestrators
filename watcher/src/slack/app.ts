@@ -488,9 +488,6 @@ export async function publishWatcherEvent(
   const statusChanged =
     previousTask !== undefined &&
     normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
-  if (statusChanged) {
-    await options.onStatusTransition?.(task, previousTask.status);
-  }
   const notifications = notificationTargetsForWatcherEvent(
     mention,
     previousTask?.status,
@@ -512,10 +509,16 @@ export async function publishWatcherEvent(
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
 
   if (!task.parentChannelId || !task.parentMessageTs) {
-    const parent = await client.chat.postMessage({
-      channel: destinationChannel,
-      ...card,
-    });
+    let parent: ChatPostMessageResponse;
+    try {
+      parent = await client.chat.postMessage({
+        channel: destinationChannel,
+        ...card,
+      });
+    } catch (error) {
+      if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
+      throw error;
+    }
     if (!parent.channel || !parent.ts) {
       throw new Error(`Slack did not return channel/ts for task ${task.id}.`);
     }
@@ -546,6 +549,7 @@ export async function publishWatcherEvent(
       if (announceTerminalParent) {
         store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
       }
+      if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
       throw error;
     }
   }
@@ -563,14 +567,23 @@ export async function publishWatcherEvent(
     notifications?.creator,
     notificationContext,
   );
-  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
-    ? await client.chat.postMessage({
-        channel: task.parentChannelId!,
-        thread_ts: task.parentMessageTs!,
-        text: threadBody,
-        ...(threadBlocks ? { blocks: threadBlocks } : {}),
-      })
-    : undefined;
+  let reply: ChatPostMessageResponse | undefined;
+  try {
+    reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
+      ? await client.chat.postMessage({
+          channel: task.parentChannelId!,
+          thread_ts: task.parentMessageTs!,
+          text: threadBody,
+          ...(threadBlocks ? { blocks: threadBlocks } : {}),
+        })
+      : undefined;
+  } catch (error) {
+    if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
+    throw error;
+  }
+  if (statusChanged) {
+    await options.onStatusTransition?.(task, previousTask.status);
+  }
   store.addEvent({
     taskId: task.id,
     type: event.type,

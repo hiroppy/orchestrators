@@ -438,7 +438,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("delivers a status transition before Slack publishing fails without repeating it", async () => {
+  it("retries a status transition after Slack publishing fails without losing its hook", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       let failUpdate = false;
@@ -470,12 +470,57 @@ describe("Slack app behavior", () => {
 
       failUpdate = true;
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
-      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.deepEqual(transitions, []);
 
       failUpdate = false;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
+    });
+  });
+
+  it("delivers a transition hook after recovering a missing Slack parent", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const postMessage = client.chat.postMessage;
+      let failPost = true;
+      client.chat.postMessage = async (args) => {
+        if (failPost) throw new Error("Simulated Slack failure");
+        return postMessage(args);
+      };
+
+      await assert.rejects(
+        publishWatcherEvent(client, store, "C123", {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+        }),
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, undefined);
+
+      const transitions: string[] = [];
+      failPost = false;
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Review",
+        },
+        undefined,
+        {
+          onStatusTransition: async (task, fromStatus) => {
+            transitions.push(`${fromStatus} -> ${task.status}@${task.parentMessageTs}`);
+          },
+        },
+      );
+
+      assert.deepEqual(transitions, ["In Progress -> In Review@1.000"]);
     });
   });
 
