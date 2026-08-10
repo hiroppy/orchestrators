@@ -37,7 +37,7 @@ import type {
 } from "../domain/types.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
-type TaskEventInput = {
+export type TaskEventInput = {
   taskId: string;
   type: string;
   actor?: string;
@@ -355,6 +355,20 @@ export class WatcherStore {
       .run();
 
     return this.getTask(id)!;
+  }
+
+  upsertTaskFromEventAtomically(
+    event: WatcherEvent,
+    createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
+    now = new Date(),
+  ): { task: Task; previousTask: Task | undefined } {
+    return this.db.transaction(() => {
+      const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
+      const task = this.upsertTaskFromEvent(event, now);
+      const transitionEvent = createEvent(task, previousTask);
+      if (transitionEvent) this.addEvent(transitionEvent);
+      return { task, previousTask };
+    });
   }
 
   setParentMessage(

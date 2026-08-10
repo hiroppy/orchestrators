@@ -2,7 +2,7 @@ import type { ChatPostMessageArguments } from "@slack/web-api";
 
 import type { ResolvedStatusHookConfig } from "../config/runtime.ts";
 import type { PullRequest, StatusHookContext, StatusHookHelpers, Task } from "../domain/types.ts";
-import type { WatcherStore } from "../persistence/store.ts";
+import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 
 export type { StatusHookContext } from "../domain/types.ts";
 
@@ -13,6 +13,7 @@ export interface StatusHookResult {
 
 const STATUS_HOOK_PENDING_EVENT = "status_hook_pending";
 const STATUS_HOOK_COMPLETED_EVENT = "status_hook_completed";
+const deliveryQueues = new WeakMap<WatcherStore, Promise<void>>();
 
 interface StatusHookSlackClient {
   chat: {
@@ -28,19 +29,54 @@ export function queueStatusHooks(
   toStatus: string,
   pullRequest?: PullRequest,
 ): void {
-  if (!hooks.some(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))) return;
+  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest);
+  if (event) store.addEvent(event);
+}
 
-  store.addEvent({
-    taskId: task.id,
-    type: STATUS_HOOK_PENDING_EVENT,
-    actor: "watcher",
-    fromStatus,
-    toStatus,
-    body: JSON.stringify({ pullRequest }),
-  });
+export function createPendingStatusHookEvent(
+  hooks: ResolvedStatusHookConfig[],
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+  pullRequest?: PullRequest,
+): TaskEventInput | undefined {
+  return hooks.some(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))
+    ? {
+        taskId: task.id,
+        type: STATUS_HOOK_PENDING_EVENT,
+        actor: "watcher",
+        fromStatus,
+        toStatus,
+        body: JSON.stringify({ pullRequest }),
+      }
+    : undefined;
 }
 
 export async function deliverPendingStatusHooks({
+  hooks,
+  store,
+  slackClient,
+  watcherChannelId,
+  taskId,
+}: {
+  hooks: ResolvedStatusHookConfig[];
+  store: WatcherStore;
+  slackClient: StatusHookSlackClient;
+  watcherChannelId: string;
+  taskId?: string;
+}): Promise<void> {
+  const previousDelivery = deliveryQueues.get(store) ?? Promise.resolve();
+  const delivery = previousDelivery.then(() =>
+    deliverPendingStatusHooksSerially({ hooks, store, slackClient, watcherChannelId, taskId }),
+  );
+  deliveryQueues.set(
+    store,
+    delivery.catch(() => {}),
+  );
+  return delivery;
+}
+
+async function deliverPendingStatusHooksSerially({
   hooks,
   store,
   slackClient,
@@ -130,16 +166,13 @@ export async function dispatchStatusHooks({
   for (const result of results) {
     if (result.error) {
       console.error(`Status hook failed for ${task.issueIdentifier}:`, result.error);
+      throw result.error;
     } else if (result.output) {
-      try {
-        await slackClient.chat.postMessage({
-          channel: task.parentChannelId,
-          thread_ts: task.parentMessageTs,
-          text: result.output,
-        });
-      } catch (error) {
-        console.error(`Failed to post status hook output for ${task.issueIdentifier}:`, error);
-      }
+      await slackClient.chat.postMessage({
+        channel: task.parentChannelId,
+        thread_ts: task.parentMessageTs,
+        text: result.output,
+      });
     }
   }
 }

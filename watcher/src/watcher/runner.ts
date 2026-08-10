@@ -50,7 +50,11 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import { deliverPendingStatusHooks, queueStatusHooks } from "./status-hooks.ts";
+import {
+  createPendingStatusHookEvent,
+  deliverPendingStatusHooks,
+  queueStatusHooks,
+} from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
@@ -453,16 +457,14 @@ async function processWatcherEvent({
     shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
     {
       forceMention: reviewDecision.deliverDeferredMention,
-      onStatusTransition: async (task, fromStatus) => {
-        queueStatusHooks(
+      createStatusTransitionEvent: (task, fromStatus) =>
+        createPendingStatusHookEvent(
           config.statusHooks ?? [],
-          store,
           task,
           fromStatus,
           task.status,
           event.pullRequest,
-        );
-      },
+        ),
       afterPublish: async (task) => {
         await deliverPendingStatusHooks({
           hooks: config.statusHooks ?? [],

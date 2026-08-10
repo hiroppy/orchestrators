@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
 import {
+  createPendingStatusHookEvent,
   deliverPendingStatusHooks,
   dispatchStatusHooks,
   queueStatusHooks,
@@ -157,7 +158,116 @@ describe("status hooks", () => {
       assert.deepEqual(received[0].pullRequest, context.pullRequest);
     });
   });
+
+  it("retries a pending hook when posting its returned output fails", async () => {
+    await withPendingHook(async ({ store, hooks }) => {
+      let attempts = 0;
+      let failPost = true;
+      const options = {
+        hooks,
+        store,
+        slackClient: {
+          chat: {
+            postMessage: async () => {
+              attempts += 1;
+              if (failPost) throw new Error("Simulated Slack failure");
+            },
+          },
+        },
+        watcherChannelId: "CWATCHER",
+      };
+
+      await assert.rejects(deliverPendingStatusHooks(options), /Simulated Slack failure/);
+      failPost = false;
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+
+      assert.equal(attempts, 2);
+    });
+  });
+
+  it("serializes concurrent delivery of the same pending hook", async () => {
+    await withPendingHook(async ({ store, hooks, runs }) => {
+      const options = {
+        hooks,
+        store,
+        slackClient: { chat: { postMessage: async () => {} } },
+        watcherChannelId: "CWATCHER",
+      };
+
+      await Promise.all([deliverPendingStatusHooks(options), deliverPendingStatusHooks(options)]);
+
+      assert.equal(runs.value, 1);
+    });
+  });
+
+  it("rolls back the task update when creating its pending event fails", async () => {
+    await withStore(async (store) => {
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "In Progress",
+      });
+
+      assert.throws(
+        () =>
+          store.upsertTaskFromEventAtomically(
+            {
+              type: "updated",
+              service: "ios",
+              issueIdentifier: "APP-42",
+              resolvedState: "In Review",
+            },
+            () => {
+              throw new Error("Simulated event failure");
+            },
+          ),
+        /Simulated event failure/,
+      );
+      assert.equal(store.getTask("ios:APP-42")?.status, "In Progress");
+    });
+  });
 });
+
+async function withPendingHook(
+  run: (options: {
+    store: WatcherStore;
+    hooks: Array<{ status: string; run: () => string }>;
+    runs: { value: number };
+  }) => void | Promise<void>,
+): Promise<void> {
+  await withStore(async (store) => {
+    const inProgress = store.upsertTaskFromEvent({
+      type: "updated",
+      service: "ios",
+      issueIdentifier: "APP-42",
+      issueTitle: "Ship preview",
+      resolvedState: "In Progress",
+    });
+    store.setParentMessage(inProgress.id, "CTASK", "10.000", "{}");
+    const runs = { value: 0 };
+    const hooks = [
+      {
+        status: "In Review",
+        run: () => {
+          runs.value += 1;
+          return "distributed";
+        },
+      },
+    ];
+    store.upsertTaskFromEventAtomically(
+      {
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "In Review",
+      },
+      (task, previous) => createPendingStatusHookEvent(hooks, task, previous!.status, task.status),
+    );
+    await run({ store, hooks, runs });
+  });
+}
 
 async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "watcher-status-hooks-"));

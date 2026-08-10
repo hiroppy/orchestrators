@@ -28,7 +28,7 @@ import {
   buildWatcherStartedMessageBlocks,
   STATUS_SUMMARY_STATUSES,
 } from "./views.ts";
-import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
+import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
@@ -478,14 +478,21 @@ export async function publishWatcherEvent(
   options: {
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
+    createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
     afterPublish?: (task: Task) => Promise<void>;
   } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const previousTask = store.getTask(taskId);
   const isNewPullRequest =
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
-  let task = store.upsertTaskFromEvent(event);
+  const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
+    event,
+    (task, previous) =>
+      previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
+        ? options.createStatusTransitionEvent?.(task, previous.status)
+        : undefined,
+  );
+  let task = persistedTask;
   const statusChanged =
     previousTask !== undefined &&
     normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
