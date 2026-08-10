@@ -1,14 +1,5 @@
 import { App } from "@slack/bolt";
-import {
-  type ChatGetPermalinkArguments,
-  type ChatGetPermalinkResponse,
-  type ChatPostMessageArguments,
-  type ChatPostMessageResponse,
-  type ChatUpdateArguments,
-  type ChatUpdateResponse,
-  type UsersInfoArguments,
-  type UsersInfoResponse,
-} from "@slack/web-api";
+import type { ChatPostMessageResponse } from "@slack/web-api";
 
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
@@ -33,7 +24,9 @@ import { notificationTargetsForWatcherEvent } from "./notifications.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackDisplayName } from "./users.ts";
+import type { SlackClient } from "./client-types.ts";
 
+export * from "./client-types.ts";
 export * from "./notifications.ts";
 export { handleAppMention } from "./mention-commands.ts";
 export * from "./thread-reply-handler.ts";
@@ -409,17 +402,6 @@ interface StatusActionBody {
     };
   };
   actions?: Array<{ block_id?: string }>;
-}
-
-export interface SlackClient {
-  chat: {
-    getPermalink(args: ChatGetPermalinkArguments): Promise<ChatGetPermalinkResponse>;
-    postMessage(args: ChatPostMessageArguments): Promise<ChatPostMessageResponse>;
-    update(args: ChatUpdateArguments): Promise<ChatUpdateResponse>;
-  };
-  users?: {
-    info(args: UsersInfoArguments): Promise<UsersInfoResponse>;
-  };
 }
 
 interface StatusActionArguments {

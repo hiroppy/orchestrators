@@ -1,4 +1,4 @@
-import type { SlackClient } from "./app.ts";
+import type { SlackClient } from "./client-types.ts";
 
 export async function resolveSlackDisplayName(
   client: Pick<SlackClient, "users">,

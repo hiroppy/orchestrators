@@ -2,7 +2,7 @@ import type { WatcherStore } from "../persistence/store.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import { buildStatusSummary, buildStatusSummaryBlocks, STATUS_SUMMARY_STATUSES } from "./views.ts";
-import type { SlackClient } from "./app.ts";
+import type { SlackClient } from "./client-types.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;

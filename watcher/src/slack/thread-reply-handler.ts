@@ -5,7 +5,7 @@ import { postSlackOperationError } from "./errors.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { parseUserThreadReply, type UserThreadReply } from "./thread-replies.ts";
 import { resolveSlackDisplayName } from "./users.ts";
-import type { SlackClient } from "./app.ts";
+import type { SlackClient } from "./client-types.ts";
 
 interface SlackReplyFile {
   filename: string;
