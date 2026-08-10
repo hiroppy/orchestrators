@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-const LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -10,148 +9,22 @@ export class TransientLinearError extends Error {}
 
 import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";
-
-const ISSUE_STATE_QUERY = `
-  query OrchestratorWatcherIssueState($id: String!, $includeCreator: Boolean!) {
-    issue(id: $id) {
-      identifier
-      title
-      creator @include(if: $includeCreator) {
-        name
-        email
-      }
-      state {
-        name
-        type
-      }
-      attachments {
-        nodes {
-          url
-        }
-      }
-      relations {
-        nodes {
-          type
-          relatedIssue {
-            identifier
-            title
-            url
-            state {
-              type
-            }
-          }
-        }
-      }
-      url
-    }
-  }
-`;
-
-const ISSUE_STATUS_TARGET_QUERY = `
-  query OrchestratorWatcherIssueStatusTarget($id: String!) {
-    issue(id: $id) {
-      id
-      team {
-        states {
-          nodes {
-            id
-            name
-          }
-        }
-      }
-    }
-  }
-`;
-
-const ISSUE_STATUS_UPDATE_MUTATION = `
-  mutation OrchestratorWatcherIssueStatusUpdate($id: String!, $stateId: String!) {
-    issueUpdate(id: $id, input: { stateId: $stateId }) {
-      success
-      issue {
-        state {
-          name
-        }
-      }
-    }
-  }
-`;
-
-const ISSUE_WORKPAD_QUERY = `
-  query OrchestratorWatcherIssueWorkpad($id: String!, $after: String) {
-    issue(id: $id) {
-      id
-      comments(first: 250, after: $after) {
-        nodes {
-          id
-          body
-          createdAt
-          resolvedAt
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-      }
-    }
-  }
-`;
-
-const COMMENT_REPLY_CREATE_MUTATION = `
-  mutation OrchestratorWatcherCommentReplyCreate(
-    $id: String!
-    $issueId: String!
-    $parentId: String!
-    $body: String!
-  ) {
-    commentCreate(input: { id: $id, issueId: $issueId, parentId: $parentId, body: $body }) {
-      success
-    }
-  }
-`;
-
-const FILE_UPLOAD_MUTATION = `
-  mutation OrchestratorWatcherFileUpload(
-    $filename: String!
-    $contentType: String!
-    $size: Int!
-  ) {
-    fileUpload(filename: $filename, contentType: $contentType, size: $size) {
-      success
-      uploadFile {
-        uploadUrl
-        assetUrl
-        headers {
-          key
-          value
-        }
-      }
-    }
-  }
-`;
-
-const COMMENT_BY_ID_QUERY = `
-  query OrchestratorWatcherCommentById($id: ID!) {
-    comments(first: 1, filter: { id: { eq: $id } }) {
-      nodes {
-        id
-      }
-    }
-  }
-`;
-
-const TEAM_WORKFLOW_STATES_QUERY = `
-  query OrchestratorWatcherTeamWorkflowStates($id: String!) {
-    team(id: $id) {
-      states {
-        nodes {
-          name
-          type
-          position
-        }
-      }
-    }
-  }
-`;
+import {
+  COMMENT_BY_ID_QUERY,
+  COMMENT_REPLY_CREATE_MUTATION,
+  FILE_UPLOAD_MUTATION,
+  ISSUE_STATE_QUERY,
+  ISSUE_STATUS_TARGET_QUERY,
+  ISSUE_STATUS_UPDATE_MUTATION,
+  ISSUE_WORKPAD_QUERY,
+  TEAM_WORKFLOW_STATES_QUERY,
+} from "./linear-queries.ts";
+import {
+  isTransientLinearError,
+  LINEAR_ENDPOINT,
+  linearRequest,
+  retryLinearRequest,
+} from "./linear-client.ts";
 
 interface LinearRequestOptions {
   apiKey?: string;
@@ -528,20 +401,6 @@ async function findLinearWorkpad(
   }
 }
 
-async function retryLinearRequest<T>(
-  request: () => Promise<T>,
-  options: Pick<WorkpadRequestOptions, "maxAttempts" | "retryDelayMs">,
-): Promise<T> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await request();
-    } catch (error) {
-      if (attempt >= options.maxAttempts || !isTransientLinearError(error)) throw error;
-      await sleep(options.retryDelayMs);
-    }
-  }
-}
-
 export async function fetchLinearIssueState(
   issueIdentifier?: string,
   options: FetchLinearOptions = {},
@@ -674,61 +533,6 @@ function findPullRequestAttachment(
 
 function shouldRetryResponse(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
-}
-
-async function linearRequest<T>(
-  apiKey: string,
-  query: string,
-  variables: Record<string, string | number>,
-  timeoutMs: number,
-): Promise<T> {
-  const response = await fetch(LINEAR_ENDPOINT, {
-    method: "POST",
-    headers: {
-      authorization: apiKey,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const body = (await response.json().catch(() => undefined)) as
-    | {
-        data?: T;
-        errors?: Array<{ message?: string; extensions?: { code?: string } }>;
-      }
-    | undefined;
-  const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATELIMITED");
-  if (!response.ok) {
-    throw new LinearHttpError(
-      `Linear returned HTTP ${response.status}.`,
-      Boolean(rateLimited) || shouldRetryResponse(response.status),
-    );
-  }
-
-  if (body?.errors?.length) {
-    const message = `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`;
-    if (rateLimited) throw new LinearHttpError(message, true);
-    throw new Error(message);
-  }
-  if (!body?.data) throw new Error("Linear response did not include data.");
-  return body.data;
-}
-
-class LinearHttpError extends Error {
-  readonly retryable: boolean;
-
-  constructor(message: string, retryable: boolean) {
-    super(message);
-    this.retryable = retryable;
-  }
-}
-
-function isTransientLinearError(error: unknown): boolean {
-  if (error instanceof LinearHttpError) return error.retryable;
-  if (error instanceof TypeError) return true;
-  return (
-    error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")
-  );
 }
 
 function sleep(ms: number): Promise<void> {
