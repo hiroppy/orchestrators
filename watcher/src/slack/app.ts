@@ -1,6 +1,5 @@
 import { App } from "@slack/bolt";
 import {
-  ErrorCode,
   type ChatGetPermalinkArguments,
   type ChatGetPermalinkResponse,
   type ChatPostMessageArguments,
@@ -32,6 +31,9 @@ import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistenc
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
+import { withQueue } from "./async-queue.ts";
+import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
+import { parseUserThreadReply, type UserThreadReply } from "./thread-replies.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
 export type StatusTransitionHandler = (
@@ -65,15 +67,6 @@ export type LinearWorkpadReplier = (
 ) => Promise<boolean>;
 const taskStatusQueues = new Map<string, Promise<void>>();
 const threadReplyQueues = new Map<string, Promise<void>>();
-const SUPPORTED_FILE_CONTENT_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "video/mp4",
-  "video/quicktime",
-  "video/webm",
-]);
 const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_NOTIFICATION_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
 type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
@@ -540,30 +533,6 @@ async function withTaskStatusQueue<T>(taskId: string, run: () => Promise<T>): Pr
   return withQueue(taskStatusQueues, taskId, run);
 }
 
-async function withQueue<T>(
-  queues: Map<string, Promise<void>>,
-  key: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  const previous = queues.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.catch(() => {}).then(() => current);
-  queues.set(key, queued);
-
-  await previous.catch(() => {});
-  try {
-    return await run();
-  } finally {
-    release();
-    if (queues.get(key) === queued) {
-      queues.delete(key);
-    }
-  }
-}
-
 export async function publishWatcherEvent(
   client: SlackClient,
   store: WatcherStore,
@@ -856,139 +825,6 @@ interface MentionCommandContext {
   store: WatcherStore;
   args: string[];
   configuredMentionTargets: string[];
-}
-
-interface UserThreadReply {
-  channel: string;
-  thread_ts: string;
-  ts: string;
-  user: string;
-  text: string;
-  files: SlackFile[];
-}
-
-interface SlackFile {
-  name: string;
-  mimetype: string;
-  size: number;
-  url_private: string;
-  url_private_download?: string;
-}
-
-async function addSuccessReaction(
-  client: ReactionClient,
-  message: { channel: string; timestamp: string },
-): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await client.reactions.add({
-        channel: message.channel,
-        name: "white_check_mark",
-        timestamp: message.timestamp,
-      });
-      return;
-    } catch (error) {
-      if (slackError(error) === "already_reacted") return;
-      if (attempt >= 3 || !isTransientSlackError(error)) throw error;
-      await sleep(slackRetryDelayMs(error));
-    }
-  }
-}
-
-interface ReactionClient {
-  reactions: {
-    add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
-  };
-}
-
-function slackRetryDelayMs(error: unknown): number {
-  if (!error || typeof error !== "object") return 100;
-  const details = error as { code?: unknown; retryAfter?: unknown };
-  return details.code === ErrorCode.RateLimitedError && typeof details.retryAfter === "number"
-    ? details.retryAfter * 1000
-    : 100;
-}
-
-function slackError(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const data = (error as { data?: { error?: unknown } }).data;
-  return typeof data?.error === "string" ? data.error : undefined;
-}
-
-function isTransientSlackError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const details = error as { code?: unknown; statusCode?: unknown };
-  if (details.code === ErrorCode.RequestError || details.code === ErrorCode.RateLimitedError) {
-    return true;
-  }
-  if (details.code === ErrorCode.HTTPError) {
-    return typeof details.statusCode !== "number" || details.statusCode >= 500;
-  }
-  return (
-    details.code === ErrorCode.PlatformError &&
-    ["fatal_error", "internal_error", "request_timeout", "service_unavailable"].includes(
-      slackError(error) ?? "",
-    )
-  );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function parseUserThreadReply(message: unknown, botUserId?: string): UserThreadReply | undefined {
-  if (!message || typeof message !== "object") return undefined;
-
-  const event = message as Record<string, unknown>;
-  const files = Array.isArray(event.files) ? event.files.filter(isSupportedSlackFile) : [];
-  const isSupportedSubtype =
-    event.subtype === undefined ||
-    event.subtype === "thread_broadcast" ||
-    event.subtype === "file_share";
-  if (
-    typeof event.channel !== "string" ||
-    typeof event.thread_ts !== "string" ||
-    typeof event.ts !== "string" ||
-    typeof event.user !== "string" ||
-    typeof event.text !== "string" ||
-    isRecognizedMentionCommand(event.text, botUserId) ||
-    (event.text.trim().length === 0 && files.length === 0) ||
-    !isSupportedSubtype ||
-    event.bot_id !== undefined
-  ) {
-    return undefined;
-  }
-
-  return {
-    channel: event.channel,
-    thread_ts: event.thread_ts,
-    ts: event.ts,
-    user: event.user,
-    text: event.text,
-    files,
-  };
-}
-
-function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
-  if (!botUserId) return false;
-  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|status)(?:\s|$)/i);
-  return match?.[1]?.toLowerCase() === botUserId.toLowerCase();
-}
-
-function isSupportedSlackFile(file: unknown): file is SlackFile {
-  if (!file || typeof file !== "object") return false;
-
-  const value = file as Record<string, unknown>;
-  return (
-    typeof value.name === "string" &&
-    typeof value.mimetype === "string" &&
-    SUPPORTED_FILE_CONTENT_TYPES.has(value.mimetype) &&
-    typeof value.size === "number" &&
-    Number.isSafeInteger(value.size) &&
-    value.size >= 0 &&
-    typeof value.url_private === "string" &&
-    (value.url_private_download === undefined || typeof value.url_private_download === "string")
-  );
 }
 
 function selectedStatusFromAction(action: unknown): string | undefined {

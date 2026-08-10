@@ -3,19 +3,12 @@ import { fileURLToPath } from "node:url";
 
 import { WebClient } from "@slack/web-api";
 
-import {
-  resolveWatcherConfig,
-  type ResolvedWatcherRuntimeConfig,
-  type WatcherRuntimeConfig,
-  validateStatuses,
-} from "../config/runtime.ts";
+import { resolveWatcherConfig, type ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import { createDatabase } from "../persistence/database.ts";
 import { diffSnapshots, normalizeSnapshot } from "./diff.ts";
 import {
   createLinearWorkpadReply,
   fetchLinearIssueState,
-  fetchLinearWorkflowStates,
-  TransientLinearError,
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
 import { downloadSlackFile } from "../integrations/slack.ts";
@@ -26,7 +19,6 @@ import {
 } from "../integrations/github.ts";
 import {
   createSlackApp,
-  notificationIsEligible,
   notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
@@ -40,20 +32,33 @@ import {
   buildThreadMessage,
 } from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
-import type {
-  OrchestratorConfig,
-  PullRequest,
-  ResolvedLinearTeamConfig,
-  ServiceDefinition,
-  Snapshot,
-  SnapshotsByService,
-  WatcherEvent,
-} from "../domain/types.ts";
+import type { OrchestratorConfig, SnapshotsByService, WatcherEvent } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
+import { collectSnapshots } from "./snapshots.ts";
+import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
+import {
+  enrichCreatorForNotification,
+  enrichEvent,
+  RetryablePollError,
+} from "./event-enrichment.ts";
+import {
+  decideReviewReaction,
+  hasPendingEvent,
+  pendingReviewPullRequest,
+  REVIEW_REQUEUE_EVENT,
+  REVIEW_REQUEUE_LIMIT_EVENT,
+  REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
+  REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+  REVIEW_REQUEUE_RECONCILED_EVENT,
+  REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+  reviewReactionForStatus,
+  shouldSuppressReviewMention,
+  type ReviewReactionDecision,
+} from "./review-reactions.ts";
 
-const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
-const creatorMentionCache = new Map<string, string | null>();
+export { collectSnapshots } from "./snapshots.ts";
+export { resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 
 async function deliverPendingStatusHooksSafely(
   options: Parameters<typeof deliverPendingStatusHooks>[0],
@@ -64,15 +69,7 @@ async function deliverPendingStatusHooksSafely(
     console.error("Status hook delivery failed; it will be retried:", error);
   }
 }
-const REVIEW_REQUEUE_EVENT = "review_requeued";
-const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
-const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
-const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";
-const REVIEW_REQUEUE_RECONCILE_PENDING_EVENT = "review_requeue_reconcile_pending";
-const REVIEW_REQUEUE_RECONCILED_EVENT = "review_requeue_reconciled";
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-
-class RetryablePollError extends Error {}
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -239,8 +236,11 @@ export async function runOnce({
       enrichment.event,
       config,
       store.getTask(taskIdFor(event.service, event.issueIdentifier))?.status,
-      reviewDecision,
-      dryRun ? undefined : slackClient,
+      {
+        suppress: shouldSuppressReviewMention(reviewDecision),
+        forceMention: reviewDecision.deliverDeferredMention,
+        slackClient: dryRun ? undefined : slackClient,
+      },
     );
     preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
   }
@@ -376,7 +376,9 @@ async function reconcileLinearStatuses({
     }
     let pullRequest =
       linearIssue.pullRequest ??
-      (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
+      (hasPendingReconciliation
+        ? pendingReviewPullRequest(store, task.id, parseReviewRequeuePendingPayload)
+        : undefined);
     if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction }).catch(
@@ -417,13 +419,11 @@ async function reconcileLinearStatuses({
       continue;
     }
 
-    const enrichedEvent = await enrichCreatorForNotification(
-      event,
-      config,
-      task.status,
-      reviewDecision,
+    const enrichedEvent = await enrichCreatorForNotification(event, config, task.status, {
+      suppress: shouldSuppressReviewMention(reviewDecision),
+      forceMention: reviewDecision.deliverDeferredMention,
       slackClient,
-    );
+    });
 
     await processWatcherEvent({
       config,
@@ -727,116 +727,6 @@ function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void 
   store.addEvent({ taskId, type: REVIEW_REQUEUE_RECONCILED_EVENT, actor: "watcher" });
 }
 
-interface ReviewReactionDecision {
-  shouldRequeue: boolean;
-  reachesLimit: boolean;
-  hasPendingLimitNotification?: boolean;
-  hasPendingReviewReconciliation?: boolean;
-  deliverDeferredMention?: boolean;
-}
-
-function shouldSuppressReviewMention(decision: ReviewReactionDecision): boolean {
-  return Boolean(
-    decision.shouldRequeue ||
-    decision.hasPendingLimitNotification ||
-    decision.hasPendingReviewReconciliation,
-  );
-}
-
-function decideReviewReaction(
-  config: ResolvedWatcherRuntimeConfig,
-  store: WatcherStore,
-  event: WatcherEvent,
-  reconciliationIsAuthoritative = false,
-): ReviewReactionDecision {
-  const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const hasPendingReviewReconciliation = hasPendingEvent(
-    store,
-    taskId,
-    REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
-    REVIEW_REQUEUE_RECONCILED_EVENT,
-  );
-  const review = config.reviewReaction;
-  const currentStatus = event.resolvedState ?? event.state ?? "";
-  const isInReview = Boolean(
-    review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
-  );
-  if (
-    isInReview &&
-    hasPendingEvent(store, taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT, REVIEW_REQUEUE_LIMIT_EVENT)
-  ) {
-    return {
-      shouldRequeue: false,
-      reachesLimit: false,
-      hasPendingLimitNotification: true,
-    };
-  }
-
-  if (!review || !isInReview || event.pullRequest?.hasConfiguredReaction !== true) {
-    return {
-      shouldRequeue: false,
-      reachesLimit: false,
-      hasPendingReviewReconciliation:
-        hasPendingReviewReconciliation && !reconciliationIsAuthoritative && isInReview,
-      deliverDeferredMention:
-        hasPendingReviewReconciliation &&
-        reconciliationIsAuthoritative &&
-        isInReview &&
-        event.pullRequest?.hasConfiguredReaction === false &&
-        notificationIsEligible(config.mention, undefined, currentStatus, event.type),
-    };
-  }
-
-  let requeueCount = store.countEventsAfterLatest(
-    taskId,
-    REVIEW_REQUEUE_EVENT,
-    REVIEW_REQUEUE_LIMIT_EVENT,
-  );
-  // Legacy or reconfigured cycles can contain counts beyond the current limit.
-  if (review.maxRequeues > 0) {
-    requeueCount %= review.maxRequeues;
-  }
-  // Non-positive limits disable automatic requeueing.
-  if (requeueCount >= review.maxRequeues) {
-    return { shouldRequeue: false, reachesLimit: false };
-  }
-
-  return {
-    shouldRequeue: true,
-    reachesLimit: requeueCount + 1 === review.maxRequeues,
-  };
-}
-
-function reviewReactionForStatus(
-  config: ResolvedWatcherRuntimeConfig,
-  status?: string | null,
-): string | undefined {
-  const review = config.reviewReaction;
-  return review && status && normalizeStatus(status) === normalizeStatus(review.inReviewStatus)
-    ? review.reaction
-    : undefined;
-}
-
-function hasPendingEvent(
-  store: WatcherStore,
-  taskId: string,
-  pendingType: string,
-  completedType: string,
-): boolean {
-  return store.countEventsAfterLatest(taskId, pendingType, completedType) > 0;
-}
-
-function pendingReviewPullRequest(store: WatcherStore, taskId: string): PullRequest | undefined {
-  const body = store.getLatestEvent(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)?.body;
-  if (!body) return undefined;
-
-  try {
-    return parseReviewRequeuePendingPayload(body).event.pullRequest;
-  } catch {
-    return undefined;
-  }
-}
-
 function reviewReactionFromMessage(message: string): string {
   return message.match(/^(.*?) review requeue limit reached/)?.[1] ?? "";
 }
@@ -861,152 +751,6 @@ function normalizeStatus(status: string): string {
   return status.trim().toLowerCase();
 }
 
-async function enrichEvent(
-  event: WatcherEvent,
-  config: ResolvedWatcherRuntimeConfig,
-  github: {
-    findPullRequest: typeof findPullRequestDefault;
-    findPullRequestByUrl: typeof findPullRequestByUrlDefault;
-  },
-): Promise<{ event: WatcherEvent; isAuthoritative: boolean }> {
-  if (event.issueIdentifier === `watcher:${event.service}`) {
-    return { event, isAuthoritative: true };
-  }
-
-  const isEnded = event.type === "ended";
-  const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
-    apiKey: linearTeamForService(config, event.service)?.apiKey,
-    includeCreator: false,
-    maxAttempts: isEnded ? config.endedTaskRetry.maxAttempts : 1,
-    retryDelayMs: isEnded ? config.endedTaskRetry.delayMs : 0,
-  });
-  const resolvedState = linearIssue?.state ?? event.state;
-  const reaction = reviewReactionForStatus(config, resolvedState);
-  let pullRequest = (await github.findPullRequest(event, { reaction })) ?? undefined;
-  let reactionLookupSucceeded = !reaction || pullRequest?.hasConfiguredReaction !== undefined;
-  if (!pullRequest && linearIssue?.pullRequest) {
-    const enrichedPullRequest = await github
-      .findPullRequestByUrl(linearIssue.pullRequest.url, { reaction })
-      .catch(() => null);
-    if (reaction) {
-      reactionLookupSucceeded = enrichedPullRequest?.hasConfiguredReaction !== undefined;
-    }
-    pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
-  }
-  return {
-    event: compactObject({
-      ...event,
-      issueTitle: linearIssue?.title,
-      issueUrl: linearIssue?.url ?? event.issueUrl,
-      resolvedState: linearIssue?.state,
-      resolvedStateType: linearIssue?.stateType
-        ? normalizeStatus(linearIssue.stateType)
-        : undefined,
-      pullRequest,
-      relatedIssues: linearIssue?.relatedIssues,
-    }),
-    isAuthoritative: Boolean(linearIssue?.state) && reactionLookupSucceeded,
-  };
-}
-
-async function enrichCreatorForNotification(
-  event: WatcherEvent,
-  config: ResolvedWatcherRuntimeConfig,
-  previousStatus: string | undefined,
-  reviewDecision: ReviewReactionDecision,
-  slackClient?: WebClient,
-): Promise<WatcherEvent> {
-  const currentStatus = event.resolvedState ?? event.state ?? "Unknown";
-  if (
-    shouldSuppressReviewMention(reviewDecision) ||
-    !notificationIsEligible(
-      config.mention,
-      previousStatus,
-      currentStatus,
-      event.type,
-      reviewDecision.deliverDeferredMention,
-    )
-  ) {
-    return event;
-  }
-  if (event.issueIdentifier === `watcher:${event.service}`) return event;
-
-  let linearIssue;
-  try {
-    linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
-      apiKey: linearTeamForService(config, event.service)?.apiKey,
-      includeCreator: true,
-      maxAttempts: 1,
-      throwOnTransientFailure: Boolean(slackClient),
-    });
-  } catch (error) {
-    if (!(error instanceof TransientLinearError)) throw error;
-    throw new RetryablePollError(
-      `Could not fetch Linear creator for notification: ${event.issueIdentifier}`,
-    );
-  }
-  if (!linearIssue) return event;
-  return enrichCreatorMention(
-    compactObject({
-      ...event,
-      creatorName: linearIssue?.creatorName,
-      creatorEmail: linearIssue?.creatorEmail,
-    }),
-    slackClient,
-  );
-}
-
-async function enrichCreatorMention(
-  event: WatcherEvent,
-  slackClient?: WebClient,
-): Promise<WatcherEvent> {
-  const email = event.creatorEmail?.trim().toLowerCase();
-  if (!email || !slackClient) {
-    return withCreatorName(event);
-  }
-
-  if (creatorMentionCache.has(email)) {
-    const cached = creatorMentionCache.get(email);
-    return cached ? { ...event, creatorMention: cached } : withCreatorName(event);
-  }
-
-  try {
-    const response = await slackClient.users.lookupByEmail({ email });
-    const userId = response.user?.id;
-    if (userId) {
-      const mention = `<@${userId}>`;
-      creatorMentionCache.set(email, mention);
-      return { ...event, creatorMention: mention };
-    }
-  } catch (error) {
-    if (isSlackUserNotFound(error)) {
-      creatorMentionCache.set(email, null);
-      return withCreatorName(event);
-    }
-    console.warn(`Could not resolve Linear creator in Slack for ${event.issueIdentifier}:`, error);
-  }
-
-  return withCreatorName(event);
-}
-
-function isSlackUserNotFound(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "data" in error &&
-    typeof error.data === "object" &&
-    error.data !== null &&
-    "error" in error.data &&
-    error.data.error === "users_not_found"
-  );
-}
-
-function withCreatorName(event: WatcherEvent): WatcherEvent {
-  return event.creatorName
-    ? { ...event, creatorMention: escapeSlackText(event.creatorName) }
-    : event;
-}
-
 function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
   const { creatorEmail: _, ...safeEvent } = event;
   return safeEvent;
@@ -1015,83 +759,6 @@ function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
 function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {
   const { creatorName: _name, creatorEmail: _email, ...safeEvent } = event;
   return safeEvent;
-}
-
-function escapeSlackText(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
-interface CollectSnapshotsOptions {
-  fetch?: typeof globalThis.fetch;
-  timeoutMs?: number;
-}
-
-export async function collectSnapshots(
-  services: ServiceDefinition[],
-  previous: SnapshotsByService = {},
-  options: CollectSnapshotsOptions = {},
-): Promise<SnapshotsByService> {
-  const fetchService = options.fetch ?? globalThis.fetch;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
-  const entries = await Promise.all(
-    services.map(async (service) => {
-      try {
-        const response = await fetchService(service.url, {
-          headers: { accept: "application/json" },
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const snapshot = await response.json();
-        if (!isSnapshot(snapshot)) {
-          throw new Error("Invalid observability snapshot");
-        }
-        return [service.name, snapshot] as const;
-      } catch (error) {
-        return [
-          service.name,
-          serviceUnavailableSnapshot(service, previous[service.name], error),
-        ] as const;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries);
-}
-
-function isSnapshot(value: unknown): value is Snapshot {
-  if (!value || typeof value !== "object") return false;
-  const snapshot = value as Partial<Snapshot>;
-  return (
-    Array.isArray(snapshot.running) &&
-    Array.isArray(snapshot.retrying) &&
-    Array.isArray(snapshot.blocked)
-  );
-}
-
-function serviceUnavailableSnapshot(
-  service: ServiceDefinition,
-  previous: Snapshot | undefined,
-  error: unknown,
-): Snapshot {
-  const message = error instanceof Error ? error.message : String(error);
-  const snapshot = normalizeSnapshot(previous);
-  const watcherIdentifier = `watcher:${service.name}`;
-
-  return {
-    running: snapshot.running,
-    retrying: [
-      ...snapshot.retrying.filter(
-        (row) => (row.issue_identifier ?? row.issueIdentifier) !== watcherIdentifier,
-      ),
-      {
-        issue_identifier: watcherIdentifier,
-        state: "unavailable",
-        error: `${service.url} ${message}`,
-      },
-    ],
-    blocked: snapshot.blocked,
-  };
 }
 
 interface CliOptions {
@@ -1112,66 +779,6 @@ function parseArgs(args: string[]): CliOptions {
   return options;
 }
 
-function linearTeamForService(
-  config: ResolvedWatcherRuntimeConfig,
-  serviceName: string,
-): ResolvedLinearTeamConfig | undefined {
-  const service = config.services.find(({ name }) => name === serviceName);
-  return service && config.linearTeams[service.linearTeam];
-}
-
-export async function resolveLinearWorkflowStatuses(
-  config: WatcherRuntimeConfig,
-  fetchStates: typeof fetchLinearWorkflowStates = fetchLinearWorkflowStates,
-): Promise<ResolvedWatcherRuntimeConfig> {
-  const entries = await Promise.all(
-    Object.entries(config.linearTeams).map(async ([name, team]) => {
-      const statuses = await fetchStates(team.teamId, { apiKey: team.apiKey });
-      validateStatuses(`Linear workflow states for ${name}`, statuses);
-      return [name, { ...team, statuses }] as const;
-    }),
-  );
-  const resolved = {
-    ...config,
-    linearTeams: Object.fromEntries(entries),
-  } satisfies ResolvedWatcherRuntimeConfig;
-
-  validateStatusRules(resolved);
-  return resolved;
-}
-
-function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
-  const rules: Array<[label: string, status: string]> = [];
-  if (config.reviewReaction) {
-    rules.push(
-      ["watcher.reviewReaction.inReviewStatus", config.reviewReaction.inReviewStatus],
-      ["watcher.reviewReaction.inProgressStatus", config.reviewReaction.inProgressStatus],
-    );
-  }
-  for (const status of config.mention?.statuses ?? []) {
-    rules.push(["slack.mentions.statuses", status]);
-  }
-  for (const [index, hook] of config.statusHooks.entries()) {
-    rules.push([`watcher.statusHooks[${index}].status`, hook.status]);
-  }
-
-  for (const [label, expected] of rules) {
-    const normalizedExpected = normalizeStatus(expected);
-    for (const [teamName, team] of Object.entries(config.linearTeams)) {
-      if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected)) {
-        continue;
-      }
-      throw new Error(`${label} references unknown Linear status "${expected}" for ${teamName}.`);
-    }
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
-}
-
-function compactObject<T extends object>(object: T): T {
-  return Object.fromEntries(
-    Object.entries(object).filter(([, value]) => value !== null && value !== undefined),
-  ) as T;
 }
