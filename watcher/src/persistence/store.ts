@@ -472,6 +472,20 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
+  updateTaskStatusAtomically(
+    taskId: string,
+    statusName: string,
+    createEvent: (task: Task, fromStatus: string) => TaskEventInput | undefined,
+    now = new Date(),
+  ): { task: Task; fromStatus: string } {
+    return this.db.transaction(() => {
+      const transition = this.updateTaskStatus(taskId, statusName, now);
+      const event = createEvent(transition.task, transition.fromStatus);
+      if (event) this.addEvent(event);
+      return transition;
+    });
+  }
+
   addEvent(event: TaskEventInput): TaskEvent {
     return insertTaskEvent(this.db, event);
   }

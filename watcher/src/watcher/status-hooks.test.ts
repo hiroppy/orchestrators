@@ -226,6 +226,15 @@ describe("status hooks", () => {
         /Simulated event failure/,
       );
       assert.equal(store.getTask("ios:APP-42")?.status, "In Progress");
+
+      assert.throws(
+        () =>
+          store.updateTaskStatusAtomically("ios:APP-42", "In Review", () => {
+            throw new Error("Simulated event failure");
+          }),
+        /Simulated event failure/,
+      );
+      assert.equal(store.getTask("ios:APP-42")?.status, "In Progress");
     });
   });
 });

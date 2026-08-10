@@ -40,6 +40,11 @@ export type StatusTransitionHandler = (
   toStatus: string,
   client: SlackClient,
 ) => Promise<void>;
+export type StatusTransitionEventFactory = (
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+) => TaskEventInput | undefined;
 interface SlackReplyFile {
   filename: string;
   contentType: string;
@@ -85,6 +90,7 @@ export interface SlackAppOptions {
   store: WatcherStore;
   botUserId: string;
   configuredMentionTargets?: string[];
+  createStatusTransitionEvent?: StatusTransitionEventFactory;
   onStatusTransition?: StatusTransitionHandler;
 }
 
@@ -96,6 +102,7 @@ export function createSlackApp({
   store,
   botUserId,
   configuredMentionTargets = [],
+  createStatusTransitionEvent,
   onStatusTransition,
 }: SlackAppOptions): App {
   const app = new App({
@@ -103,7 +110,13 @@ export function createSlackApp({
     appToken,
     socketMode: true,
   });
-  registerStatusAction(app, store, updateLinearStatus, onStatusTransition);
+  registerStatusAction(
+    app,
+    store,
+    updateLinearStatus,
+    createStatusTransitionEvent,
+    onStatusTransition,
+  );
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
@@ -346,10 +359,17 @@ function registerStatusAction(
   app: App,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
+  createStatusTransitionEvent?: StatusTransitionEventFactory,
   onStatusTransition?: StatusTransitionHandler,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
-    await handleStatusAction(args, store, updateLinearStatus, onStatusTransition);
+    await handleStatusAction(
+      args,
+      store,
+      updateLinearStatus,
+      onStatusTransition,
+      createStatusTransitionEvent,
+    );
   });
 }
 
@@ -358,6 +378,7 @@ export async function handleStatusAction(
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
   onStatusTransition?: StatusTransitionHandler,
+  createStatusTransitionEvent?: StatusTransitionEventFactory,
 ): Promise<void> {
   await ack();
 
@@ -409,7 +430,12 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
-      const { task, fromStatus } = store.updateTaskStatus(taskId, selectedStatus);
+      const { task, fromStatus } = store.updateTaskStatusAtomically(
+        taskId,
+        selectedStatus,
+        (updatedTask, previousStatus) =>
+          createStatusTransitionEvent?.(updatedTask, previousStatus, selectedStatus),
+      );
       store.setRenderedSummary(task.id, JSON.stringify(card));
       await onStatusTransition?.(task, fromStatus, selectedStatus, client);
 

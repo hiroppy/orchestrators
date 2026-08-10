@@ -50,14 +50,20 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import {
-  createPendingStatusHookEvent,
-  deliverPendingStatusHooks,
-  queueStatusHooks,
-} from "./status-hooks.ts";
+import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
+
+async function deliverPendingStatusHooksSafely(
+  options: Parameters<typeof deliverPendingStatusHooks>[0],
+): Promise<void> {
+  try {
+    await deliverPendingStatusHooks(options);
+  } catch (error) {
+    console.error("Status hook delivery failed; it will be retried:", error);
+  }
+}
 const REVIEW_REQUEUE_EVENT = "review_requeued";
 const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
@@ -117,9 +123,10 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           store,
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
-          onStatusTransition: async (task, fromStatus, toStatus, slackClient) => {
-            queueStatusHooks(runtimeConfig.statusHooks, store, task, fromStatus, toStatus);
-            await deliverPendingStatusHooks({
+          createStatusTransitionEvent: (task, fromStatus, toStatus) =>
+            createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
+          onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+            await deliverPendingStatusHooksSafely({
               hooks: runtimeConfig.statusHooks,
               store,
               slackClient,
@@ -195,7 +202,7 @@ export async function runOnce({
   let reviewReconciliationTaskIds = new Set<string>();
   if (!dryRun) {
     if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
-    await deliverPendingStatusHooks({
+    await deliverPendingStatusHooksSafely({
       hooks: config.statusHooks ?? [],
       store,
       slackClient,
@@ -466,7 +473,7 @@ async function processWatcherEvent({
           event.pullRequest,
         ),
       afterPublish: async (task) => {
-        await deliverPendingStatusHooks({
+        await deliverPendingStatusHooksSafely({
           hooks: config.statusHooks ?? [],
           store,
           slackClient,
@@ -496,19 +503,19 @@ async function processWatcherEvent({
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
   });
-  const { task: requeuedTask, fromStatus } = store.updateTaskStatus(
+  const { task: requeuedTask, fromStatus } = store.updateTaskStatusAtomically(
     task.id,
     review.inProgressStatus,
+    (updatedTask, previousStatus) =>
+      createPendingStatusHookEvent(
+        config.statusHooks ?? [],
+        updatedTask,
+        previousStatus,
+        updatedTask.status,
+        event.pullRequest,
+      ),
   );
-  queueStatusHooks(
-    config.statusHooks ?? [],
-    store,
-    requeuedTask,
-    fromStatus,
-    requeuedTask.status,
-    event.pullRequest,
-  );
-  await deliverPendingStatusHooks({
+  await deliverPendingStatusHooksSafely({
     hooks: config.statusHooks ?? [],
     store,
     slackClient,
