@@ -10,8 +10,8 @@ export type {
   StatusHookConfig,
   StatusHookContext,
   StatusHookHelpers,
-  StatusHookSlackMessageOptions,
-  StatusHookSlackThreadMessageOptions,
+  StatusHookSlackPostMessage,
+  StatusHookSlackThreadMessage,
   WatcherSettings,
 } from "./types.ts";
 export { defineConfig } from "./types.ts";

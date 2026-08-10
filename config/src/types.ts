@@ -1,3 +1,5 @@
+import type { ChatPostMessageArguments } from "@slack/web-api";
+
 export type EventType = "started" | "updated" | "retrying" | "blocked" | "ended" | "recovered";
 
 export interface LinearTeamConfig {
@@ -57,24 +59,22 @@ export interface StatusHookContext {
 
 export interface StatusHookHelpers {
   slack: {
-    postMessage: (text: string, options?: StatusHookSlackMessageOptions) => Promise<void>;
-    postThreadMessage: (
-      text: string,
-      options?: StatusHookSlackThreadMessageOptions,
-    ) => Promise<void>;
+    postMessage: (message: StatusHookSlackPostMessage) => Promise<void>;
+    postThreadMessage: (message: StatusHookSlackThreadMessage) => Promise<void>;
   };
 }
 
-export interface StatusHookSlackMessageOptions {
-  blocks?: unknown[];
-  unfurlLinks?: boolean;
-  unfurlMedia?: boolean;
-  mrkdwn?: boolean;
-}
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K & keyof T> : never;
 
-export interface StatusHookSlackThreadMessageOptions extends StatusHookSlackMessageOptions {
-  replyBroadcast?: boolean;
-}
+export type StatusHookSlackPostMessage = DistributiveOmit<
+  ChatPostMessageArguments,
+  "channel" | "thread_ts" | "reply_broadcast" | "token"
+>;
+
+export type StatusHookSlackThreadMessage = DistributiveOmit<
+  ChatPostMessageArguments,
+  "channel" | "thread_ts" | "token"
+>;
 
 export interface StatusHookConfig {
   status: string;

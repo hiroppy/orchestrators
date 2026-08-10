@@ -107,11 +107,12 @@ pull request data. The second argument contains helpers created by the watcher;
 their destinations are fixed for the current task, so hook code does not choose
 channel or thread IDs:
 
-- `helpers.slack.postMessage(text, options)` posts to the watcher channel.
-- `helpers.slack.postThreadMessage(text, options)` replies to the tracked task thread.
+- `helpers.slack.postMessage(message)` posts to the watcher channel.
+- `helpers.slack.postThreadMessage(message)` replies to the tracked task thread.
 - Returning a non-empty string is shorthand for posting one task-thread reply.
-- Message options support `blocks`, `unfurlLinks`, `unfurlMedia`, `mrkdwn`, and,
-  for thread replies, `replyBroadcast`.
+- Message arguments use Slack's `ChatPostMessageArguments` type. The watcher fixes
+  `channel` and `thread_ts`; hook code supplies `text` or blocks and any other
+  supported Slack options.
 
 <details>
 <summary>Complete TypeScript hook example</summary>
@@ -125,13 +126,11 @@ export const inReviewHook: StatusHookConfig["run"] = async ({ issue, pullRequest
   if (!pullRequest) return;
 
   const testingUri = await findAppDistributionUrl(pullRequest.url);
-  await slack.postThreadMessage(
-    `App Distribution is ready for ${issue.identifier}: ${testingUri}`,
-    {
-      unfurlLinks: false,
-      unfurlMedia: false,
-    },
-  );
+  await slack.postThreadMessage({
+    text: `App Distribution is ready for ${issue.identifier}: ${testingUri}`,
+    unfurl_links: false,
+    unfurl_media: false,
+  });
 };
 
 async function findAppDistributionUrl(pullRequestUrl: string): Promise<string> {

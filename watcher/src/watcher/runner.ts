@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { WebClient, type ChatPostMessageArguments } from "@slack/web-api";
+import { WebClient } from "@slack/web-api";
 
 import {
   resolveWatcherConfig,
@@ -47,7 +47,6 @@ import type {
   ServiceDefinition,
   Snapshot,
   SnapshotsByService,
-  StatusHookSlackThreadMessageOptions,
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
@@ -464,18 +463,18 @@ async function processWatcherEvent({
       },
       {
         slack: {
-          postMessage: async (text, options) => {
+          postMessage: async (message) => {
             await slackClient.chat.postMessage({
+              ...message,
               channel: taskAfterPublish.parentChannelId!,
-              ...statusHookSlackMessage(text, options),
-            } as ChatPostMessageArguments);
+            });
           },
-          postThreadMessage: async (text, options) => {
+          postThreadMessage: async (message) => {
             await slackClient.chat.postMessage({
+              ...message,
               channel: taskAfterPublish.parentChannelId!,
               thread_ts: taskAfterPublish.parentMessageTs!,
-              ...statusHookSlackMessage(text, options),
-            } as ChatPostMessageArguments);
+            });
           },
         },
       },
@@ -572,27 +571,6 @@ async function processWatcherEvent({
     ...card,
   });
   store.setRenderedSummary(requeuedTask.id, JSON.stringify(card));
-}
-
-function statusHookSlackMessage(
-  text: string,
-  options: StatusHookSlackThreadMessageOptions = {},
-): {
-  text: string;
-  blocks?: unknown[];
-  unfurl_links?: boolean;
-  unfurl_media?: boolean;
-  mrkdwn?: boolean;
-  reply_broadcast?: boolean;
-} {
-  return {
-    text,
-    blocks: options.blocks,
-    unfurl_links: options.unfurlLinks,
-    unfurl_media: options.unfurlMedia,
-    mrkdwn: options.mrkdwn,
-    reply_broadcast: options.replyBroadcast,
-  };
 }
 
 async function deliverPendingReviewLimitNotifications(

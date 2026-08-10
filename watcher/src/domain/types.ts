@@ -12,7 +12,6 @@ export type {
   StatusHookConfig,
   StatusHookContext,
   StatusHookHelpers,
-  StatusHookSlackThreadMessageOptions,
 } from "orchestrator-config";
 
 export interface TokenCounts {
