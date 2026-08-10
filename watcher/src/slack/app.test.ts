@@ -152,8 +152,16 @@ describe("Slack app behavior", () => {
 
       assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@UHIROPPY>"]);
       assert.deepEqual(store.getTaskNotificationMentions(otherTask.id), []);
-      assert.match(String(calls[0].args.text), /Assigned <@UHIROPPY>.*ENG-62/);
-      assert.match(String(calls[1].args.text), /already assigned.*ENG-62/);
+      assert.deepEqual(calls, [
+        {
+          method: "addReaction",
+          args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
+        },
+        {
+          method: "addReaction",
+          args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
+        },
+      ]);
 
       const mention = {
         targets: ["<!subteam^SREVIEWERS>"],
@@ -187,7 +195,6 @@ describe("Slack app behavior", () => {
 
       const notificationTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
-        .slice(2)
         .map(({ args }) => String(args.text));
       assert.equal(notificationTexts.length, 2);
       assert.equal(notificationTexts[0].match(/<@UHIROPPY>/g)?.length, 1);
@@ -262,10 +269,9 @@ describe("Slack app behavior", () => {
       }
 
       assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
-      assert.equal(calls.length, events.length);
+      assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
-      assert.match(String(calls[1].args.text), /tracked task thread/);
-      for (const call of calls.slice(2, -1)) {
+      for (const call of calls.slice(1, -1)) {
         assert.equal(call.args.text, "Usage: `@Orchestrators assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
@@ -1582,6 +1588,12 @@ describe("Slack app behavior", () => {
 function fakeClient(calls: Array<{ method: string; args: Record<string, unknown> }>) {
   let timestamp = 0;
   return {
+    reactions: {
+      async add(args: Record<string, unknown>) {
+        calls.push({ method: "addReaction", args });
+        return { ok: true };
+      },
+    },
     chat: {
       async getPermalink(args: Record<string, unknown>) {
         calls.push({ method: "getPermalink", args });

@@ -173,11 +173,13 @@ async function handleAssignCommand({
   configuredMentionTargets,
 }: MentionCommandContext): Promise<void> {
   const threadTs = event.threadTs;
-  const task = threadTs ? store.getTaskBySlackThread(event.channel, threadTs) : undefined;
+  if (!threadTs) return;
+
+  const task = store.getTaskBySlackThread(event.channel, threadTs);
   if (!task) {
     await client.chat.postMessage({
       channel: event.channel,
-      ...(threadTs ? { thread_ts: threadTs } : {}),
+      thread_ts: threadTs,
       text: "Run `assign` from a tracked task thread.",
     });
     return;
@@ -216,13 +218,10 @@ async function handleAssignCommand({
     return;
   }
 
-  const added = alreadyAssigned ? false : store.assignTaskNotificationMention(task.id, slackUserId);
-  await client.chat.postMessage({
+  if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
+  await addCheckmarkReaction(client, {
     channel: event.channel,
-    thread_ts: threadTs,
-    text: added
-      ? `Assigned <@${slackUserId}> to configured notifications for ${task.issueIdentifier}.`
-      : `<@${slackUserId}> is already assigned to configured notifications for ${task.issueIdentifier}.`,
+    timestamp: event.ts,
   });
 }
 
@@ -709,10 +708,7 @@ interface StatusActionArguments {
 
 interface MessageArguments {
   message: unknown;
-  client: {
-    reactions: {
-      add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
-    };
+  client: ReactionClient & {
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
@@ -728,13 +724,13 @@ interface AppMentionEvent {
 
 interface AppMentionArguments {
   event: unknown;
-  client: Pick<SlackClient, "chat">;
+  client: Pick<SlackClient, "chat"> & ReactionClient;
   logger: { error(error: unknown): void };
 }
 
 interface MentionCommandContext {
   event: AppMentionEvent;
-  client: Pick<SlackClient, "chat">;
+  client: Pick<SlackClient, "chat"> & ReactionClient;
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];
@@ -776,6 +772,27 @@ async function addCopiedReplyReaction(
       await sleep(slackRetryDelayMs(error));
     }
   }
+}
+
+async function addCheckmarkReaction(
+  client: ReactionClient,
+  message: { channel: string; timestamp: string },
+): Promise<void> {
+  try {
+    await client.reactions.add({
+      channel: message.channel,
+      name: "white_check_mark",
+      timestamp: message.timestamp,
+    });
+  } catch (error) {
+    if (slackError(error) !== "already_reacted") throw error;
+  }
+}
+
+interface ReactionClient {
+  reactions: {
+    add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
+  };
 }
 
 function slackRetryDelayMs(error: unknown): number {
