@@ -541,6 +541,18 @@ export class WatcherStore {
     );
   }
 
+  countEventsWithBody(taskId: string, type: string, body: string): number {
+    return (
+      this.db
+        .select({ count: count() })
+        .from(taskEvents)
+        .where(
+          and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type), eq(taskEvents.body, body)),
+        )
+        .get()?.count ?? 0
+    );
+  }
+
   getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
     const fromStatuses = alias(statuses, "event_from_status");
     const toStatuses = alias(statuses, "event_to_status");

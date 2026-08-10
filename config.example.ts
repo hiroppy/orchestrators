@@ -13,6 +13,7 @@ export default defineConfig({
     },
     // Put local TypeScript hooks in ./hooks and import them from config.ts.
     // A hook's returned string is posted back to the task's Slack thread.
+    // Failed hooks are attempted 10 times by default; set maxAttempts per hook to override it.
     statusHooks: [],
   },
   slack: {

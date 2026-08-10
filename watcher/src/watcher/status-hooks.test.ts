@@ -191,6 +191,78 @@ describe("status hooks", () => {
     });
   });
 
+  it("stops after maxAttempts and posts one notice to the task thread", async () => {
+    await withPendingHook(async ({ store, hooks, runs }) => {
+      hooks[0].maxAttempts = 2;
+      hooks[0].run = () => {
+        runs.value += 1;
+        throw new Error("Still unavailable");
+      };
+      const posts: ChatPostMessageArguments[] = [];
+      const options = {
+        hooks,
+        store,
+        slackClient: {
+          chat: {
+            postMessage: async (args: ChatPostMessageArguments) => {
+              posts.push(args);
+            },
+          },
+        },
+        watcherChannelId: "CWATCHER",
+      };
+
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+      assert.equal(runs.value, 2);
+      assert.deepEqual(posts, []);
+
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+
+      assert.equal(runs.value, 2);
+      assert.deepEqual(posts, [
+        {
+          channel: "CTASK",
+          thread_ts: "10.000",
+          text: "Status hook `app-distribution` failed after 2 attempts and will not be retried.",
+        },
+      ]);
+    });
+  });
+
+  it("retries the limit notice without running the hook again", async () => {
+    await withPendingHook(async ({ store, hooks, runs }) => {
+      hooks[0].maxAttempts = 1;
+      hooks[0].run = () => {
+        runs.value += 1;
+        throw new Error("Still unavailable");
+      };
+      let noticeAttempts = 0;
+      const options = {
+        hooks,
+        store,
+        slackClient: {
+          chat: {
+            postMessage: async () => {
+              noticeAttempts += 1;
+              if (noticeAttempts === 1) throw new Error("Simulated Slack failure");
+            },
+          },
+        },
+        watcherChannelId: "CWATCHER",
+      };
+
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+
+      assert.equal(runs.value, 1);
+      assert.equal(noticeAttempts, 2);
+    });
+  });
+
   it("does not repeat a completed hook when another hook needs retrying", async () => {
     await withStore(async (store) => {
       const task = createPendingTask(store);
@@ -346,7 +418,7 @@ describe("status hooks", () => {
 async function withPendingHook(
   run: (options: {
     store: WatcherStore;
-    hooks: Array<{ id: string; status: string; run: () => string }>;
+    hooks: Array<{ id: string; status: string; maxAttempts?: number; run: () => string }>;
     runs: { value: number };
   }) => void | Promise<void>,
 ): Promise<void> {
