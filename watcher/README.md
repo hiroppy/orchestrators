@@ -153,6 +153,7 @@ export default defineConfig({
       {
         id: "app-distribution",
         status: "In Review",
+        maxAttempts: 10,
         run: inReviewHook,
       },
     ],
@@ -164,6 +165,9 @@ export default defineConfig({
 </details>
 
 Hooks run only on a transition edge, not on every poll.
+Failed hooks are retried up to `maxAttempts` times (default: `10`). When the
+limit is reached, the watcher posts a failure notice to the task thread and
+stops retrying that hook.
 Failures are logged without stopping the watcher. Hooks are trusted in-process
 TypeScript and must not perform blocking synchronous work; they should also be
 idempotent. For asynchronous work, such as an App Distribution

@@ -14,6 +14,8 @@ export interface StatusHookResult {
 const STATUS_HOOK_PENDING_EVENT = "status_hook_pending";
 const STATUS_HOOK_COMPLETED_EVENT = "status_hook_completed";
 const STATUS_HOOK_RUN_COMPLETED_EVENT = "status_hook_run_completed";
+const STATUS_HOOK_ATTEMPT_FAILED_EVENT = "status_hook_attempt_failed";
+const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const deliveryQueues = new WeakMap<WatcherStore, Promise<void>>();
 
 interface StatusHookSlackClient {
@@ -118,6 +120,36 @@ async function deliverPendingStatusHooksSerially({
       if (!hook || normalizeStatus(hook.status) !== normalizeStatus(event.toStatus)) continue;
       const completionKey = `${event.id}:${hookId}`;
       if (store.hasEvent(task.id, STATUS_HOOK_RUN_COMPLETED_EVENT, completionKey)) continue;
+      const maxAttempts = hook.maxAttempts ?? DEFAULT_STATUS_HOOK_MAX_ATTEMPTS;
+      const failedAttempts = store.countEventsWithBody(
+        task.id,
+        STATUS_HOOK_ATTEMPT_FAILED_EVENT,
+        completionKey,
+      );
+      if (failedAttempts >= maxAttempts) {
+        try {
+          await slackClient.chat.postMessage({
+            channel: task.parentChannelId,
+            thread_ts: task.parentMessageTs,
+            text: `Status hook \`${hook.id}\` failed after ${maxAttempts} attempts and will not be retried.`,
+          });
+          store.addEvent({
+            taskId: task.id,
+            type: STATUS_HOOK_RUN_COMPLETED_EVENT,
+            actor: "watcher",
+            fromStatus: event.fromStatus,
+            toStatus: event.toStatus,
+            body: completionKey,
+          });
+        } catch (error) {
+          completed = false;
+          console.error(
+            `Status hook retry-limit notification failed for ${task.issueIdentifier}:`,
+            error,
+          );
+        }
+        continue;
+      }
       try {
         await dispatchStatusHooks({
           hooks: [hook],
@@ -137,6 +169,14 @@ async function deliverPendingStatusHooksSerially({
           body: completionKey,
         });
       } catch (error) {
+        store.addEvent({
+          taskId: task.id,
+          type: STATUS_HOOK_ATTEMPT_FAILED_EVENT,
+          actor: "watcher",
+          fromStatus: event.fromStatus,
+          toStatus: event.toStatus,
+          body: completionKey,
+        });
         completed = false;
         console.error(`Status hook delivery failed for ${task.issueIdentifier}:`, error);
       }

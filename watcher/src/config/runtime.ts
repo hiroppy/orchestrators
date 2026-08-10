@@ -14,6 +14,7 @@ import type {
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
+const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_MENTION_TARGETS_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
 const EVENT_TYPES: EventType[] = [
@@ -130,8 +131,12 @@ function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedSta
     ids.add(id);
     const status = hook.status?.trim();
     if (!status) throw new Error(`${label}.status must be a non-empty string.`);
+    const maxAttempts = hook.maxAttempts ?? DEFAULT_STATUS_HOOK_MAX_ATTEMPTS;
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+      throw new Error(`${label}.maxAttempts must be a positive integer.`);
+    }
     if (typeof hook.run !== "function") throw new Error(`${label}.run must be a function.`);
-    return { id, status, run: hook.run };
+    return { id, status, maxAttempts, run: hook.run };
   });
 }
 

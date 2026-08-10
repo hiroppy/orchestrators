@@ -262,7 +262,9 @@ describe("runOnce", () => {
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.statusHooks, [{ id: "app-distribution", status: "In Review", run }]);
+    assert.deepEqual(config.statusHooks, [
+      { id: "app-distribution", status: "In Review", maxAttempts: 10, run },
+    ]);
     await assert.rejects(
       resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
       /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
@@ -304,6 +306,19 @@ describe("runOnce", () => {
           { requireSlack: false },
         ),
       /watcher\.statusHooks\[1\]\.id must be unique/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              statusHooks: [{ id: "invalid-attempts", status: "In Review", maxAttempts: 0, run }],
+            },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.maxAttempts must be a positive integer/,
     );
   });
 
