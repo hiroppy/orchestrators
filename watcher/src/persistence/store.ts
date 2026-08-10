@@ -8,6 +8,7 @@ import {
   inArray,
   isNull,
   ne,
+  notExists,
   notInArray,
   or,
   sql,
@@ -457,33 +458,6 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
-  restoreTaskState(
-    taskId: string,
-    statusName: string,
-    linearStateType: string | undefined,
-    now = new Date(),
-  ): void {
-    const existing = this.requireTask(taskId);
-    const status = this.db
-      .select({ id: statuses.id })
-      .from(statuses)
-      .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
-      .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
-      .get();
-    if (!status)
-      throw new Error(`Status is not configured for ${existing.serviceName}: ${statusName}`);
-
-    this.db
-      .update(tasks)
-      .set({
-        statusId: status.id,
-        linearStateType: linearStateType ?? null,
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
-  }
-
   addEvent(event: TaskEventInput): TaskEvent {
     return insertTaskEvent(this.db, event);
   }
@@ -574,6 +548,47 @@ export class WatcherStore {
     return rows.flatMap(({ taskId, latestPending, latestCompleted }) =>
       latestPending !== null && latestPending > latestCompleted ? [taskId] : [],
     );
+  }
+
+  getUncompletedEvents(pendingType: string, completedType: string, taskId?: string): TaskEvent[] {
+    const completed = alias(taskEvents, "completed_task_events");
+    const fromStatuses = alias(statuses, "pending_from_status");
+    const toStatuses = alias(statuses, "pending_to_status");
+    const conditions = [
+      eq(taskEvents.type, pendingType),
+      notExists(
+        this.db
+          .select({ id: completed.id })
+          .from(completed)
+          .where(
+            and(
+              eq(completed.type, completedType),
+              eq(completed.body, sql`cast(${taskEvents.id} as text)`),
+            ),
+          ),
+      ),
+    ];
+    if (taskId) conditions.push(eq(taskEvents.taskId, taskId));
+
+    return this.db
+      .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+      .from(taskEvents)
+      .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+      .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+      .where(and(...conditions))
+      .orderBy(asc(taskEvents.id))
+      .all()
+      .map(({ event, fromStatus, toStatus }) => ({
+        id: event.id,
+        taskId: event.taskId,
+        type: event.type,
+        actor: event.actor ?? undefined,
+        fromStatus: fromStatus ?? undefined,
+        toStatus: toStatus ?? undefined,
+        body: event.body ?? undefined,
+        slackThreadTs: event.slackThreadTs ?? undefined,
+        createdAt: event.createdAt,
+      }));
   }
 
   countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {

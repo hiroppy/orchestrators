@@ -2,6 +2,7 @@ import type { ChatPostMessageArguments } from "@slack/web-api";
 
 import type { ResolvedStatusHookConfig } from "../config/runtime.ts";
 import type { PullRequest, StatusHookContext, StatusHookHelpers, Task } from "../domain/types.ts";
+import type { WatcherStore } from "../persistence/store.ts";
 
 export type { StatusHookContext } from "../domain/types.ts";
 
@@ -10,10 +11,76 @@ export interface StatusHookResult {
   error?: unknown;
 }
 
+const STATUS_HOOK_PENDING_EVENT = "status_hook_pending";
+const STATUS_HOOK_COMPLETED_EVENT = "status_hook_completed";
+
 interface StatusHookSlackClient {
   chat: {
     postMessage(args: ChatPostMessageArguments): Promise<unknown>;
   };
+}
+
+export function queueStatusHooks(
+  hooks: ResolvedStatusHookConfig[],
+  store: WatcherStore,
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+  pullRequest?: PullRequest,
+): void {
+  if (!hooks.some(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))) return;
+
+  store.addEvent({
+    taskId: task.id,
+    type: STATUS_HOOK_PENDING_EVENT,
+    actor: "watcher",
+    fromStatus,
+    toStatus,
+    body: JSON.stringify({ pullRequest }),
+  });
+}
+
+export async function deliverPendingStatusHooks({
+  hooks,
+  store,
+  slackClient,
+  watcherChannelId,
+  taskId,
+}: {
+  hooks: ResolvedStatusHookConfig[];
+  store: WatcherStore;
+  slackClient: StatusHookSlackClient;
+  watcherChannelId: string;
+  taskId?: string;
+}): Promise<void> {
+  for (const event of store.getUncompletedEvents(
+    STATUS_HOOK_PENDING_EVENT,
+    STATUS_HOOK_COMPLETED_EVENT,
+    taskId,
+  )) {
+    const task = store.getTask(event.taskId);
+    if (!task?.parentChannelId || !task.parentMessageTs || !event.fromStatus || !event.toStatus) {
+      continue;
+    }
+    const payload = JSON.parse(event.body ?? "{}") as { pullRequest?: PullRequest };
+    await dispatchStatusHooks({
+      hooks,
+      task,
+      fromStatus: event.fromStatus,
+      toStatus: event.toStatus,
+      pullRequest: payload.pullRequest,
+      slackClient,
+      watcherChannelId,
+    });
+    store.addEvent({
+      taskId: task.id,
+      type: STATUS_HOOK_COMPLETED_EVENT,
+      actor: "watcher",
+      fromStatus: event.fromStatus,
+      toStatus: event.toStatus,
+      body: String(event.id),
+    });
+  }
 }
 
 export async function dispatchStatusHooks({

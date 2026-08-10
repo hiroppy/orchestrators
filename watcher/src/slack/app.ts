@@ -478,6 +478,7 @@ export async function publishWatcherEvent(
   options: {
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
+    afterPublish?: (task: Task) => Promise<void>;
   } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
@@ -488,6 +489,9 @@ export async function publishWatcherEvent(
   const statusChanged =
     previousTask !== undefined &&
     normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
+  if (statusChanged) {
+    await options.onStatusTransition?.(task, previousTask.status);
+  }
   const notifications = notificationTargetsForWatcherEvent(
     mention,
     previousTask?.status,
@@ -507,25 +511,11 @@ export async function publishWatcherEvent(
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
-  const rollbackPublishedState = () => {
-    if (statusChanged) {
-      store.restoreTaskState(task.id, previousTask.status, previousTask.linearStateType);
-    } else if (announceTerminalParent) {
-      store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
-    }
-  };
-
   if (!task.parentChannelId || !task.parentMessageTs) {
-    let parent: ChatPostMessageResponse;
-    try {
-      parent = await client.chat.postMessage({
-        channel: destinationChannel,
-        ...card,
-      });
-    } catch (error) {
-      rollbackPublishedState();
-      throw error;
-    }
+    const parent = await client.chat.postMessage({
+      channel: destinationChannel,
+      ...card,
+    });
     if (!parent.channel || !parent.ts) {
       throw new Error(`Slack did not return channel/ts for task ${task.id}.`);
     }
@@ -553,7 +543,9 @@ export async function publishWatcherEvent(
         );
       }
     } catch (error) {
-      rollbackPublishedState();
+      if (announceTerminalParent) {
+        store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+      }
       throw error;
     }
   }
@@ -571,23 +563,15 @@ export async function publishWatcherEvent(
     notifications?.creator,
     notificationContext,
   );
-  let reply: ChatPostMessageResponse | undefined;
-  try {
-    reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
-      ? await client.chat.postMessage({
-          channel: task.parentChannelId!,
-          thread_ts: task.parentMessageTs!,
-          text: threadBody,
-          ...(threadBlocks ? { blocks: threadBlocks } : {}),
-        })
-      : undefined;
-  } catch (error) {
-    rollbackPublishedState();
-    throw error;
-  }
-  if (statusChanged) {
-    await options.onStatusTransition?.(task, previousTask.status);
-  }
+  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
+    ? await client.chat.postMessage({
+        channel: task.parentChannelId!,
+        thread_ts: task.parentMessageTs!,
+        text: threadBody,
+        ...(threadBlocks ? { blocks: threadBlocks } : {}),
+      })
+    : undefined;
+  await options.afterPublish?.(task);
   store.addEvent({
     taskId: task.id,
     type: event.type,

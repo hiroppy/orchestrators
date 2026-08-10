@@ -50,7 +50,7 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import { dispatchStatusHooks } from "./status-hooks.ts";
+import { deliverPendingStatusHooks, queueStatusHooks } from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
@@ -114,13 +114,13 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
           onStatusTransition: async (task, fromStatus, toStatus, slackClient) => {
-            await dispatchStatusHooks({
+            queueStatusHooks(runtimeConfig.statusHooks, store, task, fromStatus, toStatus);
+            await deliverPendingStatusHooks({
               hooks: runtimeConfig.statusHooks,
-              task,
-              fromStatus,
-              toStatus,
+              store,
               slackClient,
               watcherChannelId: slackConfig.channelId,
+              taskId: task.id,
             });
           },
         })
@@ -190,7 +190,13 @@ export async function runOnce({
 }: RunOnceOptions) {
   let reviewReconciliationTaskIds = new Set<string>();
   if (!dryRun) {
-    if (!slackClient) throw new Error("Slack client is required.");
+    if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
+    await deliverPendingStatusHooks({
+      hooks: config.statusHooks ?? [],
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+    });
     await deliverPendingReviewLimitNotifications(store, slackClient);
     reviewReconciliationTaskIds = new Set(
       store.getTaskIdsWithIncompleteEvent(
@@ -448,14 +454,22 @@ async function processWatcherEvent({
     {
       forceMention: reviewDecision.deliverDeferredMention,
       onStatusTransition: async (task, fromStatus) => {
-        await dispatchStatusHooks({
-          hooks: config.statusHooks ?? [],
+        queueStatusHooks(
+          config.statusHooks ?? [],
+          store,
           task,
           fromStatus,
-          toStatus: task.status,
-          pullRequest: event.pullRequest,
+          task.status,
+          event.pullRequest,
+        );
+      },
+      afterPublish: async (task) => {
+        await deliverPendingStatusHooks({
+          hooks: config.statusHooks ?? [],
+          store,
           slackClient,
           watcherChannelId: slackChannelId,
+          taskId: task.id,
         });
       },
     },
@@ -484,14 +498,20 @@ async function processWatcherEvent({
     task.id,
     review.inProgressStatus,
   );
-  await dispatchStatusHooks({
-    hooks: config.statusHooks ?? [],
-    task: requeuedTask,
+  queueStatusHooks(
+    config.statusHooks ?? [],
+    store,
+    requeuedTask,
     fromStatus,
-    toStatus: requeuedTask.status,
-    pullRequest: event.pullRequest,
+    requeuedTask.status,
+    event.pullRequest,
+  );
+  await deliverPendingStatusHooks({
+    hooks: config.statusHooks ?? [],
+    store,
     slackClient,
     watcherChannelId: slackChannelId,
+    taskId: requeuedTask.id,
   });
   const auditBody = buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
   const requeueEvent = {

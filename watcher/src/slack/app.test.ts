@@ -438,7 +438,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("retries a status transition after Slack publishing fails without losing its hook", async () => {
+  it("records a status transition before Slack update failure and delivers after recovery", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       let failUpdate = false;
@@ -457,6 +457,7 @@ describe("Slack app behavior", () => {
       });
 
       const transitions: string[] = [];
+      const deliveries: string[] = [];
       const event = {
         type: "updated" as const,
         service: "service-a",
@@ -467,17 +468,22 @@ describe("Slack app behavior", () => {
         onStatusTransition: async (task: { status: string }, fromStatus: string) => {
           transitions.push(`${fromStatus} -> ${task.status}`);
         },
+        afterPublish: async (task: { status: string }) => {
+          deliveries.push(task.status);
+        },
       };
 
       failUpdate = true;
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
-      assert.deepEqual(transitions, []);
+      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.deepEqual(deliveries, []);
 
       failUpdate = false;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.deepEqual(deliveries, ["In Review"]);
     });
   });
 
@@ -504,6 +510,7 @@ describe("Slack app behavior", () => {
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, undefined);
 
       const transitions: string[] = [];
+      const deliveries: string[] = [];
       const event = {
         type: "updated" as const,
         service: "service-a",
@@ -517,20 +524,26 @@ describe("Slack app behavior", () => {
         ) => {
           transitions.push(`${fromStatus} -> ${task.status}@${task.parentMessageTs}`);
         },
+        afterPublish: async (task: { status: string }) => {
+          deliveries.push(task.status);
+        },
       };
 
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
+      assert.deepEqual(deliveries, []);
 
       failPost = false;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
 
-      assert.deepEqual(transitions, ["In Progress -> In Review@1.000"]);
+      assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
+      assert.deepEqual(deliveries, ["In Review"]);
     });
   });
 
-  it("retries a transition hook after its Slack thread history fails", async () => {
+  it("records a transition before Slack thread failure and delivers after recovery", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
@@ -549,6 +562,7 @@ describe("Slack app behavior", () => {
         return postMessage(args);
       };
       const transitions: string[] = [];
+      const deliveries: string[] = [];
       const event = {
         type: "updated" as const,
         service: "service-a",
@@ -559,16 +573,21 @@ describe("Slack app behavior", () => {
         onStatusTransition: async (task: { status: string }, fromStatus: string) => {
           transitions.push(`${fromStatus} -> ${task.status}`);
         },
+        afterPublish: async (task: { status: string }) => {
+          deliveries.push(task.status);
+        },
       };
 
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
-      assert.deepEqual(transitions, []);
+      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.deepEqual(deliveries, []);
 
       failThread = false;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.deepEqual(deliveries, ["In Review"]);
     });
   });
 

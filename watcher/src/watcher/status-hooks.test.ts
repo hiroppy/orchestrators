@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { dispatchStatusHooks, runStatusHooks, type StatusHookContext } from "./status-hooks.ts";
+import { createDatabase } from "../persistence/database.ts";
+import { WatcherStore } from "../persistence/store.ts";
+import {
+  deliverPendingStatusHooks,
+  dispatchStatusHooks,
+  queueStatusHooks,
+  runStatusHooks,
+  type StatusHookContext,
+} from "./status-hooks.ts";
 
 const context: StatusHookContext = {
   event: "issue.status_changed",
@@ -98,4 +109,75 @@ describe("status hooks", () => {
       { channel: "COLD", thread_ts: "10.000", text: "returned" },
     ]);
   });
+
+  it("delivers a persisted transition after the task advances again", async () => {
+    await withStore(async (store) => {
+      const inProgress = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        issueTitle: "Ship preview",
+        resolvedState: "In Progress",
+      });
+      store.setParentMessage(inProgress.id, "CTASK", "10.000", "{}");
+      const inReview = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "In Review",
+      });
+      const received: StatusHookContext[] = [];
+      const hooks = [
+        {
+          status: "In Review",
+          run: (hookContext: StatusHookContext) => {
+            received.push(hookContext);
+          },
+        },
+      ];
+      queueStatusHooks(hooks, store, inReview, "In Progress", "In Review", context.pullRequest);
+
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "Done",
+      });
+      const options = {
+        hooks,
+        store,
+        slackClient: { chat: { postMessage: async () => {} } },
+        watcherChannelId: "CWATCHER",
+      };
+      await deliverPendingStatusHooks(options);
+      await deliverPendingStatusHooks(options);
+
+      assert.equal(received.length, 1);
+      assert.deepEqual(received[0].transition, { from: "In Progress", to: "In Review" });
+      assert.deepEqual(received[0].pullRequest, context.pullRequest);
+    });
+  });
 });
+
+async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "watcher-status-hooks-"));
+  const database = createDatabase(join(directory, "watcher.db"));
+  const store = new WatcherStore(database.db);
+  store.syncDefinitions(
+    [{ name: "ios", url: "https://service.test/state", linearTeam: "workspace-ios" }],
+    {
+      "workspace-ios": {
+        apiKey: "lin_test",
+        teamId: "team-ios",
+        statuses: ["In Progress", "In Review", "Done"],
+      },
+    },
+  );
+
+  try {
+    await run(store);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}
