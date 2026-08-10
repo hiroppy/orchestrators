@@ -45,6 +45,7 @@ import {
 import {
   decideReviewReaction,
   hasPendingEvent,
+  parseReviewRequeuePendingPayload,
   pendingReviewPullRequest,
   REVIEW_REQUEUE_EVENT,
   REVIEW_REQUEUE_LIMIT_EVENT,
@@ -376,9 +377,7 @@ async function reconcileLinearStatuses({
     }
     let pullRequest =
       linearIssue.pullRequest ??
-      (hasPendingReconciliation
-        ? pendingReviewPullRequest(store, task.id, parseReviewRequeuePendingPayload)
-        : undefined);
+      (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
     if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction }).catch(
@@ -682,35 +681,6 @@ async function deliverPendingReviewLimitNotification(
 function slackClientMessageId(eventId: number): string {
   const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
   return `00000000-0000-4000-8000-${suffix}`;
-}
-
-function parseReviewRequeuePendingPayload(body: string): {
-  message: string;
-  event: WatcherEvent;
-  reaction?: string;
-  maxRequeues?: number;
-} {
-  const payload = JSON.parse(body) as {
-    message?: unknown;
-    event?: unknown;
-    reaction?: unknown;
-    maxRequeues?: unknown;
-  };
-  if (typeof payload.message !== "string" || typeof payload.event !== "object") {
-    throw new Error("Invalid review requeue pending payload");
-  }
-  if (payload.reaction !== undefined && typeof payload.reaction !== "string") {
-    throw new Error("Invalid review requeue pending reaction");
-  }
-  if (payload.maxRequeues !== undefined && typeof payload.maxRequeues !== "number") {
-    throw new Error("Invalid review requeue pending limit");
-  }
-  return payload as {
-    message: string;
-    event: WatcherEvent;
-    reaction?: string;
-    maxRequeues?: number;
-  };
 }
 
 function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void {

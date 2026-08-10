@@ -7,8 +7,9 @@ import {
   findPullRequestByUrl as findPullRequestByUrlDefault,
 } from "../integrations/github.ts";
 import { fetchLinearIssueState, TransientLinearError } from "../integrations/linear.ts";
-import { notificationIsEligible } from "../slack/app.ts";
+import { notificationIsEligible } from "../slack/notifications.ts";
 import { linearTeamForService } from "./runtime-config.ts";
+import { reviewReactionForStatus } from "./review-reactions.ts";
 
 const creatorMentionCache = new Map<string, string | null>();
 
@@ -109,16 +110,6 @@ export async function enrichCreatorForNotification(
     }),
     options.slackClient,
   );
-}
-
-function reviewReactionForStatus(
-  config: ResolvedWatcherRuntimeConfig,
-  status?: string | null,
-): string | undefined {
-  const review = config.reviewReaction;
-  return review && status && normalizeStatus(status) === normalizeStatus(review.inReviewStatus)
-    ? review.reaction
-    : undefined;
 }
 
 async function enrichCreatorMention(

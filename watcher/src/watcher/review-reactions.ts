@@ -1,7 +1,7 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { PullRequest, WatcherEvent } from "../domain/types.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
-import { notificationIsEligible } from "../slack/app.ts";
+import { notificationIsEligible } from "../slack/notifications.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
 export const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
@@ -16,6 +16,13 @@ export interface ReviewReactionDecision {
   hasPendingLimitNotification?: boolean;
   hasPendingReviewReconciliation?: boolean;
   deliverDeferredMention?: boolean;
+}
+
+export interface ReviewRequeuePayload {
+  message: string;
+  event: WatcherEvent;
+  reaction?: string;
+  maxRequeues?: number;
 }
 
 export function shouldSuppressReviewMention(decision: ReviewReactionDecision): boolean {
@@ -108,16 +115,29 @@ export function hasPendingEvent(
 export function pendingReviewPullRequest(
   store: WatcherStore,
   taskId: string,
-  parsePayload: (body: string) => { event: WatcherEvent },
 ): PullRequest | undefined {
   const body = store.getLatestEvent(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)?.body;
   if (!body) return undefined;
 
   try {
-    return parsePayload(body).event.pullRequest;
+    return parseReviewRequeuePendingPayload(body).event.pullRequest;
   } catch {
     return undefined;
   }
+}
+
+export function parseReviewRequeuePendingPayload(body: string): ReviewRequeuePayload {
+  const payload = JSON.parse(body) as Partial<Record<keyof ReviewRequeuePayload, unknown>>;
+  if (typeof payload.message !== "string" || typeof payload.event !== "object") {
+    throw new Error("Invalid review requeue pending payload");
+  }
+  if (payload.reaction !== undefined && typeof payload.reaction !== "string") {
+    throw new Error("Invalid review requeue pending reaction");
+  }
+  if (payload.maxRequeues !== undefined && typeof payload.maxRequeues !== "number") {
+    throw new Error("Invalid review requeue pending limit");
+  }
+  return payload as unknown as ReviewRequeuePayload;
 }
 
 function normalizeStatus(status: string): string {
