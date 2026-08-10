@@ -60,11 +60,15 @@ describe("Slack rendering", () => {
     ) as Array<{ fields: Array<{ text: string }> }>;
     assert.deepEqual(
       overview.map(({ fields }) => fields.map(({ text }) => text)),
-      [
-        ["*Event*\nStarted", "*Activity*\nRunning tests"],
-        ["*PR#42*\n<https://github.com/acme/example/pull/42|Improve the Slack card>"],
-      ],
+      [["*Event*\nStarted", "*Activity*\nRunning tests"]],
     );
+    assert.deepEqual(card.blocks[3], {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*PR#42*\n<https://github.com/acme/example/pull/42|Improve the Slack card>",
+      },
+    });
     assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
     assert.equal(actions.elements.length, 1);
     assert.equal(card.metadata.event_payload.task_id, task.id);
@@ -312,13 +316,16 @@ describe("Slack rendering", () => {
     );
 
     assert.equal(card.text, "[service-a] Build the Slack control plane. Created by <@UCREATOR>");
-    const overview = card.blocks.filter(
-      (block) => block.type === "section" && "fields" in block,
-    ) as Array<{ fields: Array<{ text: string }> }>;
-    assert.deepEqual(
-      overview.map(({ fields }) => fields.map(({ text }) => text)),
-      [["*Event*\nEnded"], ["*Creator*\n<@UCREATOR>"]],
-    );
+    assert.deepEqual(card.blocks.slice(2), [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "*Event*\nEnded" },
+      },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "*Creator*\n<@UCREATOR>" },
+      },
+    ]);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Mentions/);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
     assert.match(thread, /\*Updated\* \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>/);
@@ -334,7 +341,7 @@ describe("Slack rendering", () => {
       },
       {
         type: "section",
-        fields: [{ type: "mrkdwn", text: "*Changed by*\nExample User" }],
+        text: { type: "mrkdwn", text: "*Changed by*\nExample User" },
       },
     ]);
     assert.doesNotMatch(
@@ -358,7 +365,10 @@ describe("Slack rendering", () => {
       { mentions },
     );
     const mentionsField = blocks
-      .flatMap((block) => ("fields" in block ? (block.fields as Array<{ text: string }>) : []))
+      .flatMap((block) => {
+        if ("fields" in block) return block.fields as Array<{ text: string }>;
+        return "text" in block ? [block.text as { text: string }] : [];
+      })
       .find(({ text }) => text.startsWith("*Mentions*\n"));
 
     assert.ok(mentionsField);

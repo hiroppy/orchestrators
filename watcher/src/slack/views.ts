@@ -378,10 +378,14 @@ function buildTextSection(text: string): SectionBlock {
 function buildFieldSections(...groups: string[][]): SectionBlock[] {
   return groups
     .filter((fields) => fields.length > 0)
-    .map((fields) => ({
-      type: "section",
-      fields: fields.map((text) => ({ type: "mrkdwn", text })),
-    }));
+    .map((fields) =>
+      fields.length === 1
+        ? buildTextSection(fields[0])
+        : {
+            type: "section",
+            fields: fields.map((text) => ({ type: "mrkdwn", text })),
+          },
+    );
 }
 
 function threadHeadline(event: WatcherEvent): string {
