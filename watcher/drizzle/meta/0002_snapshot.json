@@ -46,9 +46,7 @@
       "indexes": {
         "services_name_unique": {
           "name": "services_name_unique",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": true
         }
       },
@@ -114,19 +112,12 @@
       "indexes": {
         "statuses_service_name_unique": {
           "name": "statuses_service_name_unique",
-          "columns": [
-            "service_id",
-            "name"
-          ],
+          "columns": ["service_id", "name"],
           "isUnique": true
         },
         "statuses_service_selectable_order": {
           "name": "statuses_service_selectable_order",
-          "columns": [
-            "service_id",
-            "selectable",
-            "sort_order"
-          ],
+          "columns": ["service_id", "selectable", "sort_order"],
           "isUnique": false
         }
       },
@@ -135,12 +126,8 @@
           "name": "statuses_service_id_services_id_fk",
           "tableFrom": "statuses",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -219,33 +206,22 @@
       "indexes": {
         "task_events_task_created_idx": {
           "name": "task_events_task_created_idx",
-          "columns": [
-            "task_id",
-            "created_at"
-          ],
+          "columns": ["task_id", "created_at"],
           "isUnique": false
         },
         "task_events_type_task_id_idx": {
           "name": "task_events_type_task_id_idx",
-          "columns": [
-            "type",
-            "task_id",
-            "id"
-          ],
+          "columns": ["type", "task_id", "id"],
           "isUnique": false
         },
         "task_events_from_status_idx": {
           "name": "task_events_from_status_idx",
-          "columns": [
-            "from_status_id"
-          ],
+          "columns": ["from_status_id"],
           "isUnique": false
         },
         "task_events_to_status_idx": {
           "name": "task_events_to_status_idx",
-          "columns": [
-            "to_status_id"
-          ],
+          "columns": ["to_status_id"],
           "isUnique": false
         }
       },
@@ -254,12 +230,8 @@
           "name": "task_events_task_id_tasks_id_fk",
           "tableFrom": "task_events",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -267,12 +239,8 @@
           "name": "task_events_from_status_id_statuses_id_fk",
           "tableFrom": "task_events",
           "tableTo": "statuses",
-          "columnsFrom": [
-            "from_status_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["from_status_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -280,12 +248,8 @@
           "name": "task_events_to_status_id_statuses_id_fk",
           "tableFrom": "task_events",
           "tableTo": "statuses",
-          "columnsFrom": [
-            "to_status_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["to_status_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -427,16 +391,12 @@
       "indexes": {
         "task_observations_bucket_idx": {
           "name": "task_observations_bucket_idx",
-          "columns": [
-            "bucket"
-          ],
+          "columns": ["bucket"],
           "isUnique": false
         },
         "task_observations_tracker_status_idx": {
           "name": "task_observations_tracker_status_idx",
-          "columns": [
-            "tracker_status_id"
-          ],
+          "columns": ["tracker_status_id"],
           "isUnique": false
         }
       },
@@ -445,12 +405,8 @@
           "name": "task_observations_task_id_tasks_id_fk",
           "tableFrom": "task_observations",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -458,12 +414,8 @@
           "name": "task_observations_tracker_status_id_statuses_id_fk",
           "tableFrom": "task_observations",
           "tableTo": "statuses",
-          "columnsFrom": [
-            "tracker_status_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["tracker_status_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -584,17 +536,12 @@
       "indexes": {
         "tasks_service_issue_unique": {
           "name": "tasks_service_issue_unique",
-          "columns": [
-            "service_id",
-            "issue_identifier"
-          ],
+          "columns": ["service_id", "issue_identifier"],
           "isUnique": true
         },
         "tasks_status_id_idx": {
           "name": "tasks_status_id_idx",
-          "columns": [
-            "status_id"
-          ],
+          "columns": ["status_id"],
           "isUnique": false
         }
       },
@@ -603,12 +550,8 @@
           "name": "tasks_service_id_services_id_fk",
           "tableFrom": "tasks",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -616,12 +559,8 @@
           "name": "tasks_status_id_statuses_id_fk",
           "tableFrom": "tasks",
           "tableTo": "statuses",
-          "columnsFrom": [
-            "status_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["status_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
