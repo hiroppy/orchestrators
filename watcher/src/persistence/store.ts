@@ -519,6 +519,18 @@ export class WatcherStore {
     );
   }
 
+  hasEvent(taskId: string, type: string, body: string): boolean {
+    return (
+      this.db
+        .select({ id: taskEvents.id })
+        .from(taskEvents)
+        .where(
+          and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type), eq(taskEvents.body, body)),
+        )
+        .get() !== undefined
+    );
+  }
+
   countEvents(taskId: string, type: string): number {
     return (
       this.db

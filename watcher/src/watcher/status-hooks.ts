@@ -13,6 +13,7 @@ export interface StatusHookResult {
 
 const STATUS_HOOK_PENDING_EVENT = "status_hook_pending";
 const STATUS_HOOK_COMPLETED_EVENT = "status_hook_completed";
+const STATUS_HOOK_RUN_COMPLETED_EVENT = "status_hook_run_completed";
 const deliveryQueues = new WeakMap<WatcherStore, Promise<void>>();
 
 interface StatusHookSlackClient {
@@ -99,15 +100,37 @@ async function deliverPendingStatusHooksSerially({
       continue;
     }
     const payload = JSON.parse(event.body ?? "{}") as { pullRequest?: PullRequest };
-    await dispatchStatusHooks({
-      hooks,
-      task,
-      fromStatus: event.fromStatus,
-      toStatus: event.toStatus,
-      pullRequest: payload.pullRequest,
-      slackClient,
-      watcherChannelId,
-    });
+    const matchingHooks = hooks
+      .map((hook, index) => ({ hook, index }))
+      .filter(({ hook }) => normalizeStatus(hook.status) === normalizeStatus(event.toStatus!));
+    let completed = true;
+    for (const { hook, index } of matchingHooks) {
+      const completionKey = `${event.id}:${index}`;
+      if (store.hasEvent(task.id, STATUS_HOOK_RUN_COMPLETED_EVENT, completionKey)) continue;
+      try {
+        await dispatchStatusHooks({
+          hooks: [hook],
+          task,
+          fromStatus: event.fromStatus,
+          toStatus: event.toStatus,
+          pullRequest: payload.pullRequest,
+          slackClient,
+          watcherChannelId,
+        });
+        store.addEvent({
+          taskId: task.id,
+          type: STATUS_HOOK_RUN_COMPLETED_EVENT,
+          actor: "watcher",
+          fromStatus: event.fromStatus,
+          toStatus: event.toStatus,
+          body: completionKey,
+        });
+      } catch (error) {
+        completed = false;
+        console.error(`Status hook delivery failed for ${task.issueIdentifier}:`, error);
+      }
+    }
+    if (!completed) continue;
     store.addEvent({
       taskId: task.id,
       type: STATUS_HOOK_COMPLETED_EVENT,

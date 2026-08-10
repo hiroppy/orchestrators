@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import type { ChatPostMessageArguments } from "@slack/web-api";
 
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
@@ -177,12 +178,94 @@ describe("status hooks", () => {
         watcherChannelId: "CWATCHER",
       };
 
-      await assert.rejects(deliverPendingStatusHooks(options), /Simulated Slack failure/);
+      await deliverPendingStatusHooks(options);
       failPost = false;
       await deliverPendingStatusHooks(options);
       await deliverPendingStatusHooks(options);
 
       assert.equal(attempts, 2);
+    });
+  });
+
+  it("does not repeat a completed hook when another hook needs retrying", async () => {
+    await withStore(async (store) => {
+      const task = createPendingTask(store);
+      let firstRuns = 0;
+      let secondRuns = 0;
+      let failSecond = true;
+      const hooks = [
+        {
+          status: "In Review",
+          run: () => {
+            firstRuns += 1;
+            return "first";
+          },
+        },
+        {
+          status: "In Review",
+          run: () => {
+            secondRuns += 1;
+            if (failSecond) throw new Error("Simulated hook failure");
+            return "second";
+          },
+        },
+      ];
+      queueStatusHooks(hooks, store, task, "In Progress", "In Review");
+      const posts: string[] = [];
+      const options = {
+        hooks,
+        store,
+        slackClient: {
+          chat: {
+            postMessage: async ({ text }: ChatPostMessageArguments) => {
+              posts.push(text);
+            },
+          },
+        },
+        watcherChannelId: "CWATCHER",
+      };
+
+      await deliverPendingStatusHooks(options);
+      failSecond = false;
+      await deliverPendingStatusHooks(options);
+
+      assert.equal(firstRuns, 1);
+      assert.equal(secondRuns, 2);
+      assert.deepEqual(posts, ["first", "second"]);
+    });
+  });
+
+  it("continues with later pending events after one hook fails", async () => {
+    await withStore(async (store) => {
+      const first = createPendingTask(store);
+      const second = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-43",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(second.id, "CTASK", "11.000", "{}");
+      const delivered: string[] = [];
+      const hooks = [
+        {
+          status: "In Review",
+          run: ({ issue }: StatusHookContext) => {
+            if (issue.identifier === "APP-42") throw new Error("Simulated hook failure");
+            delivered.push(issue.identifier);
+          },
+        },
+      ];
+      queueStatusHooks(hooks, store, first, "In Progress", "In Review");
+      queueStatusHooks(hooks, store, second, "In Progress", "In Review");
+
+      await deliverPendingStatusHooks({
+        hooks,
+        store,
+        slackClient: { chat: { postMessage: async () => {} } },
+        watcherChannelId: "CWATCHER",
+      });
+
+      assert.deepEqual(delivered, ["APP-43"]);
     });
   });
 
@@ -276,6 +359,17 @@ async function withPendingHook(
     );
     await run({ store, hooks, runs });
   });
+}
+
+function createPendingTask(store: WatcherStore) {
+  const task = store.upsertTaskFromEvent({
+    type: "updated",
+    service: "ios",
+    issueIdentifier: "APP-42",
+    issueTitle: "Ship preview",
+    resolvedState: "In Review",
+  });
+  return store.setParentMessage(task.id, "CTASK", "10.000", "{}");
 }
 
 async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {
