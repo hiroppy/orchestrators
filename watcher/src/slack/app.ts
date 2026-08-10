@@ -77,6 +77,7 @@ export interface SlackAppOptions {
   updateLinearStatus: LinearStatusUpdater;
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
+  botUserId: string;
   configuredMentionTargets?: string[];
 }
 
@@ -86,6 +87,7 @@ export function createSlackApp({
   updateLinearStatus,
   createLinearWorkpadReply,
   store,
+  botUserId,
   configuredMentionTargets = [],
 }: SlackAppOptions): App {
   const app = new App({
@@ -93,15 +95,11 @@ export function createSlackApp({
     appToken,
     socketMode: true,
   });
-  const resolveBotUserId = createSlackBotUserIdResolver();
-
   registerStatusAction(app, store, updateLinearStatus);
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
   app.message(async (args) => {
-    const botUserId = await resolveBotUserId(args.client, args.logger);
-    if (!botUserId) return;
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
   });
   return app;
@@ -712,41 +710,12 @@ interface StatusActionArguments {
 interface MessageArguments {
   message: unknown;
   client: {
-    auth?: {
-      test(): Promise<{ user_id?: string }>;
-    };
     reactions: {
       add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
     };
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
-}
-
-async function resolveSlackBotUserId(
-  client: MessageArguments["client"],
-  logger: MessageArguments["logger"],
-): Promise<string | undefined> {
-  if (!client.auth) return undefined;
-  try {
-    return (await client.auth.test()).user_id;
-  } catch (error) {
-    logger.error(error);
-    return undefined;
-  }
-}
-
-export function createSlackBotUserIdResolver(): (
-  client: MessageArguments["client"],
-  logger: MessageArguments["logger"],
-) => Promise<string | undefined> {
-  let botUserIdPromise: Promise<string | undefined> | undefined;
-  return async (client, logger) => {
-    botUserIdPromise ??= resolveSlackBotUserId(client, logger);
-    const botUserId = await botUserIdPromise;
-    if (!botUserId) botUserIdPromise = undefined;
-    return botUserId;
-  };
 }
 
 interface AppMentionEvent {

@@ -8,7 +8,38 @@ import { resolveWatcherConfig } from "../config/runtime.ts";
 import type { ReviewReactionConfig } from "../domain/types.ts";
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
-import { collectSnapshots, resolveLinearWorkflowStatuses, runOnce, runPoll } from "./runner.ts";
+import {
+  collectSnapshots,
+  requireSlackBotUserId,
+  resolveLinearWorkflowStatuses,
+  runOnce,
+  runPoll,
+} from "./runner.ts";
+
+describe("requireSlackBotUserId", () => {
+  it("requires Slack to return the bot identity before message consumption starts", async () => {
+    assert.equal(
+      await requireSlackBotUserId({
+        auth: {
+          async test() {
+            return { user_id: "UBOT" };
+          },
+        },
+      } as never),
+      "UBOT",
+    );
+    await assert.rejects(
+      requireSlackBotUserId({
+        auth: {
+          async test() {
+            return {};
+          },
+        },
+      } as never),
+      /did not return a bot user ID/,
+    );
+  });
+});
 
 describe("runOnce", () => {
   it("uses the service's explicit Linear team ID", () => {

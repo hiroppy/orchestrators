@@ -63,6 +63,12 @@ const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..
 
 class RetryablePollError extends Error {}
 
+export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
+  const response = await client.auth.test();
+  if (!response.user_id) throw new Error("Slack auth.test did not return a bot user ID.");
+  return response.user_id;
+}
+
 export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
   const options = parseArgs(args);
   const unresolvedConfig = resolveWatcherConfig(config, {
@@ -70,14 +76,15 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
   });
   const runtimeConfig = await resolveLinearWorkflowStatuses(unresolvedConfig);
   await requireGitHubCli();
+  const slackConfig = runtimeConfig.slack;
+  const client = slackConfig ? new WebClient(slackConfig.botToken) : undefined;
+  const botUserId = client && !options.dryRun ? await requireSlackBotUserId(client) : undefined;
   const databasePath = resolve(rootDirectory, DEFAULT_DATABASE_PATH);
 
   const database = createDatabase(databasePath);
   const store = new WatcherStore(database.db);
   store.syncDefinitions(runtimeConfig.services, runtimeConfig.linearTeams);
 
-  const slackConfig = runtimeConfig.slack;
-  const client = slackConfig ? new WebClient(slackConfig.botToken) : undefined;
   const app =
     slackConfig && !options.dryRun
       ? createSlackApp({
@@ -103,6 +110,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               })),
             }),
           store,
+          botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
         })
       : undefined;
