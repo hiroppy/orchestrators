@@ -7,6 +7,11 @@ export type {
   OrchestratorConfigInput,
   ReviewReactionConfig,
   SlackConfig,
+  StatusHookConfig,
+  StatusHookContext,
+  StatusHookHelpers,
+  StatusHookSlackPostMessage,
+  StatusHookSlackThreadMessage,
   WatcherSettings,
 } from "./types.ts";
 export { defineConfig } from "./types.ts";

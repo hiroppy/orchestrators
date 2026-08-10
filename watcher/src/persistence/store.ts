@@ -8,6 +8,7 @@ import {
   inArray,
   isNull,
   ne,
+  notExists,
   notInArray,
   or,
   sql,
@@ -36,7 +37,7 @@ import type {
 } from "../domain/types.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
-type TaskEventInput = {
+export type TaskEventInput = {
   taskId: string;
   type: string;
   actor?: string;
@@ -356,6 +357,20 @@ export class WatcherStore {
     return this.getTask(id)!;
   }
 
+  upsertTaskFromEventAtomically(
+    event: WatcherEvent,
+    createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
+    now = new Date(),
+  ): { task: Task; previousTask: Task | undefined } {
+    return this.db.transaction(() => {
+      const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
+      const task = this.upsertTaskFromEvent(event, now);
+      const transitionEvent = createEvent(task, previousTask);
+      if (transitionEvent) this.addEvent(transitionEvent);
+      return { task, previousTask };
+    });
+  }
+
   setParentMessage(
     taskId: string,
     channel: string,
@@ -457,6 +472,20 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
+  updateTaskStatusAtomically(
+    taskId: string,
+    statusName: string,
+    createEvent: (task: Task, fromStatus: string) => TaskEventInput | undefined,
+    now = new Date(),
+  ): { task: Task; fromStatus: string } {
+    return this.db.transaction(() => {
+      const transition = this.updateTaskStatus(taskId, statusName, now);
+      const event = createEvent(transition.task, transition.fromStatus);
+      if (event) this.addEvent(event);
+      return transition;
+    });
+  }
+
   addEvent(event: TaskEventInput): TaskEvent {
     return insertTaskEvent(this.db, event);
   }
@@ -485,6 +514,18 @@ export class WatcherStore {
             eq(taskEvents.slackThreadTs, messageTs),
             eq(taskEvents.type, eventType),
           ),
+        )
+        .get() !== undefined
+    );
+  }
+
+  hasEvent(taskId: string, type: string, body: string): boolean {
+    return (
+      this.db
+        .select({ id: taskEvents.id })
+        .from(taskEvents)
+        .where(
+          and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type), eq(taskEvents.body, body)),
         )
         .get() !== undefined
     );
@@ -547,6 +588,47 @@ export class WatcherStore {
     return rows.flatMap(({ taskId, latestPending, latestCompleted }) =>
       latestPending !== null && latestPending > latestCompleted ? [taskId] : [],
     );
+  }
+
+  getUncompletedEvents(pendingType: string, completedType: string, taskId?: string): TaskEvent[] {
+    const completed = alias(taskEvents, "completed_task_events");
+    const fromStatuses = alias(statuses, "pending_from_status");
+    const toStatuses = alias(statuses, "pending_to_status");
+    const conditions = [
+      eq(taskEvents.type, pendingType),
+      notExists(
+        this.db
+          .select({ id: completed.id })
+          .from(completed)
+          .where(
+            and(
+              eq(completed.type, completedType),
+              eq(completed.body, sql`cast(${taskEvents.id} as text)`),
+            ),
+          ),
+      ),
+    ];
+    if (taskId) conditions.push(eq(taskEvents.taskId, taskId));
+
+    return this.db
+      .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+      .from(taskEvents)
+      .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+      .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+      .where(and(...conditions))
+      .orderBy(asc(taskEvents.id))
+      .all()
+      .map(({ event, fromStatus, toStatus }) => ({
+        id: event.id,
+        taskId: event.taskId,
+        type: event.type,
+        actor: event.actor ?? undefined,
+        fromStatus: fromStatus ?? undefined,
+        toStatus: toStatus ?? undefined,
+        body: event.body ?? undefined,
+        slackThreadTs: event.slackThreadTs ?? undefined,
+        createdAt: event.createdAt,
+      }));
   }
 
   countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {

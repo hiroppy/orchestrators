@@ -10,6 +10,9 @@
       "default": "./src/root-config.ts"
     }
   },
+  "dependencies": {
+    "@slack/web-api": "^8.0.0"
+  },
   "engines": {
     "node": ">=24"
   }

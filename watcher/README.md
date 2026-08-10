@@ -96,6 +96,80 @@ Reaching the limit immediately posts a notice in the task thread. Requeue
 counts survive watcher restarts because they are stored in the watcher
 database. Omit `watcher.reviewReaction` to disable this behavior.
 
+### Status hooks
+
+Use `watcher.statusHooks` to run TypeScript after a tracked issue enters a
+specific Linear status. Put local hook modules in the gitignored root `hooks/`
+directory and import them from `config.ts`.
+
+The callback's first argument contains typed issue, status transition, and linked
+pull request data. The second argument contains helpers created by the watcher;
+their destinations are fixed for the current task, so hook code does not choose
+channel or thread IDs:
+
+- `helpers.slack.postMessage(message)` posts to the watcher channel.
+- `helpers.slack.postThreadMessage(message)` replies to the tracked task thread.
+- Returning a non-empty string is shorthand for posting one task-thread reply.
+- `id` must be unique and stable across hook reordering so interrupted deliveries can resume safely.
+- Message arguments use Slack's `ChatPostMessageArguments` type. The watcher fixes
+  `channel` and `thread_ts`; hook code supplies `text` or blocks and any other
+  supported Slack options.
+
+<details>
+<summary>Complete TypeScript hook example</summary>
+
+Create `hooks/in-review.ts`:
+
+```ts
+import type { StatusHookConfig } from "orchestrator-config";
+
+export const inReviewHook: StatusHookConfig["run"] = async ({ issue, pullRequest }, { slack }) => {
+  if (!pullRequest) return;
+
+  const testingUri = await findAppDistributionUrl(pullRequest.url);
+  await slack.postThreadMessage({
+    text: `App Distribution is ready for ${issue.identifier}: ${testingUri}`,
+    unfurl_links: false,
+    unfurl_media: false,
+  });
+};
+
+async function findAppDistributionUrl(pullRequestUrl: string): Promise<string> {
+  // Read the URL from the completed required CI check.
+  return pullRequestUrl;
+}
+```
+
+Import it from the gitignored root `config.ts`:
+
+```ts
+import { defineConfig } from "orchestrator-config";
+
+import { inReviewHook } from "./hooks/in-review.ts";
+
+export default defineConfig({
+  watcher: {
+    statusHooks: [
+      {
+        id: "app-distribution",
+        status: "In Review",
+        run: inReviewHook,
+      },
+    ],
+  },
+  // linearTeams, instances, and Slack configuration...
+});
+```
+
+</details>
+
+Hooks run only on a transition edge, not on every poll.
+Failures are logged without stopping the watcher. Hooks are trusted in-process
+TypeScript and must not perform blocking synchronous work; they should also be
+idempotent. For asynchronous work, such as an App Distribution
+build, make that build a required CI check and use the hook to read its completed
+result instead of waiting for CI inside the hook.
+
 ## Preview Slack output
 
 Post a representative watcher message to Slack without starting the watcher or

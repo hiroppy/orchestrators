@@ -50,9 +50,20 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
+import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const creatorMentionCache = new Map<string, string | null>();
+
+async function deliverPendingStatusHooksSafely(
+  options: Parameters<typeof deliverPendingStatusHooks>[0],
+): Promise<void> {
+  try {
+    await deliverPendingStatusHooks(options);
+  } catch (error) {
+    console.error("Status hook delivery failed; it will be retried:", error);
+  }
+}
 const REVIEW_REQUEUE_EVENT = "review_requeued";
 const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
@@ -112,6 +123,17 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           store,
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
+          createStatusTransitionEvent: (task, fromStatus, toStatus) =>
+            createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
+          onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+            await deliverPendingStatusHooksSafely({
+              hooks: runtimeConfig.statusHooks,
+              store,
+              slackClient,
+              watcherChannelId: slackConfig.channelId,
+              taskId: task.id,
+            });
+          },
         })
       : undefined;
 
@@ -179,7 +201,13 @@ export async function runOnce({
 }: RunOnceOptions) {
   let reviewReconciliationTaskIds = new Set<string>();
   if (!dryRun) {
-    if (!slackClient) throw new Error("Slack client is required.");
+    if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
+    await deliverPendingStatusHooksSafely({
+      hooks: config.statusHooks ?? [],
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+    });
     await deliverPendingReviewLimitNotifications(store, slackClient);
     reviewReconciliationTaskIds = new Set(
       store.getTaskIdsWithIncompleteEvent(
@@ -434,7 +462,26 @@ async function processWatcherEvent({
     slackChannelId,
     event,
     shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
-    { forceMention: reviewDecision.deliverDeferredMention },
+    {
+      forceMention: reviewDecision.deliverDeferredMention,
+      createStatusTransitionEvent: (task, fromStatus) =>
+        createPendingStatusHookEvent(
+          config.statusHooks ?? [],
+          task,
+          fromStatus,
+          task.status,
+          event.pullRequest,
+        ),
+      afterPublish: async (task) => {
+        await deliverPendingStatusHooksSafely({
+          hooks: config.statusHooks ?? [],
+          store,
+          slackClient,
+          watcherChannelId: slackChannelId,
+          taskId: task.id,
+        });
+      },
+    },
   );
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
@@ -456,10 +503,25 @@ async function processWatcherEvent({
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
   });
-  const { task: requeuedTask, fromStatus } = store.updateTaskStatus(
+  const { task: requeuedTask, fromStatus } = store.updateTaskStatusAtomically(
     task.id,
     review.inProgressStatus,
+    (updatedTask, previousStatus) =>
+      createPendingStatusHookEvent(
+        config.statusHooks ?? [],
+        updatedTask,
+        previousStatus,
+        updatedTask.status,
+        event.pullRequest,
+      ),
   );
+  await deliverPendingStatusHooksSafely({
+    hooks: config.statusHooks ?? [],
+    store,
+    slackClient,
+    watcherChannelId: slackChannelId,
+    taskId: requeuedTask.id,
+  });
   const auditBody = buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
   const requeueEvent = {
     taskId: task.id,
@@ -1088,6 +1150,9 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
   }
   for (const status of config.mention?.statuses ?? []) {
     rules.push(["slack.mentions.statuses", status]);
+  }
+  for (const [index, hook] of config.statusHooks.entries()) {
+    rules.push([`watcher.statusHooks[${index}].status`, hook.status]);
   }
 
   for (const [label, expected] of rules) {

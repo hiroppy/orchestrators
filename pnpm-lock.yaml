@@ -22,7 +22,11 @@ importers:
         specifier: ^1.76.0
         version: 1.76.0
 
-  config: {}
+  config:
+    dependencies:
+      '@slack/web-api':
+        specifier: ^8.0.0
+        version: 8.0.0
 
   watcher:
     dependencies:

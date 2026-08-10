@@ -252,6 +252,61 @@ describe("runOnce", () => {
     }
   });
 
+  it("resolves and validates TypeScript status hooks", async () => {
+    const run = () => "ready";
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: { statusHooks: [{ id: " app-distribution ", status: " In Review ", run }] },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.statusHooks, [{ id: "app-distribution", status: "In Review", run }]);
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { statusHooks: [{ id: "broken", status: "In Review" } as never] },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.run must be a function/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { statusHooks: [{ status: "In Review", run } as never] },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.id must be a non-empty string/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              statusHooks: [
+                { id: "duplicate", status: "In Review", run },
+                { id: "duplicate", status: "Done", run },
+              ],
+            },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[1\]\.id must be unique/,
+    );
+  });
+
   it("rejects duplicate ports and non-boolean enabled values", () => {
     assert.throws(
       () =>

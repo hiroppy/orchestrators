@@ -21,6 +21,8 @@
 /watcher/config.local.ts
 /config.json
 /launchd/
+/hooks/*
+!/hooks/.gitkeep
 
 # macOS/editor
 node_modules/

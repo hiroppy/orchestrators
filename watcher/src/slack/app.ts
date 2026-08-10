@@ -28,12 +28,23 @@ import {
   buildWatcherStartedMessageBlocks,
   STATUS_SUMMARY_STATUSES,
 } from "./views.ts";
-import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
+import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedMentionConfig } from "../config/runtime.ts";
 
 export type LinearStatusUpdater = (task: Task, status: string) => Promise<void>;
+export type StatusTransitionHandler = (
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+  client: SlackClient,
+) => Promise<void>;
+export type StatusTransitionEventFactory = (
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+) => TaskEventInput | undefined;
 interface SlackReplyFile {
   filename: string;
   contentType: string;
@@ -79,6 +90,8 @@ export interface SlackAppOptions {
   store: WatcherStore;
   botUserId: string;
   configuredMentionTargets?: string[];
+  createStatusTransitionEvent?: StatusTransitionEventFactory;
+  onStatusTransition?: StatusTransitionHandler;
 }
 
 export function createSlackApp({
@@ -89,13 +102,21 @@ export function createSlackApp({
   store,
   botUserId,
   configuredMentionTargets = [],
+  createStatusTransitionEvent,
+  onStatusTransition,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
     appToken,
     socketMode: true,
   });
-  registerStatusAction(app, store, updateLinearStatus);
+  registerStatusAction(
+    app,
+    store,
+    updateLinearStatus,
+    createStatusTransitionEvent,
+    onStatusTransition,
+  );
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
@@ -338,9 +359,17 @@ function registerStatusAction(
   app: App,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
+  createStatusTransitionEvent?: StatusTransitionEventFactory,
+  onStatusTransition?: StatusTransitionHandler,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
-    await handleStatusAction(args, store, updateLinearStatus);
+    await handleStatusAction(
+      args,
+      store,
+      updateLinearStatus,
+      onStatusTransition,
+      createStatusTransitionEvent,
+    );
   });
 }
 
@@ -348,6 +377,8 @@ export async function handleStatusAction(
   { ack, action, body, client, logger }: StatusActionArguments,
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
+  onStatusTransition?: StatusTransitionHandler,
+  createStatusTransitionEvent?: StatusTransitionEventFactory,
 ): Promise<void> {
   await ack();
 
@@ -399,8 +430,14 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
-      const { task, fromStatus } = store.updateTaskStatus(taskId, selectedStatus);
+      const { task, fromStatus } = store.updateTaskStatusAtomically(
+        taskId,
+        selectedStatus,
+        (updatedTask, previousStatus) =>
+          createStatusTransitionEvent?.(updatedTask, previousStatus, selectedStatus),
+      );
       store.setRenderedSummary(task.id, JSON.stringify(card));
+      await onStatusTransition?.(task, fromStatus, selectedStatus, client);
 
       const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
       const statusChangedLine = buildStatusChangedMessage(
@@ -464,13 +501,30 @@ export async function publishWatcherEvent(
   destinationChannel: string,
   event: WatcherEvent,
   mention?: ResolvedMentionConfig,
-  options: { forceMention?: boolean } = {},
+  options: {
+    forceMention?: boolean;
+    onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
+    createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
+    afterPublish?: (task: Task) => Promise<void>;
+  } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const previousTask = store.getTask(taskId);
   const isNewPullRequest =
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
-  let task = store.upsertTaskFromEvent(event);
+  const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
+    event,
+    (task, previous) =>
+      previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
+        ? options.createStatusTransitionEvent?.(task, previous.status)
+        : undefined,
+  );
+  let task = persistedTask;
+  const statusChanged =
+    previousTask !== undefined &&
+    normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
+  if (statusChanged) {
+    await options.onStatusTransition?.(task, previousTask.status);
+  }
   const notifications = notificationTargetsForWatcherEvent(
     mention,
     previousTask?.status,
@@ -490,7 +544,6 @@ export async function publishWatcherEvent(
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
-
   if (!task.parentChannelId || !task.parentMessageTs) {
     const parent = await client.chat.postMessage({
       channel: destinationChannel,
@@ -530,9 +583,6 @@ export async function publishWatcherEvent(
     }
   }
 
-  const statusChanged =
-    previousTask !== undefined &&
-    normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
   const threadEvent =
     isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
   const threadContext = {
@@ -554,6 +604,7 @@ export async function publishWatcherEvent(
         ...(threadBlocks ? { blocks: threadBlocks } : {}),
       })
     : undefined;
+  await options.afterPublish?.(task);
   store.addEvent({
     taskId: task.id,
     type: event.type,
