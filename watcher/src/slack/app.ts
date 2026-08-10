@@ -147,10 +147,15 @@ export async function handleAppMention(
     });
   } catch (error) {
     logger.error(error);
-    await client.chat.postMessage({
-      channel: mention.event.channel,
-      text: "Failed to load the current task status.",
-    });
+    await postSlackOperationError(
+      client,
+      {
+        channel: mention.event.channel,
+        threadTs: mention.event.threadTs,
+      },
+      "Failed to load the current task status.",
+      logger,
+    );
   }
 }
 
@@ -198,29 +203,29 @@ async function handleAssignCommand({
 
   const task = store.getTaskBySlackThread(event.channel, threadTs);
   if (!task) {
-    await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: threadTs,
-      text: "Run `assign` from a tracked task thread.",
-    });
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "Run `assign` from a tracked task thread.",
+    );
     return;
   }
 
   const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
   if (!slackUserId) {
-    await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: threadTs,
-      text: "Usage: `@Orchestrators assign @user`",
-    });
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "Usage: `@Orchestrators assign @user`",
+    );
     return;
   }
   if (event.user !== slackUserId) {
-    await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: threadTs,
-      text: "You can only assign yourself to task notifications.",
-    });
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You can only assign yourself to task notifications.",
+    );
     return;
   }
 
@@ -231,16 +236,16 @@ async function handleAssignCommand({
     ...new Set([...configuredMentionTargets, ...assignedMentions, slackMention]),
   ];
   if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_NOTIFICATION_MENTIONS_LENGTH) {
-    await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: threadTs,
-      text: `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
-    });
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
+    );
     return;
   }
 
   if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
-  await addCheckmarkReaction(client, {
+  await addSuccessReaction(client, {
     channel: event.channel,
     timestamp: event.ts,
   });
@@ -306,9 +311,10 @@ export async function handleThreadReply(
     const replyRecorded = store.hasRecordedSlackMessage(task.id, reply.ts, "workpad_replied");
 
     if (!replyRecorded) {
+      let created: boolean;
       try {
         const authorName = await resolveSlackDisplayName(client, { id: reply.user }, logger);
-        const created = await createLinearWorkpadReply(
+        created = await createLinearWorkpadReply(
           task,
           {
             text: reply.text,
@@ -322,8 +328,28 @@ export async function handleThreadReply(
           },
           `${reply.channel}:${reply.ts}`,
         );
-        if (!created) return;
+      } catch (error) {
+        logger.error(error);
+        await postLinearReplyFailure(
+          client,
+          reply,
+          "Linear への転記中にエラーが発生しました。",
+          logger,
+        );
+        return;
+      }
 
+      if (!created) {
+        await postLinearReplyFailure(
+          client,
+          reply,
+          "Linear の転記先 Workpad が見つかりませんでした。",
+          logger,
+        );
+        return;
+      }
+
+      try {
         store.addEvent({
           taskId: task.id,
           type: "workpad_replied",
@@ -333,6 +359,12 @@ export async function handleThreadReply(
         });
       } catch (error) {
         logger.error(error);
+        await postSlackOperationError(
+          client,
+          { channel: reply.channel, threadTs: reply.thread_ts },
+          "Linear への転記は成功しましたが、処理結果を記録できませんでした。",
+          logger,
+        );
         return;
       }
     }
@@ -342,7 +374,10 @@ export async function handleThreadReply(
     }
 
     try {
-      await addCopiedReplyReaction(client, reply);
+      await addSuccessReaction(client, {
+        channel: reply.channel,
+        timestamp: reply.ts,
+      });
       store.addEvent({
         taskId: task.id,
         type: "workpad_reply_acknowledged",
@@ -353,6 +388,40 @@ export async function handleThreadReply(
       logger.error(error);
     }
   });
+}
+
+async function postLinearReplyFailure(
+  client: MessageArguments["client"],
+  reply: UserThreadReply,
+  reason: string,
+  logger: MessageArguments["logger"],
+): Promise<void> {
+  await postSlackOperationError(
+    client,
+    { channel: reply.channel, threadTs: reply.thread_ts },
+    `Linear への転記に失敗しました。理由: ${reason}`,
+    logger,
+  );
+}
+
+async function postSlackOperationError(
+  client: { chat?: Pick<SlackClient["chat"], "postMessage"> },
+  message: { channel: string; threadTs?: string },
+  reason: string,
+  logger?: { error(error: unknown): void },
+): Promise<void> {
+  if (!client.chat) return;
+
+  try {
+    await client.chat.postMessage({
+      channel: message.channel,
+      ...(message.threadTs ? { thread_ts: message.threadTs } : {}),
+      text: `[error] ${reason}`,
+    });
+  } catch (error) {
+    if (logger) logger.error(error);
+    else throw error;
+  }
 }
 
 function registerStatusAction(
@@ -760,6 +829,7 @@ interface StatusActionArguments {
 interface MessageArguments {
   message: unknown;
   client: ReactionClient & {
+    chat?: Pick<SlackClient["chat"], "postMessage">;
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
@@ -805,16 +875,16 @@ interface SlackFile {
   url_private_download?: string;
 }
 
-async function addCopiedReplyReaction(
-  client: MessageArguments["client"],
-  message: UserThreadReply,
+async function addSuccessReaction(
+  client: ReactionClient,
+  message: { channel: string; timestamp: string },
 ): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       await client.reactions.add({
         channel: message.channel,
         name: "white_check_mark",
-        timestamp: message.ts,
+        timestamp: message.timestamp,
       });
       return;
     } catch (error) {
@@ -822,21 +892,6 @@ async function addCopiedReplyReaction(
       if (attempt >= 3 || !isTransientSlackError(error)) throw error;
       await sleep(slackRetryDelayMs(error));
     }
-  }
-}
-
-async function addCheckmarkReaction(
-  client: ReactionClient,
-  message: { channel: string; timestamp: string },
-): Promise<void> {
-  try {
-    await client.reactions.add({
-      channel: message.channel,
-      name: "white_check_mark",
-      timestamp: message.timestamp,
-    });
-  } catch (error) {
-    if (slackError(error) !== "already_reacted") throw error;
   }
 }
 
