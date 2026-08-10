@@ -457,6 +457,33 @@ export class WatcherStore {
     return { task: this.requireTask(taskId), fromStatus: existing.status };
   }
 
+  restoreTaskState(
+    taskId: string,
+    statusName: string,
+    linearStateType: string | undefined,
+    now = new Date(),
+  ): void {
+    const existing = this.requireTask(taskId);
+    const status = this.db
+      .select({ id: statuses.id })
+      .from(statuses)
+      .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
+      .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
+      .get();
+    if (!status)
+      throw new Error(`Status is not configured for ${existing.serviceName}: ${statusName}`);
+
+    this.db
+      .update(tasks)
+      .set({
+        statusId: status.id,
+        linearStateType: linearStateType ?? null,
+        updatedAt: now.toISOString(),
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
   addEvent(event: TaskEventInput): TaskEvent {
     return insertTaskEvent(this.db, event);
   }

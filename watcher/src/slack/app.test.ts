@@ -453,6 +453,7 @@ describe("Slack app behavior", () => {
         service: "service-a",
         issueIdentifier: "ENG-62",
         state: "In Progress",
+        resolvedStateType: "started",
       });
 
       const transitions: string[] = [];
@@ -471,6 +472,7 @@ describe("Slack app behavior", () => {
       failUpdate = true;
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, []);
 
       failUpdate = false;
@@ -496,31 +498,77 @@ describe("Slack app behavior", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           state: "In Progress",
+          resolvedStateType: "started",
         }),
       );
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, undefined);
 
       const transitions: string[] = [];
+      const event = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      };
+      const options = {
+        onStatusTransition: async (
+          task: { status: string; parentMessageTs?: string },
+          fromStatus: string,
+        ) => {
+          transitions.push(`${fromStatus} -> ${task.status}@${task.parentMessageTs}`);
+        },
+      };
+
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+
       failPost = false;
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-        },
-        undefined,
-        {
-          onStatusTransition: async (task, fromStatus) => {
-            transitions.push(`${fromStatus} -> ${task.status}@${task.parentMessageTs}`);
-          },
-        },
-      );
+      await publishWatcherEvent(client, store, "C123", event, undefined, options);
 
       assert.deepEqual(transitions, ["In Progress -> In Review@1.000"]);
+    });
+  });
+
+  it("retries a transition hook after its Slack thread history fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+
+      const postMessage = client.chat.postMessage;
+      let failThread = true;
+      client.chat.postMessage = async (args) => {
+        if (failThread && args.thread_ts) throw new Error("Simulated Slack failure");
+        return postMessage(args);
+      };
+      const transitions: string[] = [];
+      const event = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      };
+      const options = {
+        onStatusTransition: async (task: { status: string }, fromStatus: string) => {
+          transitions.push(`${fromStatus} -> ${task.status}`);
+        },
+      };
+
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.deepEqual(transitions, []);
+
+      failThread = false;
+      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      assert.deepEqual(transitions, ["In Progress -> In Review"]);
     });
   });
 

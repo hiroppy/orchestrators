@@ -507,6 +507,13 @@ export async function publishWatcherEvent(
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
     enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
+  const rollbackPublishedState = () => {
+    if (statusChanged) {
+      store.restoreTaskState(task.id, previousTask.status, previousTask.linearStateType);
+    } else if (announceTerminalParent) {
+      store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+    }
+  };
 
   if (!task.parentChannelId || !task.parentMessageTs) {
     let parent: ChatPostMessageResponse;
@@ -516,7 +523,7 @@ export async function publishWatcherEvent(
         ...card,
       });
     } catch (error) {
-      if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
+      rollbackPublishedState();
       throw error;
     }
     if (!parent.channel || !parent.ts) {
@@ -546,10 +553,7 @@ export async function publishWatcherEvent(
         );
       }
     } catch (error) {
-      if (announceTerminalParent) {
-        store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
-      }
-      if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
+      rollbackPublishedState();
       throw error;
     }
   }
@@ -578,7 +582,7 @@ export async function publishWatcherEvent(
         })
       : undefined;
   } catch (error) {
-    if (statusChanged) store.updateTaskStatus(task.id, previousTask.status);
+    rollbackPublishedState();
     throw error;
   }
   if (statusChanged) {
