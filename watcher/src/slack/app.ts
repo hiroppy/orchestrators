@@ -184,8 +184,8 @@ async function handleAssignCommand({
     channel: event.channel,
     thread_ts: threadTs,
     text: added
-      ? `Assigned <@${slackUserId}> to notifications for ${task.issueIdentifier}.`
-      : `<@${slackUserId}> is already assigned to notifications for ${task.issueIdentifier}.`,
+      ? `Assigned <@${slackUserId}> to configured notifications for ${task.issueIdentifier}.`
+      : `<@${slackUserId}> is already assigned to configured notifications for ${task.issueIdentifier}.`,
   });
 }
 
