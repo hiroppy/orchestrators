@@ -311,9 +311,10 @@ export async function handleThreadReply(
     const replyRecorded = store.hasRecordedSlackMessage(task.id, reply.ts, "workpad_replied");
 
     if (!replyRecorded) {
+      let created: boolean;
       try {
         const authorName = await resolveSlackDisplayName(client, { id: reply.user }, logger);
-        const created = await createLinearWorkpadReply(
+        created = await createLinearWorkpadReply(
           task,
           {
             text: reply.text,
@@ -327,16 +328,28 @@ export async function handleThreadReply(
           },
           `${reply.channel}:${reply.ts}`,
         );
-        if (!created) {
-          await postLinearReplyFailure(
-            client,
-            reply,
-            "Linear の転記先 Workpad が見つかりませんでした。",
-            logger,
-          );
-          return;
-        }
+      } catch (error) {
+        logger.error(error);
+        await postLinearReplyFailure(
+          client,
+          reply,
+          "Linear への転記中にエラーが発生しました。",
+          logger,
+        );
+        return;
+      }
 
+      if (!created) {
+        await postLinearReplyFailure(
+          client,
+          reply,
+          "Linear の転記先 Workpad が見つかりませんでした。",
+          logger,
+        );
+        return;
+      }
+
+      try {
         store.addEvent({
           taskId: task.id,
           type: "workpad_replied",
@@ -346,7 +359,12 @@ export async function handleThreadReply(
         });
       } catch (error) {
         logger.error(error);
-        await postLinearReplyFailure(client, reply, errorMessage(error), logger);
+        await postSlackOperationError(
+          client,
+          { channel: reply.channel, threadTs: reply.thread_ts },
+          "Linear への転記は成功しましたが、処理結果を記録できませんでした。",
+          logger,
+        );
         return;
       }
     }
@@ -404,10 +422,6 @@ async function postSlackOperationError(
     if (logger) logger.error(error);
     else throw error;
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function registerStatusAction(

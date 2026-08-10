@@ -1608,7 +1608,7 @@ describe("Slack app behavior", () => {
 
       await handleThreadReply(args, store, async () => false);
       await handleThreadReply(args, store, async () => {
-        throw new Error("Linear unavailable");
+        throw new Error("Linear unavailable: <!channel> secret-token");
       });
 
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
@@ -1622,11 +1622,69 @@ describe("Slack app behavior", () => {
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記に失敗しました。理由: Linear unavailable",
+          text: "[error] Linear への転記に失敗しました。理由: Linear への転記中にエラーが発生しました。",
         },
       ]);
       assert.equal(errors.length, 1);
       assert.match(String(errors[0]), /Linear unavailable/);
+      assert.doesNotMatch(
+        messages.map(({ text }) => String(text)).join("\n"),
+        /secret-token|channel/,
+      );
+    });
+  });
+
+  it("distinguishes persistence failures after a successful Linear reply", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const messages: Array<Record<string, unknown>> = [];
+      const errors: unknown[] = [];
+      const originalAddEvent = store.addEvent.bind(store);
+      store.addEvent = (event) => {
+        if (event.type === "workpad_replied") throw new Error("Database unavailable");
+        return originalAddEvent(event);
+      };
+
+      await handleThreadReply(
+        {
+          message: {
+            channel: "C123",
+            thread_ts: "1.000",
+            ts: "2.000",
+            user: "U123",
+            text: "Please update the Workpad.",
+          },
+          client: {
+            ...reactionClient([]),
+            chat: {
+              async postMessage(message: Record<string, unknown>) {
+                messages.push(message);
+                return { ok: true };
+              },
+            },
+          },
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+        async () => true,
+      );
+
+      assert.deepEqual(messages, [
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          text: "[error] Linear への転記は成功しましたが、処理結果を記録できませんでした。",
+        },
+      ]);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Database unavailable/);
     });
   });
 
