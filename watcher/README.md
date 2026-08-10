@@ -167,11 +167,11 @@ destination channel. It does not require the root `config.ts` or
   displayed without a mention. Optional `slack.mentions.targets` entries render
   separately as `Mentions:` for reviewers or Slack user groups. When `targets`
   is omitted or empty, the `Mentions:` label is not displayed.
-- A user's text and attached images in a task card thread are copied once to
+- A user's text and attached images or videos in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
-  PNG, JPEG, GIF, and WebP image-only replies are supported. Bot messages,
+  PNG, JPEG, GIF, WebP, MP4, MOV, and WebM file-only replies are supported. Bot messages,
   edited/deleted message events, unrelated threads, and issues without an
-  active Workpad are ignored. Images are transferred sequentially and limited
+  active Workpad are ignored. Files are transferred sequentially and limited
   to 25 MiB each. A successfully copied Slack reply receives a
   `white_check_mark` reaction.
 - The Symphony snapshot diff emits task events when an issue first appears,

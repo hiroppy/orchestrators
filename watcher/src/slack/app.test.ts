@@ -719,7 +719,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("copies text, image-with-text, and image-only replies once", async () => {
+  it("copies text, image, and video replies once", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       await publishWatcherEvent(fakeClient(calls), store, "C123", {
@@ -806,6 +806,39 @@ describe("Slack app behavior", () => {
           ...args,
           message: {
             ...args.message,
+            ts: "5.000",
+            text: "",
+            subtype: "file_share",
+            files: [
+              {
+                name: "demo.mp4",
+                mimetype: "video/mp4",
+                size: 5,
+                url_private: "https://files.slack.com/files-pri/demo-mp4",
+              },
+              {
+                name: "demo.mov",
+                mimetype: "video/quicktime",
+                size: 6,
+                url_private: "https://files.slack.com/files-pri/demo-mov",
+              },
+              {
+                name: "demo.webm",
+                mimetype: "video/webm",
+                size: 7,
+                url_private: "https://files.slack.com/files-pri/demo-webm",
+              },
+            ],
+          },
+        },
+        store,
+        reply,
+      );
+      await handleThreadReply(
+        {
+          ...args,
+          message: {
+            ...args.message,
             ts: "4.000",
             user: "U789",
             text: "",
@@ -829,7 +862,7 @@ describe("Slack app behavior", () => {
           issueIdentifier: "ENG-62",
           reply: {
             text: "Please cover the retry path.",
-            images: [],
+            files: [],
             authorName: "Hiroppy",
           },
         },
@@ -838,7 +871,7 @@ describe("Slack app behavior", () => {
           reply: {
             text: "Screenshot attached.",
             authorName: "No Avatar",
-            images: [
+            files: [
               {
                 filename: "first screenshot.png",
                 contentType: "image/png",
@@ -858,8 +891,35 @@ describe("Slack app behavior", () => {
           issueIdentifier: "ENG-62",
           reply: {
             text: "",
+            authorName: "Hiroppy",
+            files: [
+              {
+                filename: "demo.mp4",
+                contentType: "video/mp4",
+                downloadUrl: "https://files.slack.com/files-pri/demo-mp4",
+                size: 5,
+              },
+              {
+                filename: "demo.mov",
+                contentType: "video/quicktime",
+                downloadUrl: "https://files.slack.com/files-pri/demo-mov",
+                size: 6,
+              },
+              {
+                filename: "demo.webm",
+                contentType: "video/webm",
+                downloadUrl: "https://files.slack.com/files-pri/demo-webm",
+                size: 7,
+              },
+            ],
+          },
+        },
+        {
+          issueIdentifier: "ENG-62",
+          reply: {
+            text: "",
             authorName: "Real Name",
-            images: [
+            files: [
               {
                 filename: "image only.gif",
                 contentType: "image/gif",
@@ -873,10 +933,11 @@ describe("Slack app behavior", () => {
       assert.deepEqual(reactions, [
         { channel: "C123", name: "white_check_mark", timestamp: "2.000" },
         { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
+        { channel: "C123", name: "white_check_mark", timestamp: "5.000" },
         { channel: "C123", name: "white_check_mark", timestamp: "4.000" },
       ]);
-      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 3);
-      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 3);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 4);
+      assert.equal(store.countEvents("service-a:ENG-62", "workpad_reply_acknowledged"), 4);
     });
   });
 
@@ -921,7 +982,7 @@ describe("Slack app behavior", () => {
       assert.deepEqual(replies, [
         {
           text: "Please retry.",
-          images: [],
+          files: [],
           authorName: "U123",
         },
       ]);

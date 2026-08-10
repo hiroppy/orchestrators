@@ -120,7 +120,7 @@ describe("createLinearWorkpadReply", () => {
     });
   });
 
-  it("uploads every image and embeds it with the reply text", async (context) => {
+  it("uploads every image and video and embeds them with the reply text", async (context) => {
     const uploads: Array<{
       url: string;
       contentType: string | null;
@@ -175,10 +175,10 @@ describe("createLinearWorkpadReply", () => {
       return Response.json({ data: { commentCreate: { success: true } } });
     });
 
-    const created = await createLinearWorkpadReply("ENG-62", "See both screenshots.", {
+    const created = await createLinearWorkpadReply("ENG-62", "See the attachments.", {
       apiKey: "lin_test",
       idempotencyKey: "C123:2.000",
-      images: [
+      files: [
         {
           filename: "first.png",
           contentType: "image/png",
@@ -195,6 +195,11 @@ describe("createLinearWorkpadReply", () => {
             return new Uint8Array([3, 4, 5]).buffer;
           },
         },
+        {
+          filename: "demo.mp4",
+          contentType: "video/mp4",
+          loadData: async () => new Uint8Array([6, 7]).buffer,
+        },
       ],
     });
 
@@ -202,9 +207,10 @@ describe("createLinearWorkpadReply", () => {
     assert.equal(
       commentBody,
       [
-        "See both screenshots.",
+        "See the attachments.",
         "![first.png](https://uploads.linear.app/first.png)",
         "![second\\].jpg](https://uploads.linear.app/second%5D.jpg)",
+        "![demo.mp4](https://uploads.linear.app/demo.mp4)",
       ].join("\n\n"),
     );
     assert.deepEqual(uploads, [
@@ -220,10 +226,16 @@ describe("createLinearWorkpadReply", () => {
         cacheControl: "public, max-age=31536000",
         body: [3, 4, 5],
       },
+      {
+        url: "https://uploads.example/demo.mp4",
+        contentType: "video/mp4",
+        cacheControl: "public, max-age=31536000",
+        body: [6, 7],
+      },
     ]);
   });
 
-  it("does not create a reply when a Linear image upload fails", async (context) => {
+  it("does not create a reply when a Linear file upload fails", async (context) => {
     let commentCreateCount = 0;
     let fileUploadRequestCount = 0;
     let uploadAttemptCount = 0;
@@ -273,7 +285,7 @@ describe("createLinearWorkpadReply", () => {
       createLinearWorkpadReply("ENG-62", "", {
         apiKey: "lin_test",
         idempotencyKey: "C123:2.000",
-        images: [
+        files: [
           {
             filename: "failure.png",
             contentType: "image/png",
@@ -339,7 +351,7 @@ describe("createLinearWorkpadReply", () => {
     const created = await createLinearWorkpadReply("ENG-62", "", {
       apiKey: "lin_test",
       idempotencyKey: "C123:2.000",
-      images: [
+      files: [
         {
           filename: "retry.png",
           contentType: "image/png",
@@ -378,7 +390,7 @@ describe("createLinearWorkpadReply", () => {
     const created = await createLinearWorkpadReply("ENG-62", "No destination", {
       apiKey: "lin_test",
       idempotencyKey: "C123:2.000",
-      images: [
+      files: [
         {
           filename: "ignored.png",
           contentType: "image/png",
@@ -550,7 +562,7 @@ describe("createLinearWorkpadReply", () => {
     assert.equal(mutationCount, 1);
   });
 
-  it("reconciles an existing image reply before loading another copy", async (context) => {
+  it("reconciles an existing file reply before loading another copy", async (context) => {
     let imageLoadCount = 0;
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
@@ -577,7 +589,7 @@ describe("createLinearWorkpadReply", () => {
     const created = await createLinearWorkpadReply("ENG-62", "", {
       apiKey: "lin_test",
       idempotencyKey: "C123:2.000",
-      images: [
+      files: [
         {
           filename: "already-copied.png",
           contentType: "image/png",

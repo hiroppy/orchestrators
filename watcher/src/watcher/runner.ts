@@ -93,12 +93,12 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
               idempotencyKey,
               authorName: reply.authorName,
-              images: reply.images.map((image) => ({
-                filename: image.filename,
-                contentType: image.contentType,
+              files: reply.files.map((file) => ({
+                filename: file.filename,
+                contentType: file.contentType,
                 loadData: () =>
-                  downloadSlackFile(image.downloadUrl, slackConfig.botToken, {
-                    expectedSize: image.size,
+                  downloadSlackFile(file.downloadUrl, slackConfig.botToken, {
+                    expectedSize: file.size,
                   }),
               })),
             }),
