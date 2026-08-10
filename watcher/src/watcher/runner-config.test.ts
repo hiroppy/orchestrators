@@ -1,0 +1,439 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { resolveWatcherConfig } from "../config/runtime.ts";
+import type { ReviewReactionConfig } from "../domain/types.ts";
+import { requireSlackBotUserId, resolveLinearWorkflowStatuses } from "./runner.ts";
+import { baseConfig, linearTeams } from "./runner.test-support.ts";
+
+describe("requireSlackBotUserId", () => {
+  it("requires Slack to return the bot identity before message consumption starts", async () => {
+    assert.equal(
+      await requireSlackBotUserId({
+        auth: {
+          async test() {
+            return { user_id: "UBOT" };
+          },
+        },
+      } as never),
+      "UBOT",
+    );
+    await assert.rejects(
+      requireSlackBotUserId({
+        auth: {
+          async test() {
+            return {};
+          },
+        },
+      } as never),
+      /did not return a bot user ID/,
+    );
+  });
+});
+
+describe("watcher configuration", () => {
+  it("uses the service's explicit Linear team ID", () => {
+    const config = resolveWatcherConfig(
+      {
+        linearTeams: {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-a",
+          },
+        },
+        instances: {
+          "service-a": {
+            port: 4101,
+            linearTeam: "workspace-a-eng",
+          },
+        },
+      },
+      { requireSlack: false },
+    );
+
+    assert.equal(config.linearTeams[config.services[0].linearTeam].teamId, "team-a");
+    assert.equal(config.services[0].url, "http://127.0.0.1:4101/api/v1/state");
+  });
+
+  it("uses the centrally resolved Slack config", () => {
+    assert.deepEqual(
+      resolveWatcherConfig(
+        {
+          ...baseConfig(),
+          slack: {
+            botToken: "xoxb-test",
+            appToken: "xapp-test",
+            channelId: "C123",
+          },
+        },
+        { requireSlack: true },
+      ).slack,
+      {
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        channelId: "C123",
+      },
+    );
+  });
+
+  it("does not assume a workflow-specific mention status and validates configured events", () => {
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        slack: {
+          mentions: {},
+        },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.mention, {
+      targets: [],
+      statuses: [],
+      events: [],
+    });
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            slack: {
+              mentions: {
+                events: ["unknown"],
+              },
+            },
+          } as never,
+          { requireSlack: false },
+        ),
+      /unknown events/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            slack: { mentions: { targets: [123] } },
+          } as never,
+          { requireSlack: false },
+        ),
+      /targets must be an array of non-empty Slack mentions/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            slack: { mentions: { targets: ["x".repeat(2_001)] } },
+          },
+          { requireSlack: false },
+        ),
+      /targets must not exceed 2000 characters combined/,
+    );
+  });
+
+  it("loads workflow statuses from Linear and validates status-based rules", async () => {
+    const unresolved = resolveWatcherConfig(
+      {
+        linearTeams: {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-id",
+          },
+        },
+        instances: {
+          "service-a": {
+            port: 4101,
+            linearTeam: "workspace-a-eng",
+          },
+        },
+        slack: {
+          mentions: {
+            statuses: ["In Review"],
+          },
+        },
+      },
+      { requireSlack: false },
+    );
+    const calls = [];
+    const resolved = await resolveLinearWorkflowStatuses(unresolved, async (teamId, options) => {
+      calls.push({ teamId, options });
+      return ["Todo", "In Progress", "In Review", "Done"];
+    });
+
+    assert.deepEqual(calls, [{ teamId: "team-id", options: { apiKey: "lin_test" } }]);
+    assert.deepEqual(resolved.linearTeams["workspace-a-eng"].statuses, [
+      "Todo",
+      "In Progress",
+      "In Review",
+      "Done",
+    ]);
+
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(unresolved, async () => ["Todo", "In Progress", "Done"]),
+      /slack\.mentions\.statuses references unknown Linear status "In Review"/,
+    );
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(unresolved, async () =>
+        Array.from({ length: 101 }, (_, index) => `Status ${index}`),
+      ),
+      /cannot contain more than 100 statuses/,
+    );
+  });
+
+  it("requires valid review reaction settings", () => {
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: {
+          reviewReaction: {
+            inReviewStatus: "In Review",
+            inProgressStatus: "In Progress",
+            reaction: " 👀 ",
+            maxRequeues: 3,
+          },
+        },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.reviewReaction, {
+      inReviewStatus: "In Review",
+      inProgressStatus: "In Progress",
+      reaction: "👀",
+      maxRequeues: 3,
+    });
+
+    for (const reviewReaction of [
+      {
+        inReviewStatus: "",
+        inProgressStatus: "In Progress",
+        reaction: "👀",
+        maxRequeues: 3,
+      },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        maxRequeues: 3,
+      } as unknown as ReviewReactionConfig,
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reaction: "",
+        maxRequeues: 3,
+      },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reaction: "👀",
+        maxRequeues: 0,
+      },
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            {
+              ...baseConfig(),
+              watcher: { reviewReaction },
+            },
+            { requireSlack: false },
+          ),
+        /watcher\.reviewReaction/,
+      );
+    }
+  });
+
+  it("resolves and validates TypeScript status hooks", async () => {
+    const run = () => "ready";
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: { statusHooks: [{ id: " app-distribution ", status: " In Review ", run }] },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.statusHooks, [
+      { id: "app-distribution", status: "In Review", maxAttempts: 10, run },
+    ]);
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { statusHooks: [{ id: "broken", status: "In Review" } as never] },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.run must be a function/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { statusHooks: [{ status: "In Review", run } as never] },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.id must be a non-empty string/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              statusHooks: [
+                { id: "duplicate", status: "In Review", run },
+                { id: "duplicate", status: "Done", run },
+              ],
+            },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[1\]\.id must be unique/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              statusHooks: [{ id: "invalid-attempts", status: "In Review", maxAttempts: 0, run }],
+            },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusHooks\[0\]\.maxAttempts must be a positive integer/,
+    );
+  });
+
+  it("rejects duplicate ports and non-boolean enabled values", () => {
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            linearTeams: linearTeams(),
+            instances: {
+              "service-a": { port: 4101, linearTeam: "workspace-a-eng" },
+              "service-b": { port: 4101, linearTeam: "workspace-a-eng" },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /duplicate ports/,
+    );
+
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            linearTeams: linearTeams(),
+            instances: {
+              "service-a": {
+                port: 4101,
+                linearTeam: "workspace-a-eng",
+                enabled: "false",
+              },
+            },
+          } as never,
+          { requireSlack: false },
+        ),
+      /enabled must be a boolean/,
+    );
+  });
+
+  it("validates port, polling, and retry boundaries", () => {
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            instances: {
+              "service-a": { port: 0, linearTeam: "workspace-a-eng" },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /port must be an integer from 1 to 65535/,
+    );
+
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { pollIntervalMs: 4_999 },
+          },
+          { requireSlack: false },
+        ),
+      /pollIntervalMs must be at least 5000/,
+    );
+
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              endedTaskRetry: { maxAttempts: 0 },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /maxAttempts must be a positive integer/,
+    );
+
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              endedTaskRetry: { delayMs: -1 },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /delayMs must be zero or greater/,
+    );
+
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: {
+          pollIntervalMs: 5_000,
+          endedTaskRetry: { maxAttempts: 1, delayMs: 0 },
+        },
+        instances: {
+          "service-a": { port: 65_535, linearTeam: "workspace-a-eng" },
+        },
+      },
+      { requireSlack: false },
+    );
+    assert.equal(config.services[0].url, "http://127.0.0.1:65535/api/v1/state");
+  });
+
+  it("rejects instances that reference an unknown Linear team", () => {
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            linearTeams: linearTeams(),
+            instances: {
+              "service-a": {
+                port: 4101,
+                linearTeam: "missing-team",
+              },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /must reference a configured Linear team/,
+    );
+  });
+});

@@ -1,5 +1,16 @@
 import type { EventType, PullRequest, RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
+import {
+  capitalize,
+  escapeExceptLinks,
+  escapeSlack,
+  formatCompactNumber,
+  formatNumber,
+  isPresent,
+  normalizeStatus,
+  positiveNumber,
+  truncate,
+} from "./view-formatting.ts";
 
 const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ACTIVITY_LENGTH = 180;
@@ -485,48 +496,4 @@ function isWatcherErrorTask(task: Task): boolean {
     task.issueIdentifier.startsWith("watcher:") ||
     task.status.trim().toLowerCase() === "unavailable"
   );
-}
-
-function capitalize(value: string): string {
-  return value.length > 0 ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
-}
-
-function positiveNumber(value: unknown): boolean {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0;
-}
-
-function formatNumber(value: unknown): string {
-  return Math.trunc(Number(value)).toLocaleString("en-US");
-}
-
-function formatCompactNumber(value: unknown): string {
-  const number = Number(value);
-  if (number < 1_000) return formatNumber(number);
-  if (number < 1_000_000) return `${stripTrailingZero((number / 1_000).toFixed(1))}k`;
-  return `${stripTrailingZero((number / 1_000_000).toFixed(1))}m`;
-}
-
-function stripTrailingZero(value: string): string {
-  return value.endsWith(".0") ? value.slice(0, -2) : value;
-}
-
-function truncate(value: string, length: number): string {
-  return value.length <= length ? value : `${value.slice(0, length - 1)}…`;
-}
-
-function escapeExceptLinks(value: string): string {
-  return /^<(?:https?:\/\/|@[^>]+>|![^>]+>)/.test(value) ? value : escapeSlack(value);
-}
-
-function escapeSlack(value: unknown): string {
-  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
-function isPresent<T>(value: T | null | undefined | false): value is T {
-  return value !== null && value !== undefined && value !== false;
 }
