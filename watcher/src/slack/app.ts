@@ -475,13 +475,22 @@ export async function publishWatcherEvent(
   destinationChannel: string,
   event: WatcherEvent,
   mention?: ResolvedMentionConfig,
-  options: { forceMention?: boolean } = {},
+  options: {
+    forceMention?: boolean;
+    onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
+  } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const previousTask = store.getTask(taskId);
   const isNewPullRequest =
     event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
   let task = store.upsertTaskFromEvent(event);
+  const statusChanged =
+    previousTask !== undefined &&
+    normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
+  if (statusChanged) {
+    await options.onStatusTransition?.(task, previousTask.status);
+  }
   const notifications = notificationTargetsForWatcherEvent(
     mention,
     previousTask?.status,
@@ -541,9 +550,6 @@ export async function publishWatcherEvent(
     }
   }
 
-  const statusChanged =
-    previousTask !== undefined &&
-    normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
   const threadEvent =
     isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
   const threadContext = {

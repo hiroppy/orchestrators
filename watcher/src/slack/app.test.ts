@@ -438,6 +438,47 @@ describe("Slack app behavior", () => {
     });
   });
 
+  it("delivers a status transition before Slack publishing fails without repeating it", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let failUpdate = false;
+      const client = fakeClient(calls);
+      const update = client.chat.update;
+      client.chat.update = async (args) => {
+        if (failUpdate) throw new Error("Simulated Slack failure");
+        return update(args);
+      };
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+
+      const transitions: string[] = [];
+      const event = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      };
+      const options = {
+        onStatusTransition: async (task: { status: string }, fromStatus: string) => {
+          transitions.push(`${fromStatus} -> ${task.status}`);
+        },
+      };
+
+      failUpdate = true;
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+
+      failUpdate = false;
+      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+    });
+  });
+
   it("posts an existing parent permalink once when the issue enters a terminal state", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

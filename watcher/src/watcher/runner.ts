@@ -439,30 +439,27 @@ async function processWatcherEvent({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const previousTask = store.getTask(taskId);
   await publishWatcherEvent(
     slackClient,
     store,
     slackChannelId,
     event,
     shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
-    { forceMention: reviewDecision.deliverDeferredMention },
+    {
+      forceMention: reviewDecision.deliverDeferredMention,
+      onStatusTransition: async (task, fromStatus) => {
+        await dispatchStatusHooks({
+          hooks: config.statusHooks ?? [],
+          task,
+          fromStatus,
+          toStatus: task.status,
+          pullRequest: event.pullRequest,
+          slackClient,
+          watcherChannelId: slackChannelId,
+        });
+      },
+    },
   );
-  const taskAfterPublish = store.getTask(taskId)!;
-  const statusChanged =
-    previousTask !== undefined &&
-    normalizeStatus(previousTask.status) !== normalizeStatus(taskAfterPublish.status);
-  if (statusChanged) {
-    await dispatchStatusHooks({
-      hooks: config.statusHooks ?? [],
-      task: taskAfterPublish,
-      fromStatus: previousTask.status,
-      toStatus: taskAfterPublish.status,
-      pullRequest: event.pullRequest,
-      slackClient,
-      watcherChannelId: slackChannelId,
-    });
-  }
   const review = config.reviewReaction;
   if (!reviewDecision.shouldRequeue || !review) return;
 

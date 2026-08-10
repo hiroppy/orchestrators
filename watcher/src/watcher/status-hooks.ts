@@ -100,5 +100,5 @@ export async function runStatusHooks(
 }
 
 function normalizeStatus(status: string): string {
-  return status.trim().toLocaleLowerCase();
+  return status.trim().toLowerCase();
 }
