@@ -16,6 +16,8 @@ efficiently keep many tasks moving, even while away from your desk.
 - Update Linear issue statuses directly from Slack
 - Ask `@Orchestrators status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
+- Run `@Orchestrators assign @user` in a tracked task thread to include that
+  user in future notification mentions for only that task
 - Reply to a Linear workpad from its Slack task thread, so you can keep
   Symphony work moving directly from Slack
 - Keep work moving during automated code review by requeuing Linear issues when
@@ -74,7 +76,8 @@ manifest enables Socket Mode and interactivity. It grants only the bot scopes
 used by the watcher:
 
 - `chat:write` — post and update task messages
-- `app_mentions:read` — respond to the `@Orchestrators status` command
+- `app_mentions:read` — respond to the `@Orchestrators status` and task-thread
+  `@Orchestrators assign @user` commands
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
 - `files:read` — download images attached to task thread replies for copying to

@@ -1,0 +1,629 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "2cb7f505-eef2-42d2-a4d3-9fd5d6ee00e2",
+  "prevId": "4ae86216-43ba-4a0b-b31d-c903280eba83",
+  "tables": {
+    "services": {
+      "name": "services",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "services_name_unique": {
+          "name": "services_name_unique",
+          "columns": ["name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "statuses": {
+      "name": "statuses",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "selectable": {
+          "name": "selectable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "statuses_service_name_unique": {
+          "name": "statuses_service_name_unique",
+          "columns": ["service_id", "name"],
+          "isUnique": true
+        },
+        "statuses_service_selectable_order": {
+          "name": "statuses_service_selectable_order",
+          "columns": ["service_id", "selectable", "sort_order"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "statuses_service_id_services_id_fk": {
+          "name": "statuses_service_id_services_id_fk",
+          "tableFrom": "statuses",
+          "tableTo": "services",
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "task_events": {
+      "name": "task_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "from_status_id": {
+          "name": "from_status_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "to_status_id": {
+          "name": "to_status_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "slack_thread_ts": {
+          "name": "slack_thread_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "task_events_task_created_idx": {
+          "name": "task_events_task_created_idx",
+          "columns": ["task_id", "created_at"],
+          "isUnique": false
+        },
+        "task_events_type_task_id_idx": {
+          "name": "task_events_type_task_id_idx",
+          "columns": ["type", "task_id", "id"],
+          "isUnique": false
+        },
+        "task_events_from_status_idx": {
+          "name": "task_events_from_status_idx",
+          "columns": ["from_status_id"],
+          "isUnique": false
+        },
+        "task_events_to_status_idx": {
+          "name": "task_events_to_status_idx",
+          "columns": ["to_status_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "task_events_task_id_tasks_id_fk": {
+          "name": "task_events_task_id_tasks_id_fk",
+          "tableFrom": "task_events",
+          "tableTo": "tasks",
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "task_events_from_status_id_statuses_id_fk": {
+          "name": "task_events_from_status_id_statuses_id_fk",
+          "tableFrom": "task_events",
+          "tableTo": "statuses",
+          "columnsFrom": ["from_status_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "task_events_to_status_id_statuses_id_fk": {
+          "name": "task_events_to_status_id_statuses_id_fk",
+          "tableFrom": "task_events",
+          "tableTo": "statuses",
+          "columnsFrom": ["to_status_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "task_notification_mentions": {
+      "name": "task_notification_mentions",
+      "columns": {
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slack_user_id": {
+          "name": "slack_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "task_notification_mentions_task_id_tasks_id_fk": {
+          "name": "task_notification_mentions_task_id_tasks_id_fk",
+          "tableFrom": "task_notification_mentions",
+          "tableTo": "tasks",
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "task_notification_mentions_task_id_slack_user_id_pk": {
+          "columns": ["task_id", "slack_user_id"],
+          "name": "task_notification_mentions_task_id_slack_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "task_observations": {
+      "name": "task_observations",
+      "columns": {
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bucket": {
+          "name": "bucket",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tracker_status_id": {
+          "name": "tracker_status_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "issue_url": {
+          "name": "issue_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_message": {
+          "name": "last_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "workspace_path": {
+          "name": "workspace_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "blocked_at": {
+          "name": "blocked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "turn_count": {
+          "name": "turn_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "total_tokens": {
+          "name": "total_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_event": {
+          "name": "last_event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_event_at": {
+          "name": "last_event_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "task_observations_bucket_idx": {
+          "name": "task_observations_bucket_idx",
+          "columns": ["bucket"],
+          "isUnique": false
+        },
+        "task_observations_tracker_status_idx": {
+          "name": "task_observations_tracker_status_idx",
+          "columns": ["tracker_status_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "task_observations_task_id_tasks_id_fk": {
+          "name": "task_observations_task_id_tasks_id_fk",
+          "tableFrom": "task_observations",
+          "tableTo": "tasks",
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "task_observations_tracker_status_id_statuses_id_fk": {
+          "name": "task_observations_tracker_status_id_statuses_id_fk",
+          "tableFrom": "task_observations",
+          "tableTo": "statuses",
+          "columnsFrom": ["tracker_status_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "tasks": {
+      "name": "tasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issue_identifier": {
+          "name": "issue_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status_id": {
+          "name": "status_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "linear_state_type": {
+          "name": "linear_state_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "link_url": {
+          "name": "link_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pull_request_url": {
+          "name": "pull_request_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pull_request_number": {
+          "name": "pull_request_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_channel_id": {
+          "name": "parent_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_message_ts": {
+          "name": "parent_message_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_rendered_summary": {
+          "name": "last_rendered_summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_event_at": {
+          "name": "last_event_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tasks_service_issue_unique": {
+          "name": "tasks_service_issue_unique",
+          "columns": ["service_id", "issue_identifier"],
+          "isUnique": true
+        },
+        "tasks_status_id_idx": {
+          "name": "tasks_status_id_idx",
+          "columns": ["status_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "tasks_service_id_services_id_fk": {
+          "name": "tasks_service_id_services_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "services",
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "tasks_status_id_statuses_id_fk": {
+          "name": "tasks_status_id_statuses_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "statuses",
+          "columnsFrom": ["status_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

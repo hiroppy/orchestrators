@@ -66,6 +66,7 @@ const SUPPORTED_FILE_CONTENT_TYPES = new Set([
 const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
 const mentionCommandHandlers: Record<string, MentionCommandHandler> = {
+  assign: handleAssignCommand,
   status: handleStatusCommand,
 };
 
@@ -135,15 +136,61 @@ function parseMentionCommand(
   }
 
   const [command, ...args] = value.text
-    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .replace(/<@[A-Z0-9]+>/i, " ")
     .trim()
     .split(/\s+/);
   if (!command) return undefined;
   return {
-    event: { channel: value.channel, ts: value.ts, text: value.text },
+    event: {
+      channel: value.channel,
+      ts: value.ts,
+      text: value.text,
+      ...(typeof value.thread_ts === "string" ? { threadTs: value.thread_ts } : {}),
+    },
     command: command.toLowerCase(),
     args,
   };
+}
+
+async function handleAssignCommand({
+  event,
+  client,
+  store,
+  args,
+}: MentionCommandContext): Promise<void> {
+  const threadTs = event.threadTs;
+  const task = threadTs ? store.getTaskBySlackThread(event.channel, threadTs) : undefined;
+  if (!task) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+      text: "Run `assign` from a tracked task thread.",
+    });
+    return;
+  }
+
+  const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
+  if (!slackUserId) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: "Usage: `@Orchestrators assign @user`",
+    });
+    return;
+  }
+
+  const added = store.assignTaskNotificationMention(task.id, slackUserId);
+  await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: threadTs,
+    text: added
+      ? `Assigned <@${slackUserId}> to notifications for ${task.issueIdentifier}.`
+      : `<@${slackUserId}> is already assigned to notifications for ${task.issueIdentifier}.`,
+  });
+}
+
+function slackUserIdFromMention(value: string | undefined): string | undefined {
+  return value?.match(/^<@([A-Z0-9]+)>$/i)?.[1];
 }
 
 async function handleStatusCommand({
@@ -394,6 +441,7 @@ export async function publishWatcherEvent(
     event.type,
     event.creatorMention ?? undefined,
     options.forceMention,
+    store.getTaskNotificationMentions(taskId),
   );
   const card = buildTaskCard(
     task,
@@ -531,11 +579,12 @@ export function notificationTargetsForWatcherEvent(
   eventType: WatcherEvent["type"],
   creatorMention?: string,
   force = false,
+  taskMentions: string[] = [],
 ): { creator?: string; mentions: string[] } | undefined {
   if (!notificationIsEligible(mention, previousStatus, currentStatus, eventType, force)) {
     return undefined;
   }
-  const targets = mention?.targets ?? [];
+  const targets = [...new Set([...(mention?.targets ?? []), ...taskMentions])];
   if (!creatorMention && targets.length === 0) return undefined;
   return { creator: creatorMention, mentions: targets };
 }
@@ -635,6 +684,7 @@ interface AppMentionEvent {
   channel: string;
   ts: string;
   text: string;
+  threadTs?: string;
 }
 
 interface AppMentionArguments {

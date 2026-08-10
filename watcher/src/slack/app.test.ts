@@ -9,6 +9,7 @@ import {
   handleAppMention,
   handleStatusAction,
   handleThreadReply,
+  notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
   type SlackThreadReply,
@@ -110,6 +111,156 @@ describe("Slack app behavior", () => {
       );
 
       assert.deepEqual(calls, []);
+    });
+  });
+
+  it("assigns one user to task notifications without affecting another task", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const otherTask = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.setParentMessage(otherTask.id, "C123", "11.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+
+      for (const ts of ["20.000", "21.000"]) {
+        await handleAppMention(
+          {
+            event: {
+              channel: "C123",
+              thread_ts: "10.000",
+              ts,
+              text: "<@UBOT> assign <@UHIROPPY>",
+            },
+            client,
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
+          },
+          store,
+        );
+      }
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@UHIROPPY>"]);
+      assert.deepEqual(store.getTaskNotificationMentions(otherTask.id), []);
+      assert.match(String(calls[0].args.text), /Assigned <@UHIROPPY>.*ENG-62/);
+      assert.match(String(calls[1].args.text), /already assigned.*ENG-62/);
+
+      const mention = {
+        targets: ["<!subteam^SREVIEWERS>"],
+        statuses: ["In Review"],
+        events: [] as const,
+      };
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Review",
+        },
+        mention,
+      );
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-63",
+          state: "In Review",
+        },
+        mention,
+      );
+
+      const notificationTexts = calls
+        .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
+        .slice(2)
+        .map(({ args }) => String(args.text));
+      assert.equal(notificationTexts.length, 2);
+      assert.equal(notificationTexts[0].match(/<@UHIROPPY>/g)?.length, 1);
+      assert.match(notificationTexts[0], /<!subteam\^SREVIEWERS>/);
+      assert.doesNotMatch(notificationTexts[1], /<@UHIROPPY>/);
+
+      assert.deepEqual(
+        notificationTargetsForWatcherEvent(
+          { ...mention, targets: ["<@UHIROPPY>"] },
+          "In Progress",
+          "In Review",
+          "updated",
+          undefined,
+          false,
+          ["<@UHIROPPY>"],
+        )?.mentions,
+        ["<@UHIROPPY>"],
+      );
+    });
+  });
+
+  it("rejects assign commands outside tracked threads and with invalid arguments", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const events = [
+        { channel: "C123", ts: "20.000", text: "<@UBOT> assign <@U123>" },
+        {
+          channel: "C123",
+          thread_ts: "99.000",
+          ts: "21.000",
+          text: "<@UBOT> assign <@U123>",
+        },
+        { channel: "C123", thread_ts: "10.000", ts: "22.000", text: "<@UBOT> assign" },
+        {
+          channel: "C123",
+          thread_ts: "10.000",
+          ts: "23.000",
+          text: "<@UBOT> assign hiroppy",
+        },
+        {
+          channel: "C123",
+          thread_ts: "10.000",
+          ts: "24.000",
+          text: "<@UBOT> assign <@U123> <@U456>",
+        },
+      ];
+
+      for (const event of events) {
+        await handleAppMention(
+          {
+            event,
+            client,
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
+          },
+          store,
+        );
+      }
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.equal(calls.length, events.length);
+      assert.match(String(calls[0].args.text), /tracked task thread/);
+      assert.match(String(calls[1].args.text), /tracked task thread/);
+      for (const call of calls.slice(2)) {
+        assert.equal(call.args.text, "Usage: `@Orchestrators assign @user`");
+        assert.equal(call.args.thread_ts, "10.000");
+      }
     });
   });
 
