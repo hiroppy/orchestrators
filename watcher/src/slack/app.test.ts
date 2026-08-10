@@ -305,6 +305,42 @@ describe("Slack app behavior", () => {
     });
   });
 
+  it("keeps persisted task mentions visible after configured targets expand", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTaskNotificationMention(task.id, "U123");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await publishWatcherEvent(
+        fakeClient(calls),
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Review",
+        },
+        {
+          targets: [`<!subteam^${"X".repeat(1_975)}>`],
+          statuses: ["In Review"],
+          events: [],
+        },
+      );
+
+      const notification = calls.find(
+        ({ method, args }) => method === "postMessage" && args.thread_ts === "10.000",
+      );
+      assert.match(JSON.stringify(notification?.args.blocks), /<@U123>/);
+    });
+  });
+
   it("posts one top-level channel message when the watcher starts", async () => {
     const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 

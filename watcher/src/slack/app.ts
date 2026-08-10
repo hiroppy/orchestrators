@@ -622,7 +622,7 @@ export function notificationTargetsForWatcherEvent(
   if (!notificationIsEligible(mention, previousStatus, currentStatus, eventType, force)) {
     return undefined;
   }
-  const targets = [...new Set([...(mention?.targets ?? []), ...taskMentions])];
+  const targets = [...new Set([...taskMentions, ...(mention?.targets ?? [])])];
   if (!creatorMention && targets.length === 0) return undefined;
   return { creator: creatorMention, mentions: targets };
 }
