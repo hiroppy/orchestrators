@@ -17,7 +17,8 @@ efficiently keep many tasks moving, even while away from your desk.
 - Ask `@Orchestrators status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
 - Run `@Orchestrators assign @user` in a tracked task thread to include that
-  user in configured notification mentions for only that task
+  user in configured notification mentions for only that task. The mentioned
+  user must be the person running the command.
 - Reply to a Linear workpad from its Slack task thread, so you can keep
   Symphony work moving directly from Slack
 - Keep work moving during automated code review by requeuing Linear issues when

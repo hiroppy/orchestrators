@@ -156,6 +156,7 @@ function parseMentionCommand(
       channel: value.channel,
       ts: value.ts,
       text: value.text,
+      ...(typeof value.user === "string" ? { user: value.user } : {}),
       ...(typeof value.thread_ts === "string" ? { threadTs: value.thread_ts } : {}),
     },
     command: command.toLowerCase(),
@@ -187,6 +188,14 @@ async function handleAssignCommand({
       channel: event.channel,
       thread_ts: threadTs,
       text: "Usage: `@Orchestrators assign @user`",
+    });
+    return;
+  }
+  if (event.user !== slackUserId) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: "You can only assign yourself to task notifications.",
     });
     return;
   }
@@ -711,6 +720,7 @@ interface AppMentionEvent {
   channel: string;
   ts: string;
   text: string;
+  user?: string;
   threadTs?: string;
 }
 

@@ -140,6 +140,7 @@ describe("Slack app behavior", () => {
               channel: "C123",
               thread_ts: "10.000",
               ts,
+              user: "UHIROPPY",
               text: "<@UBOT> assign <@UHIROPPY>",
             },
             client,
@@ -240,6 +241,13 @@ describe("Slack app behavior", () => {
           ts: "24.000",
           text: "<@UBOT> assign <@U123> <@U456>",
         },
+        {
+          channel: "C123",
+          thread_ts: "10.000",
+          ts: "25.000",
+          user: "U999",
+          text: "<@UBOT> assign <@U123>",
+        },
       ];
 
       for (const event of events) {
@@ -257,10 +265,11 @@ describe("Slack app behavior", () => {
       assert.equal(calls.length, events.length);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       assert.match(String(calls[1].args.text), /tracked task thread/);
-      for (const call of calls.slice(2)) {
+      for (const call of calls.slice(2, -1)) {
         assert.equal(call.args.text, "Usage: `@Orchestrators assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
+      assert.equal(calls.at(-1)?.args.text, "You can only assign yourself to task notifications.");
     });
   });
 
@@ -281,6 +290,7 @@ describe("Slack app behavior", () => {
             channel: "C123",
             thread_ts: "10.000",
             ts: "20.000",
+            user: "U123",
             text: "<@UBOT> assign <@U123>",
           },
           client: fakeClient(calls),
