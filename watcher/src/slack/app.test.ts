@@ -487,14 +487,15 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("delivers a transition hook after recovering a missing Slack parent", async () => {
+  it("delivers a transition hook after Slack omits the new parent's channel and timestamp", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
       const postMessage = client.chat.postMessage;
-      let failPost = true;
+      let postFailure: "throw" | "malformed" | undefined = "throw";
       client.chat.postMessage = async (args) => {
-        if (failPost) throw new Error("Simulated Slack failure");
+        if (postFailure === "throw") throw new Error("Simulated Slack failure");
+        if (postFailure === "malformed") return { ok: true };
         return postMessage(args);
       };
 
@@ -508,6 +509,7 @@ describe("Slack app behavior", () => {
         }),
       );
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, undefined);
+      postFailure = "malformed";
 
       const transitions: string[] = [];
       const deliveries: string[] = [];
@@ -535,7 +537,7 @@ describe("Slack app behavior", () => {
       assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
       assert.deepEqual(deliveries, []);
 
-      failPost = false;
+      postFailure = undefined;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
 
       assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
