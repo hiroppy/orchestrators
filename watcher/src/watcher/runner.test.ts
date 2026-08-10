@@ -461,6 +461,48 @@ describe("runOnce", () => {
     });
   });
 
+  it("includes task notification assignments in dry-run output", async (context) => {
+    await withStore(async (store) => {
+      const current = {
+        running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Investigate the blocker",
+              state: { name: "Blocked", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "Blocked"]),
+        mention: { targets: [], statuses: ["Blocked"], events: [] },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.assignTaskNotificationMention("service-a:ENG-62", "U123");
+      const output: string[] = [];
+      context.mock.method(console, "log", (line) => output.push(String(line)));
+
+      await runOnce({ config, store, dryRun: true });
+
+      assert.match(output.join("\n"), /<@U123>/);
+    });
+  });
+
   it("retries creator-only notifications when Linear creator enrichment fails", async (context) => {
     await withStore(async (store) => {
       const current = {

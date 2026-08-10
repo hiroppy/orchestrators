@@ -264,6 +264,37 @@ describe("Slack app behavior", () => {
     });
   });
 
+  it("rejects an assignment that would exceed Slack's mention field limit", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            text: "<@UBOT> assign <@U123>",
+          },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        [`<!subteam^${"X".repeat(1_975)}>`],
+      );
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.match(String(calls[0].args.text), /reached Slack's text limit/);
+    });
+  });
+
   it("posts one top-level channel message when the watcher starts", async () => {
     const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
@@ -1198,6 +1229,13 @@ describe("Slack app behavior", () => {
         state: "In Progress",
       });
       const messages = [
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts: "1.500",
+          user: "U123",
+          text: "<@UBOT> assign <@U456>",
+        },
         { channel: "C123", thread_ts: "1.000", ts: "2.000", user: "U123", text: " " },
         {
           channel: "C123",

@@ -64,6 +64,7 @@ const SUPPORTED_FILE_CONTENT_TYPES = new Set([
   "video/webm",
 ]);
 const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
+const MAX_NOTIFICATION_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
 type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
 const mentionCommandHandlers: Record<string, MentionCommandHandler> = {
   assign: handleAssignCommand,
@@ -76,6 +77,7 @@ export interface SlackAppOptions {
   updateLinearStatus: LinearStatusUpdater;
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
+  configuredMentionTargets?: string[];
 }
 
 export function createSlackApp({
@@ -84,6 +86,7 @@ export function createSlackApp({
   updateLinearStatus,
   createLinearWorkpadReply,
   store,
+  configuredMentionTargets = [],
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -93,7 +96,7 @@ export function createSlackApp({
 
   registerStatusAction(app, store, updateLinearStatus);
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store);
+    await handleAppMention(args, store, configuredMentionTargets);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply);
@@ -104,6 +107,7 @@ export function createSlackApp({
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
+  configuredMentionTargets: string[] = [],
 ): Promise<void> {
   const mention = parseMentionCommand(event);
   if (!mention) return;
@@ -111,7 +115,14 @@ export async function handleAppMention(
   if (!handler) return;
 
   try {
-    await handler({ event: mention.event, client, logger, store, args: mention.args });
+    await handler({
+      event: mention.event,
+      client,
+      logger,
+      store,
+      args: mention.args,
+      configuredMentionTargets,
+    });
   } catch (error) {
     logger.error(error);
     await client.chat.postMessage({
@@ -157,6 +168,7 @@ async function handleAssignCommand({
   client,
   store,
   args,
+  configuredMentionTargets,
 }: MentionCommandContext): Promise<void> {
   const threadTs = event.threadTs;
   const task = threadTs ? store.getTaskBySlackThread(event.channel, threadTs) : undefined;
@@ -179,7 +191,22 @@ async function handleAssignCommand({
     return;
   }
 
-  const added = store.assignTaskNotificationMention(task.id, slackUserId);
+  const assignedMentions = store.getTaskNotificationMentions(task.id);
+  const slackMention = `<@${slackUserId}>`;
+  const alreadyAssigned = assignedMentions.includes(slackMention);
+  const combinedTargets = [
+    ...new Set([...configuredMentionTargets, ...assignedMentions, slackMention]),
+  ];
+  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_NOTIFICATION_MENTIONS_LENGTH) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
+    });
+    return;
+  }
+
+  const added = alreadyAssigned ? false : store.assignTaskNotificationMention(task.id, slackUserId);
   await client.chat.postMessage({
     channel: event.channel,
     thread_ts: threadTs,
@@ -699,6 +726,7 @@ interface MentionCommandContext {
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];
+  configuredMentionTargets: string[];
 }
 
 interface UserThreadReply {
@@ -788,6 +816,7 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
     typeof event.ts !== "string" ||
     typeof event.user !== "string" ||
     typeof event.text !== "string" ||
+    isRecognizedMentionCommand(event.text) ||
     (event.text.trim().length === 0 && files.length === 0) ||
     !isSupportedSubtype ||
     event.bot_id !== undefined
@@ -803,6 +832,10 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
     text: event.text,
     files,
   };
+}
+
+function isRecognizedMentionCommand(text: string): boolean {
+  return /^\s*<@[A-Z0-9]+>\s+(?:assign|status)(?:\s|$)/i.test(text);
 }
 
 function isSupportedSlackFile(file: unknown): file is SlackFile {

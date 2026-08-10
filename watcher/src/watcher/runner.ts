@@ -103,6 +103,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               })),
             }),
           store,
+          configuredMentionTargets: runtimeConfig.mention?.targets,
         })
       : undefined;
 
@@ -222,6 +223,7 @@ export async function runOnce({
             enrichedEvent.type,
             enrichedEvent.creatorMention ?? undefined,
             reviewDecision.deliverDeferredMention,
+            store.getTaskNotificationMentions(taskId),
           );
       const task = {
         id: taskId,
