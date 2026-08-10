@@ -136,6 +136,42 @@ describe("WatcherStore", () => {
     });
   });
 
+  it("stores unique notification mentions per task", async () => {
+    await withStore((store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
+        {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-a",
+            statuses: ["In Progress"],
+          },
+        },
+      );
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        state: "In Progress",
+      });
+
+      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U123"), true);
+      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U123"), false);
+      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U456"), true);
+      assert.deepEqual(store.getTaskNotificationMentions("service-a:ENG-62"), [
+        "<@U123>",
+        "<@U456>",
+      ]);
+      assert.deepEqual(store.getTaskNotificationMentions("service-a:ENG-63"), []);
+    });
+  });
+
   it("counts events only after the latest boundary", async () => {
     await withStore((store) => {
       store.syncDefinitions(

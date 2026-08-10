@@ -15,7 +15,14 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
+import {
+  services,
+  statuses,
+  taskEvents,
+  taskNotificationMentions,
+  taskObservations,
+  tasks,
+} from "./schema.ts";
 import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
@@ -390,6 +397,30 @@ export class WatcherStore {
       })
       .where(eq(tasks.id, taskId))
       .run();
+  }
+
+  assignTaskNotificationMention(taskId: string, slackUserId: string, now = new Date()): boolean {
+    const result = this.db
+      .insert(taskNotificationMentions)
+      .values({
+        taskId,
+        slackUserId,
+        createdAt: now.toISOString(),
+      })
+      .onConflictDoNothing()
+      .run();
+
+    return result.changes > 0;
+  }
+
+  getTaskNotificationMentions(taskId: string): string[] {
+    return this.db
+      .select({ slackUserId: taskNotificationMentions.slackUserId })
+      .from(taskNotificationMentions)
+      .where(eq(taskNotificationMentions.taskId, taskId))
+      .orderBy(asc(taskNotificationMentions.createdAt), asc(taskNotificationMentions.slackUserId))
+      .all()
+      .map(({ slackUserId }) => `<@${slackUserId}>`);
   }
 
   updateTaskStatus(

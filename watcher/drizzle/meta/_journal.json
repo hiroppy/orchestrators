@@ -22,6 +22,13 @@
       "when": 1786272596405,
       "tag": "0002_flat_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786353576382,
+      "tag": "0003_loose_molecule_man",
+      "breakpoints": true
     }
   ]
 }

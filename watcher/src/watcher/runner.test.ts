@@ -8,7 +8,38 @@ import { resolveWatcherConfig } from "../config/runtime.ts";
 import type { ReviewReactionConfig } from "../domain/types.ts";
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
-import { collectSnapshots, resolveLinearWorkflowStatuses, runOnce, runPoll } from "./runner.ts";
+import {
+  collectSnapshots,
+  requireSlackBotUserId,
+  resolveLinearWorkflowStatuses,
+  runOnce,
+  runPoll,
+} from "./runner.ts";
+
+describe("requireSlackBotUserId", () => {
+  it("requires Slack to return the bot identity before message consumption starts", async () => {
+    assert.equal(
+      await requireSlackBotUserId({
+        auth: {
+          async test() {
+            return { user_id: "UBOT" };
+          },
+        },
+      } as never),
+      "UBOT",
+    );
+    await assert.rejects(
+      requireSlackBotUserId({
+        auth: {
+          async test() {
+            return {};
+          },
+        },
+      } as never),
+      /did not return a bot user ID/,
+    );
+  });
+});
 
 describe("runOnce", () => {
   it("uses the service's explicit Linear team ID", () => {
@@ -458,6 +489,48 @@ describe("runOnce", () => {
         slackChannelId: "C123",
       });
       assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
+  it("includes task notification assignments in dry-run output", async (context) => {
+    await withStore(async (store) => {
+      const current = {
+        running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Investigate the blocker",
+              state: { name: "Blocked", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "Blocked"]),
+        mention: { targets: [], statuses: ["Blocked"], events: [] },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.assignTaskNotificationMention("service-a:ENG-62", "U123");
+      const output: string[] = [];
+      context.mock.method(console, "log", (line) => output.push(String(line)));
+
+      await runOnce({ config, store, dryRun: true });
+
+      assert.match(output.join("\n"), /<@U123>/);
     });
   });
 

@@ -97,6 +97,18 @@ export const taskEvents = sqliteTable(
   ],
 );
 
+export const taskNotificationMentions = sqliteTable(
+  "task_notification_mentions",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    slackUserId: text("slack_user_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.taskId, table.slackUserId] })],
+);
+
 export const taskObservations = sqliteTable(
   "task_observations",
   {
@@ -155,6 +167,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   }),
   observation: one(taskObservations),
   events: many(taskEvents),
+  notificationMentions: many(taskNotificationMentions),
 }));
 
 export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
@@ -171,6 +184,13 @@ export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
     relationName: "eventToStatus",
     fields: [taskEvents.toStatusId],
     references: [statuses.id],
+  }),
+}));
+
+export const taskNotificationMentionsRelations = relations(taskNotificationMentions, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskNotificationMentions.taskId],
+    references: [tasks.id],
   }),
 }));
 

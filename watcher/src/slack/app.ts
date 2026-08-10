@@ -64,8 +64,10 @@ const SUPPORTED_FILE_CONTENT_TYPES = new Set([
   "video/webm",
 ]);
 const STATUS_COMMAND_STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
+const MAX_NOTIFICATION_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
 type MentionCommandHandler = (context: MentionCommandContext) => Promise<void>;
 const mentionCommandHandlers: Record<string, MentionCommandHandler> = {
+  assign: handleAssignCommand,
   status: handleStatusCommand,
 };
 
@@ -75,6 +77,8 @@ export interface SlackAppOptions {
   updateLinearStatus: LinearStatusUpdater;
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
+  botUserId: string;
+  configuredMentionTargets?: string[];
 }
 
 export function createSlackApp({
@@ -83,19 +87,20 @@ export function createSlackApp({
   updateLinearStatus,
   createLinearWorkpadReply,
   store,
+  botUserId,
+  configuredMentionTargets = [],
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
     appToken,
     socketMode: true,
   });
-
   registerStatusAction(app, store, updateLinearStatus);
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store);
+    await handleAppMention(args, store, configuredMentionTargets);
   });
   app.message(async (args) => {
-    await handleThreadReply(args, store, createLinearWorkpadReply);
+    await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
   });
   return app;
 }
@@ -103,6 +108,7 @@ export function createSlackApp({
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
+  configuredMentionTargets: string[] = [],
 ): Promise<void> {
   const mention = parseMentionCommand(event);
   if (!mention) return;
@@ -110,7 +116,14 @@ export async function handleAppMention(
   if (!handler) return;
 
   try {
-    await handler({ event: mention.event, client, logger, store, args: mention.args });
+    await handler({
+      event: mention.event,
+      client,
+      logger,
+      store,
+      args: mention.args,
+      configuredMentionTargets,
+    });
   } catch (error) {
     logger.error(error);
     await client.chat.postMessage({
@@ -135,15 +148,85 @@ function parseMentionCommand(
   }
 
   const [command, ...args] = value.text
-    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .replace(/<@[A-Z0-9]+>/i, " ")
     .trim()
     .split(/\s+/);
   if (!command) return undefined;
   return {
-    event: { channel: value.channel, ts: value.ts, text: value.text },
+    event: {
+      channel: value.channel,
+      ts: value.ts,
+      text: value.text,
+      ...(typeof value.user === "string" ? { user: value.user } : {}),
+      ...(typeof value.thread_ts === "string" ? { threadTs: value.thread_ts } : {}),
+    },
     command: command.toLowerCase(),
     args,
   };
+}
+
+async function handleAssignCommand({
+  event,
+  client,
+  store,
+  args,
+  configuredMentionTargets,
+}: MentionCommandContext): Promise<void> {
+  const threadTs = event.threadTs;
+  if (!threadTs) return;
+
+  const task = store.getTaskBySlackThread(event.channel, threadTs);
+  if (!task) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: "Run `assign` from a tracked task thread.",
+    });
+    return;
+  }
+
+  const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
+  if (!slackUserId) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: "Usage: `@Orchestrators assign @user`",
+    });
+    return;
+  }
+  if (event.user !== slackUserId) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: "You can only assign yourself to task notifications.",
+    });
+    return;
+  }
+
+  const assignedMentions = store.getTaskNotificationMentions(task.id);
+  const slackMention = `<@${slackUserId}>`;
+  const alreadyAssigned = assignedMentions.includes(slackMention);
+  const combinedTargets = [
+    ...new Set([...configuredMentionTargets, ...assignedMentions, slackMention]),
+  ];
+  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_NOTIFICATION_MENTIONS_LENGTH) {
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
+    });
+    return;
+  }
+
+  if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
+  await addCheckmarkReaction(client, {
+    channel: event.channel,
+    timestamp: event.ts,
+  });
+}
+
+function slackUserIdFromMention(value: string | undefined): string | undefined {
+  return value?.match(/^<@([A-Z0-9]+)>$/i)?.[1];
 }
 
 async function handleStatusCommand({
@@ -189,8 +272,9 @@ export async function handleThreadReply(
   { message, client, logger }: MessageArguments,
   store: WatcherStore,
   createLinearWorkpadReply: LinearWorkpadReplier,
+  botUserId?: string,
 ): Promise<void> {
-  const reply = parseUserThreadReply(message);
+  const reply = parseUserThreadReply(message, botUserId);
   if (!reply) return;
 
   const task = store.getTaskBySlackThread(reply.channel, reply.thread_ts);
@@ -394,6 +478,7 @@ export async function publishWatcherEvent(
     event.type,
     event.creatorMention ?? undefined,
     options.forceMention,
+    store.getTaskNotificationMentions(taskId),
   );
   const card = buildTaskCard(
     task,
@@ -531,11 +616,12 @@ export function notificationTargetsForWatcherEvent(
   eventType: WatcherEvent["type"],
   creatorMention?: string,
   force = false,
+  taskMentions: string[] = [],
 ): { creator?: string; mentions: string[] } | undefined {
   if (!notificationIsEligible(mention, previousStatus, currentStatus, eventType, force)) {
     return undefined;
   }
-  const targets = mention?.targets ?? [];
+  const targets = [...new Set([...taskMentions, ...(mention?.targets ?? [])])];
   if (!creatorMention && targets.length === 0) return undefined;
   return { creator: creatorMention, mentions: targets };
 }
@@ -622,10 +708,7 @@ interface StatusActionArguments {
 
 interface MessageArguments {
   message: unknown;
-  client: {
-    reactions: {
-      add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
-    };
+  client: ReactionClient & {
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
@@ -635,20 +718,23 @@ interface AppMentionEvent {
   channel: string;
   ts: string;
   text: string;
+  user?: string;
+  threadTs?: string;
 }
 
 interface AppMentionArguments {
   event: unknown;
-  client: Pick<SlackClient, "chat">;
+  client: Pick<SlackClient, "chat"> & ReactionClient;
   logger: { error(error: unknown): void };
 }
 
 interface MentionCommandContext {
   event: AppMentionEvent;
-  client: Pick<SlackClient, "chat">;
+  client: Pick<SlackClient, "chat"> & ReactionClient;
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];
+  configuredMentionTargets: string[];
 }
 
 interface UserThreadReply {
@@ -688,6 +774,27 @@ async function addCopiedReplyReaction(
   }
 }
 
+async function addCheckmarkReaction(
+  client: ReactionClient,
+  message: { channel: string; timestamp: string },
+): Promise<void> {
+  try {
+    await client.reactions.add({
+      channel: message.channel,
+      name: "white_check_mark",
+      timestamp: message.timestamp,
+    });
+  } catch (error) {
+    if (slackError(error) !== "already_reacted") throw error;
+  }
+}
+
+interface ReactionClient {
+  reactions: {
+    add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
+  };
+}
+
 function slackRetryDelayMs(error: unknown): number {
   if (!error || typeof error !== "object") return 100;
   const details = error as { code?: unknown; retryAfter?: unknown };
@@ -723,7 +830,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
+function parseUserThreadReply(message: unknown, botUserId?: string): UserThreadReply | undefined {
   if (!message || typeof message !== "object") return undefined;
 
   const event = message as Record<string, unknown>;
@@ -738,6 +845,7 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
     typeof event.ts !== "string" ||
     typeof event.user !== "string" ||
     typeof event.text !== "string" ||
+    isRecognizedMentionCommand(event.text, botUserId) ||
     (event.text.trim().length === 0 && files.length === 0) ||
     !isSupportedSubtype ||
     event.bot_id !== undefined
@@ -753,6 +861,12 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
     text: event.text,
     files,
   };
+}
+
+function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
+  if (!botUserId) return false;
+  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|status)(?:\s|$)/i);
+  return match?.[1]?.toLowerCase() === botUserId.toLowerCase();
 }
 
 function isSupportedSlackFile(file: unknown): file is SlackFile {
