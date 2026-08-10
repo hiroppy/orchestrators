@@ -41,14 +41,17 @@ export function createPendingStatusHookEvent(
   toStatus: string,
   pullRequest?: PullRequest,
 ): TaskEventInput | undefined {
-  return hooks.some(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))
+  const hookIds = hooks
+    .filter(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))
+    .map(({ id }) => id);
+  return hookIds.length > 0
     ? {
         taskId: task.id,
         type: STATUS_HOOK_PENDING_EVENT,
         actor: "watcher",
         fromStatus,
         toStatus,
-        body: JSON.stringify({ pullRequest }),
+        body: JSON.stringify({ pullRequest, hookIds }),
       }
     : undefined;
 }
@@ -99,13 +102,21 @@ async function deliverPendingStatusHooksSerially({
     if (!task?.parentChannelId || !task.parentMessageTs || !event.fromStatus || !event.toStatus) {
       continue;
     }
-    const payload = JSON.parse(event.body ?? "{}") as { pullRequest?: PullRequest };
-    const matchingHooks = hooks
-      .map((hook, index) => ({ hook, index }))
-      .filter(({ hook }) => normalizeStatus(hook.status) === normalizeStatus(event.toStatus!));
+    const payload = JSON.parse(event.body ?? "{}") as {
+      pullRequest?: PullRequest;
+      hookIds?: string[];
+    };
+    const hooksById = new Map(hooks.map((hook) => [hook.id, hook]));
+    const hookIds =
+      payload.hookIds ??
+      hooks
+        .filter(({ status }) => normalizeStatus(status) === normalizeStatus(event.toStatus!))
+        .map(({ id }) => id);
     let completed = true;
-    for (const { hook, index } of matchingHooks) {
-      const completionKey = `${event.id}:${index}`;
+    for (const hookId of hookIds) {
+      const hook = hooksById.get(hookId);
+      if (!hook || normalizeStatus(hook.status) !== normalizeStatus(event.toStatus)) continue;
+      const completionKey = `${event.id}:${hookId}`;
       if (store.hasEvent(task.id, STATUS_HOOK_RUN_COMPLETED_EVENT, completionKey)) continue;
       try {
         await dispatchStatusHooks({

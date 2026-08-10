@@ -77,6 +77,7 @@ export type StatusHookSlackThreadMessage = DistributiveOmit<
 >;
 
 export interface StatusHookConfig {
+  id: string;
   status: string;
   run: (
     context: StatusHookContext,

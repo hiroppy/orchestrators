@@ -35,10 +35,11 @@ describe("status hooks", () => {
     const results = await runStatusHooks(
       [
         {
+          id: "app-distribution",
           status: "in review",
           run: (received) => received.issue.identifier,
         },
-        { status: "Done", run: () => "should-not-run" },
+        { id: "done", status: "Done", run: () => "should-not-run" },
       ],
       context,
       helpers,
@@ -51,6 +52,7 @@ describe("status hooks", () => {
     const [result] = await runStatusHooks(
       [
         {
+          id: "failure",
           status: "In Review",
           run: () => {
             throw new Error("broken");
@@ -69,6 +71,7 @@ describe("status hooks", () => {
     await dispatchStatusHooks({
       hooks: [
         {
+          id: "app-distribution",
           status: "In Review",
           run: async ({ pullRequest }, { slack }) => {
             await slack.postMessage({ text: pullRequest?.title ?? "missing" });
@@ -131,6 +134,7 @@ describe("status hooks", () => {
       const received: StatusHookContext[] = [];
       const hooks = [
         {
+          id: "capture-context",
           status: "In Review",
           run: (hookContext: StatusHookContext) => {
             received.push(hookContext);
@@ -195,6 +199,7 @@ describe("status hooks", () => {
       let failSecond = true;
       const hooks = [
         {
+          id: "first",
           status: "In Review",
           run: () => {
             firstRuns += 1;
@@ -202,6 +207,7 @@ describe("status hooks", () => {
           },
         },
         {
+          id: "second",
           status: "In Review",
           run: () => {
             secondRuns += 1;
@@ -227,10 +233,24 @@ describe("status hooks", () => {
 
       await deliverPendingStatusHooks(options);
       failSecond = false;
+      let insertedRuns = 0;
+      options.hooks = [
+        hooks[1],
+        {
+          id: "inserted-later",
+          status: "In Review",
+          run: () => {
+            insertedRuns += 1;
+            return "inserted";
+          },
+        },
+        hooks[0],
+      ];
       await deliverPendingStatusHooks(options);
 
       assert.equal(firstRuns, 1);
       assert.equal(secondRuns, 2);
+      assert.equal(insertedRuns, 0);
       assert.deepEqual(posts, ["first", "second"]);
     });
   });
@@ -248,6 +268,7 @@ describe("status hooks", () => {
       const delivered: string[] = [];
       const hooks = [
         {
+          id: "deliver-other-task",
           status: "In Review",
           run: ({ issue }: StatusHookContext) => {
             if (issue.identifier === "APP-42") throw new Error("Simulated hook failure");
@@ -325,7 +346,7 @@ describe("status hooks", () => {
 async function withPendingHook(
   run: (options: {
     store: WatcherStore;
-    hooks: Array<{ status: string; run: () => string }>;
+    hooks: Array<{ id: string; status: string; run: () => string }>;
     runs: { value: number };
   }) => void | Promise<void>,
 ): Promise<void> {
@@ -341,6 +362,7 @@ async function withPendingHook(
     const runs = { value: 0 };
     const hooks = [
       {
+        id: "app-distribution",
         status: "In Review",
         run: () => {
           runs.value += 1;

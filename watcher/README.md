@@ -110,6 +110,7 @@ channel or thread IDs:
 - `helpers.slack.postMessage(message)` posts to the watcher channel.
 - `helpers.slack.postThreadMessage(message)` replies to the tracked task thread.
 - Returning a non-empty string is shorthand for posting one task-thread reply.
+- `id` must be unique and stable across hook reordering so interrupted deliveries can resume safely.
 - Message arguments use Slack's `ChatPostMessageArguments` type. The watcher fixes
   `channel` and `thread_ts`; hook code supplies `text` or blocks and any other
   supported Slack options.
@@ -150,6 +151,7 @@ export default defineConfig({
   watcher: {
     statusHooks: [
       {
+        id: "app-distribution",
         status: "In Review",
         run: inReviewHook,
       },

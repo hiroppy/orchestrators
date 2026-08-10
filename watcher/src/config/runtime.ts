@@ -118,15 +118,20 @@ function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedSta
     throw new Error("watcher.statusHooks must be an array.");
   }
 
+  const ids = new Set<string>();
   return config.map((hook, index) => {
     const label = `watcher.statusHooks[${index}]`;
     if (!hook || typeof hook !== "object" || Array.isArray(hook)) {
       throw new Error(`${label} must be an object.`);
     }
+    const id = hook.id?.trim();
+    if (!id) throw new Error(`${label}.id must be a non-empty string.`);
+    if (ids.has(id)) throw new Error(`${label}.id must be unique: ${id}`);
+    ids.add(id);
     const status = hook.status?.trim();
     if (!status) throw new Error(`${label}.status must be a non-empty string.`);
     if (typeof hook.run !== "function") throw new Error(`${label}.run must be a function.`);
-    return { status, run: hook.run };
+    return { id, status, run: hook.run };
   });
 }
 
