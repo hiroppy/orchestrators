@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import { createDatabase } from "../persistence/database.ts";
 import {
+  createSlackBotUserIdResolver,
   handleAppMention,
   handleStatusAction,
   handleThreadReply,
@@ -17,6 +18,31 @@ import {
 import { WatcherStore } from "../persistence/store.ts";
 
 describe("Slack app behavior", () => {
+  it("retries bot user ID lookup after a transient failure and caches success", async () => {
+    let attempts = 0;
+    const errors: unknown[] = [];
+    const client = {
+      auth: {
+        async test() {
+          attempts += 1;
+          if (attempts === 1) throw new Error("Slack unavailable");
+          return { user_id: "UBOT" };
+        },
+      },
+      reactions: { async add() {} },
+    };
+    const resolveBotUserId = createSlackBotUserIdResolver();
+
+    assert.equal(
+      await resolveBotUserId(client, { error: (error) => errors.push(error) }),
+      undefined,
+    );
+    assert.equal(await resolveBotUserId(client, { error: (error) => errors.push(error) }), "UBOT");
+    assert.equal(await resolveBotUserId(client, { error: (error) => errors.push(error) }), "UBOT");
+    assert.equal(attempts, 2);
+    assert.equal(errors.length, 1);
+  });
+
   it("replies to an exact status mention with tracked tasks grouped by status", async () => {
     await withStore(async (store) => {
       const todo = store.upsertTaskFromEvent({

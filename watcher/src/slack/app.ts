@@ -93,15 +93,16 @@ export function createSlackApp({
     appToken,
     socketMode: true,
   });
-  let botUserIdPromise: Promise<string | undefined> | undefined;
+  const resolveBotUserId = createSlackBotUserIdResolver();
 
   registerStatusAction(app, store, updateLinearStatus);
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
   app.message(async (args) => {
-    botUserIdPromise ??= resolveSlackBotUserId(args.client, args.logger);
-    await handleThreadReply(args, store, createLinearWorkpadReply, await botUserIdPromise);
+    const botUserId = await resolveBotUserId(args.client, args.logger);
+    if (!botUserId) return;
+    await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
   });
   return app;
 }
@@ -733,6 +734,19 @@ async function resolveSlackBotUserId(
     logger.error(error);
     return undefined;
   }
+}
+
+export function createSlackBotUserIdResolver(): (
+  client: MessageArguments["client"],
+  logger: MessageArguments["logger"],
+) => Promise<string | undefined> {
+  let botUserIdPromise: Promise<string | undefined> | undefined;
+  return async (client, logger) => {
+    botUserIdPromise ??= resolveSlackBotUserId(client, logger);
+    const botUserId = await botUserIdPromise;
+    if (!botUserId) botUserIdPromise = undefined;
+    return botUserId;
+  };
 }
 
 interface AppMentionEvent {
