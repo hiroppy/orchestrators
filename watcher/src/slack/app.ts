@@ -93,13 +93,15 @@ export function createSlackApp({
     appToken,
     socketMode: true,
   });
+  let botUserIdPromise: Promise<string | undefined> | undefined;
 
   registerStatusAction(app, store, updateLinearStatus);
   app.event("app_mention", async (args) => {
     await handleAppMention(args, store, configuredMentionTargets);
   });
   app.message(async (args) => {
-    await handleThreadReply(args, store, createLinearWorkpadReply);
+    botUserIdPromise ??= resolveSlackBotUserId(args.client, args.logger);
+    await handleThreadReply(args, store, createLinearWorkpadReply, await botUserIdPromise);
   });
   return app;
 }
@@ -272,8 +274,9 @@ export async function handleThreadReply(
   { message, client, logger }: MessageArguments,
   store: WatcherStore,
   createLinearWorkpadReply: LinearWorkpadReplier,
+  botUserId?: string,
 ): Promise<void> {
-  const reply = parseUserThreadReply(message);
+  const reply = parseUserThreadReply(message, botUserId);
   if (!reply) return;
 
   const task = store.getTaskBySlackThread(reply.channel, reply.thread_ts);
@@ -708,12 +711,28 @@ interface StatusActionArguments {
 interface MessageArguments {
   message: unknown;
   client: {
+    auth?: {
+      test(): Promise<{ user_id?: string }>;
+    };
     reactions: {
       add(args: { channel: string; name: string; timestamp: string }): Promise<unknown>;
     };
     users?: SlackClient["users"];
   };
   logger: { error(error: unknown): void };
+}
+
+async function resolveSlackBotUserId(
+  client: MessageArguments["client"],
+  logger: MessageArguments["logger"],
+): Promise<string | undefined> {
+  if (!client.auth) return undefined;
+  try {
+    return (await client.auth.test()).user_id;
+  } catch (error) {
+    logger.error(error);
+    return undefined;
+  }
 }
 
 interface AppMentionEvent {
@@ -811,7 +830,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
+function parseUserThreadReply(message: unknown, botUserId?: string): UserThreadReply | undefined {
   if (!message || typeof message !== "object") return undefined;
 
   const event = message as Record<string, unknown>;
@@ -826,7 +845,7 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
     typeof event.ts !== "string" ||
     typeof event.user !== "string" ||
     typeof event.text !== "string" ||
-    isRecognizedMentionCommand(event.text) ||
+    isRecognizedMentionCommand(event.text, botUserId) ||
     (event.text.trim().length === 0 && files.length === 0) ||
     !isSupportedSubtype ||
     event.bot_id !== undefined
@@ -844,8 +863,10 @@ function parseUserThreadReply(message: unknown): UserThreadReply | undefined {
   };
 }
 
-function isRecognizedMentionCommand(text: string): boolean {
-  return /^\s*<@[A-Z0-9]+>\s+(?:assign|status)(?:\s|$)/i.test(text);
+function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
+  if (!botUserId) return false;
+  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|status)(?:\s|$)/i);
+  return match?.[1]?.toLowerCase() === botUserId.toLowerCase();
 }
 
 function isSupportedSlackFile(file: unknown): file is SlackFile {

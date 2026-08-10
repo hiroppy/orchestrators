@@ -1239,13 +1239,6 @@ describe("Slack app behavior", () => {
         state: "In Progress",
       });
       const messages = [
-        {
-          channel: "C123",
-          thread_ts: "1.000",
-          ts: "1.500",
-          user: "U123",
-          text: "<@UBOT> assign <@U456>",
-        },
         { channel: "C123", thread_ts: "1.000", ts: "2.000", user: "U123", text: " " },
         {
           channel: "C123",
@@ -1323,6 +1316,55 @@ describe("Slack app behavior", () => {
 
       assert.equal(replyCount, 0);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
+    });
+  });
+
+  it("filters commands for this bot without dropping replies that mention another user", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      const replies: string[] = [];
+      const reactions: Array<Record<string, unknown>> = [];
+      const args = (ts: string, text: string) => ({
+        message: {
+          channel: "C123",
+          thread_ts: "1.000",
+          ts,
+          user: "U123",
+          text,
+        },
+        client: reactionClient(reactions),
+        logger: { error: (error: unknown) => assert.fail(String(error)) },
+      });
+
+      await handleThreadReply(
+        args("2.000", "<@UBOT> assign <@U123>"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
+        args("3.000", "<@UCOLLEAGUE> status is still blocked"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+
+      assert.deepEqual(replies, ["<@UCOLLEAGUE> status is still blocked"]);
+      assert.deepEqual(reactions, [
+        { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
+      ]);
     });
   });
 
