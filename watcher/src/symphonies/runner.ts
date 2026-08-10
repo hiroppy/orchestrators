@@ -61,13 +61,11 @@ export async function superviseServices(
   const start = async (runtime: ServiceRuntime): Promise<void> => {
     if (stopping) return;
 
-    let stdout: number | undefined;
     let stderr: number | undefined;
     let child: ChildProcess | undefined;
 
     try {
       await mkdir(runtime.logsRoot, { recursive: true });
-      stdout = openSync(resolve(runtime.logsRoot, "stdout.log"), "a");
       stderr = openSync(resolve(runtime.logsRoot, "stderr.log"), "a");
       child = spawnProcess(
         "./bin/symphony",
@@ -85,7 +83,7 @@ export async function superviseServices(
             ...process.env,
             LINEAR_API_KEY: runtime.linearApiKey,
           },
-          stdio: ["ignore", stdout, stderr],
+          stdio: ["ignore", "ignore", stderr],
         },
       );
     } catch (error) {
@@ -93,7 +91,6 @@ export async function superviseServices(
       scheduleRestart(runtime);
       return;
     } finally {
-      if (stdout !== undefined) closeSync(stdout);
       if (stderr !== undefined) closeSync(stderr);
     }
 

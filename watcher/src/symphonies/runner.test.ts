@@ -51,11 +51,17 @@ describe("enabledServiceRuntimes", () => {
     await withRuntime(async (runtime) => {
       let command: string | undefined;
       let args: readonly string[] | undefined;
+      let spawnOptions: { stdio?: unknown } | undefined;
       const child = fakeChild();
       const stop = await superviseServices([runtime], {
-        spawnProcess: ((spawnCommand: string, spawnArgs: readonly string[]) => {
+        spawnProcess: ((
+          spawnCommand: string,
+          spawnArgs: readonly string[],
+          options: { stdio?: unknown },
+        ) => {
           command = spawnCommand;
           args = spawnArgs;
+          spawnOptions = options;
           return child;
         }) as never,
       });
@@ -71,6 +77,9 @@ describe("enabledServiceRuntimes", () => {
         "5101",
         "./WORKFLOW.md",
       ]);
+      assert.equal(Array.isArray(spawnOptions?.stdio), true);
+      assert.equal(spawnOptions?.stdio?.[1], "ignore");
+      assert.equal(typeof spawnOptions?.stdio?.[2], "number");
       assert.equal(child.killed, true);
     });
   });
