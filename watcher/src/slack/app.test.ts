@@ -272,10 +272,13 @@ describe("Slack app behavior", () => {
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       for (const call of calls.slice(1, -1)) {
-        assert.equal(call.args.text, "Usage: `@Orchestrators assign @user`");
+        assert.equal(call.args.text, "[error] Usage: `@Orchestrators assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
-      assert.equal(calls.at(-1)?.args.text, "You can only assign yourself to task notifications.");
+      assert.equal(
+        calls.at(-1)?.args.text,
+        "[error] You can only assign yourself to task notifications.",
+      );
     });
   });
 
@@ -1571,7 +1574,7 @@ describe("Slack app behavior", () => {
     });
   });
 
-  it("leaves missing Workpads and Linear failures unrecorded", async () => {
+  it("reports missing Workpads and Linear failures in the Slack thread", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       await publishWatcherEvent(fakeClient(calls), store, "C123", {
@@ -1582,6 +1585,7 @@ describe("Slack app behavior", () => {
       });
       const errors: unknown[] = [];
       const reactions: Array<Record<string, unknown>> = [];
+      const messages: Array<Record<string, unknown>> = [];
       const args = {
         message: {
           channel: "C123",
@@ -1590,7 +1594,15 @@ describe("Slack app behavior", () => {
           user: "U123",
           text: "Please update the Workpad.",
         },
-        client: reactionClient(reactions),
+        client: {
+          ...reactionClient(reactions),
+          chat: {
+            async postMessage(message: Record<string, unknown>) {
+              messages.push(message);
+              return { ok: true };
+            },
+          },
+        },
         logger: { error: (error: unknown) => errors.push(error) },
       };
 
@@ -1601,6 +1613,18 @@ describe("Slack app behavior", () => {
 
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
       assert.deepEqual(reactions, []);
+      assert.deepEqual(messages, [
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          text: "[error] Linear への転記に失敗しました。理由: Linear の転記先 Workpad が見つかりませんでした。",
+        },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          text: "[error] Linear への転記に失敗しました。理由: Linear unavailable",
+        },
+      ]);
       assert.equal(errors.length, 1);
       assert.match(String(errors[0]), /Linear unavailable/);
     });
