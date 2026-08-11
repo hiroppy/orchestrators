@@ -1,5 +1,14 @@
 export const LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 
+export class LinearGraphqlError extends Error {
+  readonly codes: string[];
+
+  constructor(message: string, codes: string[]) {
+    super(message);
+    this.codes = codes;
+  }
+}
+
 export async function linearRequest<T>(
   apiKey: string,
   query: string,
@@ -32,7 +41,10 @@ export async function linearRequest<T>(
   if (body?.errors?.length) {
     const message = `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`;
     if (rateLimited) throw new LinearHttpError(message, true);
-    throw new Error(message);
+    throw new LinearGraphqlError(
+      message,
+      body.errors.flatMap(({ extensions }) => (extensions?.code ? [extensions.code] : [])),
+    );
   }
   if (!body?.data) throw new Error("Linear response did not include data.");
   return body.data;

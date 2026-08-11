@@ -60,6 +60,10 @@ describe("createLinearTakePrIssue", () => {
       teamId: "team-a",
       projectSlug: "project-123",
     });
+    assert.match(
+      requests[0].query,
+      /states\(first: 1, filter: \{ name: \{ eq: "In Progress" \} \}\)/,
+    );
     assert.match(requests[1].variables.issueId, /^[0-9a-f-]{36}$/);
     assert.deepEqual(requests[2].variables, {
       issueId: requests[1].variables.issueId,
@@ -69,6 +73,38 @@ describe("createLinearTakePrIssue", () => {
       title: input.title,
       description: input.description,
     });
+  });
+
+  it("treats ENTITY_NOT_FOUND during stable-ID lookup as no existing issue", async (context) => {
+    let requests = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requests += 1;
+      if (requests === 1) return takePrTargetResponse();
+      if (requests === 2) {
+        return Response.json({
+          data: { issue: null },
+          errors: [{ message: "Entity not found", extensions: { code: "ENTITY_NOT_FOUND" } }],
+        });
+      }
+      return Response.json({
+        data: {
+          issueCreate: {
+            success: true,
+            issue: {
+              identifier: "ENG-100",
+              url: "https://linear.app/example/issue/ENG-100/take-pr",
+              state: { name: "In Progress" },
+            },
+          },
+        },
+      });
+    });
+
+    assert.deepEqual(await createLinearTakePrIssue(input, { apiKey: "lin_test" }), {
+      identifier: "ENG-100",
+      url: "https://linear.app/example/issue/ENG-100/take-pr",
+    });
+    assert.equal(requests, 3);
   });
 
   it("reconciles an ambiguously successful create mutation by its stable issue ID", async (context) => {

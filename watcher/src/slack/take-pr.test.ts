@@ -210,7 +210,7 @@ describe("take-pr Slack flow", () => {
 
       assert.equal(calls[0].args.client_msg_id, calls[1].args.client_msg_id);
       const actionValue = JSON.stringify(calls[0].args.blocks).match(
-        /"value":"(takepr_[a-f0-9]{20}:service-a)"/,
+        /"value":"(takepr_[a-f0-9]{20}:0)"/,
       )?.[1];
       assert.ok(actionValue);
       calls.length = 0;
@@ -226,6 +226,33 @@ describe("take-pr Slack flow", () => {
       await handleTakePrAction(action, store, takePrOptions);
 
       assert.equal(creations, 1);
+    });
+  });
+
+  it("keeps selector values bounded for long encoded service names", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await createPending(
+        store,
+        calls,
+        options({
+          services: [
+            {
+              name: "é".repeat(100),
+              url: "https://service.test/state",
+              linearTeam: "workspace-a-eng",
+            },
+          ],
+        }),
+      );
+
+      const optionValue = (
+        calls[0].args.blocks as Array<{
+          elements?: Array<{ options?: Array<{ value?: string }> }>;
+        }>
+      )[1]?.elements?.[0]?.options?.[0]?.value;
+      assert.equal(optionValue, "request123:0");
+      assert.ok(optionValue.length <= 150);
     });
   });
 
@@ -420,7 +447,7 @@ describe("take-pr Slack flow", () => {
 
   it("revalidates a stale processing retry before another Linear mutation", async () => {
     await withStore(async (store) => {
-      const startedAt = new Date("2026-08-11T00:00:00.000Z");
+      const startedAt = new Date(Date.now() - 60 * 60 * 1_000);
       store.createPendingTakePrRequest(
         {
           id: "request123",

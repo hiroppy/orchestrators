@@ -144,7 +144,7 @@ export const TAKE_PR_TARGET_QUERY = `
   query OrchestratorWatcherTakePrTarget($teamId: String!, $projectSlug: String!) {
     team(id: $teamId) {
       id
-      states {
+      states(first: 1, filter: { name: { eq: "In Progress" } }) {
         nodes {
           id
           name

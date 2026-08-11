@@ -159,13 +159,19 @@ export async function handleTakePrAction(
     return;
   }
 
-  const service = options.services.find(({ name }) => name === selection.serviceName);
+  const serviceIndex = /^\d+$/.test(selection.serviceToken)
+    ? Number(selection.serviceToken)
+    : undefined;
+  const service =
+    serviceIndex !== undefined && Number.isSafeInteger(serviceIndex)
+      ? options.services[serviceIndex]
+      : options.services.find(({ name }) => name === selection.serviceToken);
   if (!service) {
     await postTakePrError(
       client,
       request.channelId,
       request.threadTs,
-      `Service is not enabled: ${selection.serviceName}`,
+      `Service is not enabled: ${selection.serviceToken}`,
     );
     return;
   }
@@ -343,9 +349,9 @@ function buildTakePrServiceSelectionBlocks(
           type: "static_select",
           action_id: TAKE_PR_SERVICE_ACTION_ID,
           placeholder: { type: "plain_text", text: "Choose a service" },
-          options: services.map(({ name }) => ({
+          options: services.map(({ name }, index) => ({
             text: { type: "plain_text", text: name.slice(0, MAX_OPTION_TEXT_LENGTH) },
-            value: `${requestId}:${encodeURIComponent(name)}`,
+            value: `${requestId}:${index}`,
           })),
         },
       ],
@@ -368,7 +374,7 @@ function hasCompletePullRequestMetadata(
 
 function takePrSelectionFromAction(
   action: unknown,
-): { requestId: string; serviceName: string } | undefined {
+): { requestId: string; serviceToken: string } | undefined {
   if (!action || typeof action !== "object") return undefined;
   const value = (action as { selected_option?: { value?: unknown } }).selected_option?.value;
   if (typeof value !== "string") return undefined;
@@ -377,12 +383,8 @@ function takePrSelectionFromAction(
 
   const requestId = value.slice(0, separator);
   if (!/^[A-Za-z0-9_-]{8,32}$/.test(requestId)) return undefined;
-  try {
-    const serviceName = decodeURIComponent(value.slice(separator + 1));
-    return serviceName ? { requestId, serviceName } : undefined;
-  } catch {
-    return undefined;
-  }
+  const serviceToken = value.slice(separator + 1);
+  return serviceToken ? { requestId, serviceToken } : undefined;
 }
 
 function workflowPathFor(symphoniesDirectory: string, serviceName: string): string {

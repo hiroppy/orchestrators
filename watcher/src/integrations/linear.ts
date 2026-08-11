@@ -25,6 +25,7 @@ import {
 import {
   isTransientLinearError,
   LINEAR_ENDPOINT,
+  LinearGraphqlError,
   linearRequest,
   retryLinearRequest,
 } from "./linear-client.ts";
@@ -280,13 +281,19 @@ async function findLinearTakePrIssue(
   issueId: string,
   timeoutMs: number,
 ): Promise<CreatedLinearIssue | null> {
-  const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
-    apiKey,
-    TAKE_PR_ISSUE_QUERY,
-    { issueId },
-    timeoutMs,
-  );
-  return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+  try {
+    const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
+      apiKey,
+      TAKE_PR_ISSUE_QUERY,
+      { issueId },
+      timeoutMs,
+    );
+    return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+  } catch (error) {
+    if (error instanceof LinearGraphqlError && error.codes.includes("ENTITY_NOT_FOUND"))
+      return null;
+    throw error;
+  }
 }
 
 function requireNewLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
