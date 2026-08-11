@@ -121,12 +121,9 @@ describe("Slack preview", () => {
       calls[0].text,
       "*PR created* | <https://github.com/example/preview/pull/123|PR#123>",
     );
-    assert.match(
-      String(calls[1].text),
-      /^\*In Progress\* → \*In Review\*\nEvent: Updated\nTurns: 12 \| Tokens: 12\.3k$/,
-    );
+    assert.match(String(calls[1].text), /^\*In Progress\* → \*In Review\*\nEvent: Updated$/);
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
-    assert.match(JSON.stringify(calls[1].blocks), /\*Usage\*\\n12 turns \| 12\.3k tokens/);
+    assert.doesNotMatch(JSON.stringify(calls[1].blocks), /Usage|turns|tokens/i);
     assert.match(String(calls[5].text), /^\*unavailable\* → \*available\*\nEvent: Recovered$/);
   });
 

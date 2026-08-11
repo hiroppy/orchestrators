@@ -51,14 +51,10 @@ describe("diffSnapshots", () => {
         issueIdentifier: "ENG-62",
         issueUrl: "https://linear.app/example/issue/ENG-62/example",
         state: "In Progress",
-        message: "agent message streaming: checking files",
         workspacePath: "/tmp/example-workspaces/ENG-62",
         startedAt: "2026-06-12T05:30:00Z",
-        turnCount: 7,
-        tokens: { input: 1_200, output: 800, total: 2_000 },
         lastEvent: "notification",
         lastEventAt: "2026-06-12T05:34:32Z",
-        activity: "agent message streaming: checking files",
       },
     ]);
   });
@@ -133,8 +129,6 @@ describe("diffSnapshots", () => {
         issueIdentifier: "ENG-62",
         issueUrl: "https://linear.app/example/issue/ENG-62",
         state: "In Progress",
-        message: "command output streaming: vitest run",
-        activity: "command output streaming: vitest run",
       },
     ]);
   });
@@ -194,7 +188,6 @@ describe("diffSnapshots", () => {
       diffSnapshots({}, current, baseConfig)[0].issueUrl,
       "https://linear.app/example/issue/ENG-65",
     );
-    assert.equal(diffSnapshots({}, current, baseConfig)[0].activity, "command execution started");
   });
 
   it("uses the referenced Linear team's URL fallback", () => {

@@ -14,31 +14,15 @@ export type {
   StatusHookHelpers,
 } from "orchestrator-config";
 
-export interface TokenCounts {
-  input?: number;
-  output?: number;
-  total?: number;
-}
-
 export interface SnapshotRow {
   issue_identifier?: string;
   issueIdentifier?: string;
   issue_url?: string;
   state?: string;
-  last_message?: string;
   error?: string;
   workspace_path?: string;
   started_at?: string;
   blocked_at?: string;
-  turn_count?: number;
-  tokens?: {
-    input_tokens?: number;
-    inputTokens?: number;
-    output_tokens?: number;
-    outputTokens?: number;
-    total_tokens?: number;
-    totalTokens?: number;
-  };
   last_event?: string;
   last_event_at?: string;
   attempt?: number;
@@ -90,13 +74,9 @@ export interface WatcherEvent {
   issueIdentifier: string;
   issueUrl?: string;
   state?: string;
-  message?: string;
-  activity?: string;
   workspacePath?: string;
   startedAt?: string;
   blockedAt?: string;
-  turnCount?: number;
-  tokens?: TokenCounts;
   lastEvent?: string;
   lastEventAt?: string;
   attempt?: number;
