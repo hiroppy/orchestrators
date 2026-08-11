@@ -60,6 +60,7 @@ describe("watcher reconciliation and snapshots", () => {
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
         task: closedTask,
+        expectedStatus: "Done",
       });
 
       assert.equal(store.getTask(task.id)?.linearStateType, "completed");
@@ -67,6 +68,125 @@ describe("watcher reconciliation and snapshots", () => {
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
         "Task closed | *Done*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
+    });
+  });
+
+  it("ignores a stale Linear state after a Slack status change", async (context) => {
+    await withStore(async (store) => {
+      context.mock.method(globalThis, "fetch", async () =>
+        Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Review", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        }),
+      );
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "Done",
+        () => undefined,
+      );
+      const previousLinearStateType = closedTask.linearStateType;
+      const calls: Array<Record<string, unknown>> = [];
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: closedTask,
+        expectedStatus: "Done",
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.getTask(task.id)?.linearStateType, previousLinearStateType);
+      assert.deepEqual(calls, []);
+    });
+  });
+
+  it("does not fail the Slack action when immediate reconciliation fails", async (context) => {
+    await withStore(async (store) => {
+      context.mock.method(globalThis, "fetch", async () =>
+        Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "Done", type: "completed" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        }),
+      );
+      const errors: unknown[][] = [];
+      context.mock.method(console, "error", (...args: unknown[]) => {
+        errors.push(args);
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "Done",
+        () => undefined,
+      );
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient([], { rejectUpdate: () => true }),
+        slackChannelId: "C123",
+        task: closedTask,
+        expectedStatus: "Done",
+      });
+
+      assert.equal(errors.length, 1);
+      assert.equal(errors[0]?.[0], "Failed to reconcile Slack status transition:");
+      assert.match(String(errors[0]?.[1]), /Simulated Slack card failure/);
     });
   });
 

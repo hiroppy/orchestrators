@@ -134,13 +134,14 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           },
           createStatusTransitionEvent: (task, fromStatus, toStatus) =>
             createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
-          onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+          onStatusTransition: async (task, _fromStatus, toStatus, slackClient) => {
             await reconcileSlackStatusTransition({
               config: runtimeConfig,
               store,
               slackClient,
               slackChannelId: slackConfig.channelId,
               task,
+              expectedStatus: toStatus,
             });
             await deliverPendingStatusHooksSafely({
               hooks: runtimeConfig.statusHooks,
@@ -191,31 +192,39 @@ export async function reconcileSlackStatusTransition({
   slackClient,
   slackChannelId,
   task,
+  expectedStatus,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   slackClient: SlackClient;
   slackChannelId: string;
   task: Task;
+  expectedStatus: string;
 }): Promise<void> {
-  const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
-    apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
-    includeCreator: false,
-    maxAttempts: 1,
-  });
-  if (!linearIssue?.state || !linearIssue.stateType) return;
+  try {
+    const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
+      apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
+      includeCreator: false,
+      maxAttempts: 1,
+    });
+    if (!linearIssue?.state || !linearIssue.stateType || linearIssue.state !== expectedStatus) {
+      return;
+    }
 
-  await publishWatcherEvent(slackClient, store, slackChannelId, {
-    type: "updated",
-    service: task.serviceName,
-    issueIdentifier: task.issueIdentifier,
-    issueTitle: linearIssue.title,
-    issueUrl: linearIssue.url ?? task.linkUrl,
-    resolvedState: linearIssue.state,
-    resolvedStateType: normalizeStatus(linearIssue.stateType),
-    pullRequest: linearIssue.pullRequest,
-    relatedIssues: linearIssue.relatedIssues,
-  });
+    await publishWatcherEvent(slackClient, store, slackChannelId, {
+      type: "updated",
+      service: task.serviceName,
+      issueIdentifier: task.issueIdentifier,
+      issueTitle: linearIssue.title,
+      issueUrl: linearIssue.url ?? task.linkUrl,
+      resolvedState: linearIssue.state,
+      resolvedStateType: normalizeStatus(linearIssue.stateType),
+      pullRequest: linearIssue.pullRequest,
+      relatedIssues: linearIssue.relatedIssues,
+    });
+  } catch (error) {
+    console.error("Failed to reconcile Slack status transition:", error);
+  }
 }
 
 export async function runPoll(options: RunOnceOptions): Promise<void> {
