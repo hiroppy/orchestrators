@@ -18,6 +18,7 @@ import {
   ISSUE_STATUS_UPDATE_MUTATION,
   ISSUE_WORKPAD_QUERY,
   TEAM_WORKFLOW_STATES_QUERY,
+  TAKE_PR_ATTACHMENT_CREATE_MUTATION,
   TAKE_PR_ISSUE_CREATE_MUTATION,
   TAKE_PR_ISSUE_QUERY,
   TAKE_PR_TARGET_QUERY,
@@ -40,6 +41,8 @@ export interface CreateLinearTakePrIssueInput {
   projectSlug: string;
   title: string;
   description: string;
+  pullRequestTitle: string;
+  pullRequestUrl: string;
 }
 
 export interface CreatedLinearIssue {
@@ -225,48 +228,72 @@ export async function createLinearTakePrIssue(
   );
   if (!inProgress) throw new Error(`Linear team has no In Progress state: ${input.teamId}`);
 
-  const existingIssue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
-  if (existingIssue) return existingIssue;
+  let issue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
 
-  try {
-    const created = await linearRequest<{
-      issueCreate?: {
-        success?: boolean;
-        issue?: LinearTakePrIssue;
-      };
-    }>(
-      apiKey,
-      TAKE_PR_ISSUE_CREATE_MUTATION,
-      {
-        issueId,
-        teamId: team.id,
-        projectId: project.id,
-        stateId: inProgress.id,
-        title: input.title,
-        description: input.description,
-      },
-      timeoutMs,
-    );
-    if (!created.issueCreate?.success) {
-      throw new Error("Linear rejected take-pr issue creation in In Progress.");
-    }
-    return requireNewLinearTakePrIssue(created.issueCreate.issue);
-  } catch (error) {
+  if (!issue) {
     try {
-      const reconciled = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
-      if (reconciled) return reconciled;
-    } catch (reconciliationError) {
-      throw new AmbiguousLinearTakePrIssueError(
-        `Linear issue creation could not be reconciled: ${errorMessage(reconciliationError)}`,
-        { cause: error },
+      const created = await linearRequest<{
+        issueCreate?: {
+          success?: boolean;
+          issue?: LinearTakePrIssue;
+        };
+      }>(
+        apiKey,
+        TAKE_PR_ISSUE_CREATE_MUTATION,
+        {
+          issueId,
+          teamId: team.id,
+          projectId: project.id,
+          stateId: inProgress.id,
+          title: input.title,
+          description: input.description,
+        },
+        timeoutMs,
       );
+      if (!created.issueCreate?.success) {
+        throw new Error("Linear rejected take-pr issue creation in In Progress.");
+      }
+      issue = requireNewLinearTakePrIssue(created.issueCreate.issue);
+    } catch (error) {
+      try {
+        issue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
+      } catch (reconciliationError) {
+        throw new AmbiguousLinearTakePrIssueError(
+          `Linear issue creation could not be reconciled: ${errorMessage(reconciliationError)}`,
+          { cause: error },
+        );
+      }
+      if (!issue) throw error;
     }
-    throw error;
   }
+
+  await createLinearTakePrAttachment(apiKey, issueId, input, timeoutMs);
+  return issue;
 }
 
 function linearProjectSlugId(projectSlug: string): string {
   return projectSlug.match(/(?:^|-)([0-9a-f]{12})$/i)?.[1] ?? projectSlug;
+}
+
+async function createLinearTakePrAttachment(
+  apiKey: string,
+  issueId: string,
+  input: Pick<CreateLinearTakePrIssueInput, "pullRequestTitle" | "pullRequestUrl">,
+  timeoutMs: number,
+): Promise<void> {
+  const data = await linearRequest<{ attachmentCreate?: { success?: boolean } }>(
+    apiKey,
+    TAKE_PR_ATTACHMENT_CREATE_MUTATION,
+    {
+      issueId,
+      title: input.pullRequestTitle,
+      url: input.pullRequestUrl,
+    },
+    timeoutMs,
+  );
+  if (!data.attachmentCreate?.success) {
+    throw new Error("Linear rejected take-pr pull request attachment creation.");
+  }
 }
 
 interface LinearTakePrIssue {

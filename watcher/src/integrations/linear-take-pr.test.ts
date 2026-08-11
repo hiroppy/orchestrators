@@ -9,6 +9,8 @@ const input = {
   projectSlug: "project-123",
   title: "既存PRを更新: Fix widget",
   description: "PR metadata and instructions",
+  pullRequestTitle: "Fix widget",
+  pullRequestUrl: "https://github.com/example/widget/pull/42",
 };
 
 describe("createLinearTakePrIssue", () => {
@@ -38,6 +40,7 @@ describe("createLinearTakePrIssue", () => {
         });
       }
       if (requests.length === 2) return Response.json({ data: { issue: null } });
+      if (requests.length === 4) return attachmentResponse();
       return Response.json({
         data: {
           issueCreate: {
@@ -69,6 +72,11 @@ describe("createLinearTakePrIssue", () => {
       title: input.title,
       description: input.description,
     });
+    assert.deepEqual(requests[3].variables, {
+      issueId: requests[1].variables.issueId,
+      title: input.pullRequestTitle,
+      url: input.pullRequestUrl,
+    });
   });
 
   it("resolves a Linear URL project slug by its trailing slug ID", async (context) => {
@@ -96,6 +104,7 @@ describe("createLinearTakePrIssue", () => {
         });
       }
       if (requests.length === 2) return Response.json({ data: { issue: null } });
+      if (requests.length === 4) return attachmentResponse();
       return Response.json({
         data: {
           issueCreate: {
@@ -127,6 +136,7 @@ describe("createLinearTakePrIssue", () => {
       if (requests === 2) {
         return Response.json({ errors: [{ message: "Entity not found: Issue" }] });
       }
+      if (requests === 4) return attachmentResponse();
       return Response.json({
         data: {
           issueCreate: {
@@ -145,7 +155,7 @@ describe("createLinearTakePrIssue", () => {
       identifier: "ENG-100",
       url: "https://linear.app/example/issue/ENG-100/take-pr",
     });
-    assert.equal(requests, 3);
+    assert.equal(requests, 4);
   });
 
   it("reconciles an ambiguously successful create mutation by its stable issue ID", async (context) => {
@@ -161,6 +171,7 @@ describe("createLinearTakePrIssue", () => {
       }
       if (requests === 3) throw new TypeError("connection lost after commit");
       assert.equal(request.variables.issueId, issueId);
+      if (requests === 5) return attachmentResponse();
       return Response.json({
         data: {
           issue: {
@@ -176,7 +187,37 @@ describe("createLinearTakePrIssue", () => {
       identifier: "ENG-100",
       url: "https://linear.app/example/issue/ENG-100/take-pr",
     });
-    assert.equal(requests, 4);
+    assert.equal(requests, 5);
+  });
+
+  it("restores a missing pull request attachment for an existing issue", async (context) => {
+    const requests: Array<{ variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      if (requests.length === 1) return takePrTargetResponse();
+      if (requests.length === 2) {
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-100",
+              url: "https://linear.app/example/issue/ENG-100/take-pr",
+              state: { name: "In Progress" },
+            },
+          },
+        });
+      }
+      return attachmentResponse();
+    });
+
+    await createLinearTakePrIssue(input, { apiKey: "lin_test" });
+
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests[2].variables, {
+      issueId: requests[1].variables.issueId,
+      title: input.pullRequestTitle,
+      url: input.pullRequestUrl,
+    });
   });
 
   it("reports an ambiguous result when post-mutation reconciliation also fails", async (context) => {
@@ -267,4 +308,8 @@ function takePrTargetResponse(): Response {
       },
     },
   });
+}
+
+function attachmentResponse(): Response {
+  return Response.json({ data: { attachmentCreate: { success: true } } });
 }

@@ -507,7 +507,15 @@ function buildLinearIssueInput(
   descriptionSections.push("> END UNTRUSTED GITHUB DATA");
   descriptionSections.push("", "## 依頼元", "", slackMessageUrl);
   const description = descriptionSections.join("\n");
-  return { idempotencyKey: request.id, teamId, projectSlug, title, description };
+  return {
+    idempotencyKey: request.id,
+    teamId,
+    projectSlug,
+    title,
+    description,
+    pullRequestTitle: singleLine(request.pullRequestTitle),
+    pullRequestUrl: request.pullRequestUrl,
+  };
 }
 
 function singleLine(value: string): string {

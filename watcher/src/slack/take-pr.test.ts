@@ -653,6 +653,8 @@ describe("take-pr Slack flow", () => {
             input.description,
             /> PR body:\n> ## Summary\n>\s*\n> Fixes the widget regression/,
           );
+          assert.equal(input.pullRequestTitle, "Fix the widget");
+          assert.equal(input.pullRequestUrl, pullRequest.url);
           assert.match(input.description, /https:\/\/example\.slack\.com\/archives\/C123\/p10000/);
           return {
             identifier: "ENG-100",
