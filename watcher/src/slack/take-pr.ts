@@ -329,6 +329,16 @@ function buildTakePrServiceSelectionBlocks(
   pullRequest: CompletePullRequest,
   services: ServiceDefinition[],
 ): KnownBlock[] {
+  const options = services.map(({ name }) => ({
+    text: { type: "plain_text" as const, text: name.slice(0, MAX_OPTION_TEXT_LENGTH) },
+    value: `${requestId}:${encodeURIComponent(name)}`,
+  }));
+  const repositoryName = pullRequest.repository.split("/").at(-1)?.toLowerCase();
+  const inferredOptions = options.filter(
+    (_, index) => services[index].name.toLowerCase() === repositoryName,
+  );
+  const initialOption = inferredOptions.length === 1 ? inferredOptions[0] : undefined;
+
   return [
     {
       type: "section",
@@ -344,11 +354,9 @@ function buildTakePrServiceSelectionBlocks(
         {
           type: "static_select",
           action_id: TAKE_PR_SERVICE_ACTION_ID,
-          placeholder: { type: "plain_text", text: "Choose a service" },
-          options: services.map(({ name }) => ({
-            text: { type: "plain_text", text: name.slice(0, MAX_OPTION_TEXT_LENGTH) },
-            value: `${requestId}:${encodeURIComponent(name)}`,
-          })),
+          placeholder: { type: "plain_text", text: "Service" },
+          options,
+          ...(initialOption ? { initial_option: initialOption } : {}),
         },
       ],
     },

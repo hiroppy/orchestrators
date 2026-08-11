@@ -71,6 +71,54 @@ describe("createLinearTakePrIssue", () => {
     });
   });
 
+  it("resolves a Linear URL project slug by its trailing slug ID", async (context) => {
+    const requests: Array<{ variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      if (requests.length === 1) {
+        return Response.json({
+          data: {
+            team: {
+              id: "team-a",
+              states: { nodes: [{ id: "state-progress", name: "In Progress" }] },
+            },
+            projects: {
+              nodes: [
+                {
+                  id: "project-id",
+                  slugId: "f96dc363d974",
+                  teams: { nodes: [{ id: "team-a" }] },
+                },
+              ],
+            },
+          },
+        });
+      }
+      if (requests.length === 2) return Response.json({ data: { issue: null } });
+      return Response.json({
+        data: {
+          issueCreate: {
+            success: true,
+            issue: {
+              identifier: "ENG-100",
+              url: "https://linear.app/example/issue/ENG-100/take-pr",
+              state: { name: "In Progress" },
+            },
+          },
+        },
+      });
+    });
+
+    await createLinearTakePrIssue(
+      { ...input, projectSlug: "orchestrators-f96dc363d974" },
+      { apiKey: "lin_test" },
+    );
+
+    assert.equal(requests[0].variables.projectSlug, "f96dc363d974");
+    assert.equal(requests[2].variables.projectId, "project-id");
+  });
+
   it("reconciles an ambiguously successful create mutation by its stable issue ID", async (context) => {
     let requests = 0;
     let issueId: string | undefined;

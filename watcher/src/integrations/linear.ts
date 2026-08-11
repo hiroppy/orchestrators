@@ -193,6 +193,7 @@ export async function createLinearTakePrIssue(
 ): Promise<CreatedLinearIssue> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
   const issueId = stableUuid(`take-pr:${input.idempotencyKey}`);
+  const projectSlugId = linearProjectSlugId(input.projectSlug);
 
   const target = await linearRequest<{
     team?: {
@@ -207,16 +208,11 @@ export async function createLinearTakePrIssue(
         teams?: { nodes?: Array<{ id: string }> };
       }>;
     };
-  }>(
-    apiKey,
-    TAKE_PR_TARGET_QUERY,
-    { teamId: input.teamId, projectSlug: input.projectSlug },
-    timeoutMs,
-  );
+  }>(apiKey, TAKE_PR_TARGET_QUERY, { teamId: input.teamId, projectSlug: projectSlugId }, timeoutMs);
   const team = target.team;
   if (!team) throw new Error(`Linear team not found: ${input.teamId}`);
 
-  const project = target.projects?.nodes?.find(({ slugId }) => slugId === input.projectSlug);
+  const project = target.projects?.nodes?.find(({ slugId }) => slugId === projectSlugId);
   if (!project) throw new Error(`Linear project not found: ${input.projectSlug}`);
   if (!project.teams?.nodes?.some(({ id }) => id === team.id)) {
     throw new Error(
@@ -267,6 +263,10 @@ export async function createLinearTakePrIssue(
     }
     throw error;
   }
+}
+
+function linearProjectSlugId(projectSlug: string): string {
+  return projectSlug.match(/(?:^|-)([0-9a-f]{12})$/i)?.[1] ?? projectSlug;
 }
 
 interface LinearTakePrIssue {

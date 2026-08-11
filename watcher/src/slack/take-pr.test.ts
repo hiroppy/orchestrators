@@ -193,6 +193,31 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("defaults the service select from the GitHub repository name", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await handleTakePrMention(
+        { channel: "C123", ts: "10.000", user: "U123" },
+        [pullRequest.url],
+        fakeClient(calls),
+        { error: (error) => assert.fail(String(error)) },
+        store,
+        options({
+          services: [
+            { name: "other", url: "https://other.test/state", linearTeam: "workspace-a-eng" },
+            { name: "Widget", url: "https://widget.test/state", linearTeam: "workspace-a-eng" },
+          ],
+        }),
+      );
+
+      const blocks = calls.find(({ method }) => method === "postMessage")?.args.blocks;
+      assert.match(
+        JSON.stringify(blocks),
+        /"initial_option":\{"text":\{"type":"plain_text","text":"Widget"\},"value":"request123:Widget"\}/,
+      );
+    });
+  });
+
   it("deduplicates Slack redelivery of the same app mention", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
