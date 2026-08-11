@@ -40,8 +40,16 @@ export async function handleAppMention(
     logger.error(error);
     await postSlackOperationError(
       client,
-      { channel: mention.event.channel, threadTs: mention.event.threadTs },
-      "Failed to load the current task status.",
+      {
+        channel: mention.event.channel,
+        threadTs:
+          mention.command === "take-pr"
+            ? (mention.event.threadTs ?? mention.event.ts)
+            : mention.event.threadTs,
+      },
+      mention.command === "take-pr"
+        ? "Failed to start take-pr. No Linear issue was created."
+        : "Failed to load the current task status.",
       logger,
     );
   }

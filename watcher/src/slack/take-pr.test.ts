@@ -229,6 +229,42 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("reports a take-pr-specific error when selector delivery fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<Record<string, unknown>> = [];
+      let postAttempts = 0;
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            ts: "10.000",
+            user: "U123",
+            text: `<@UBOT> take-pr ${pullRequest.url}`,
+          },
+          client: {
+            chat: {
+              postMessage: async (args: Record<string, unknown>) => {
+                postAttempts += 1;
+                if (postAttempts === 1) throw new Error("selector unavailable");
+                calls.push(args);
+                return { ok: true };
+              },
+            },
+          } as never,
+          logger: { error: () => {} },
+        },
+        store,
+        [],
+        options(),
+      );
+
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+      assert.equal(calls[0].thread_ts, "10.000");
+      assert.match(String(calls[0].text), /Failed to start take-pr.*No Linear issue was created/s);
+      assert.doesNotMatch(String(calls[0].text), /current task status/);
+    });
+  });
+
   it("rejects take-pr outside the configured watcher channel", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
