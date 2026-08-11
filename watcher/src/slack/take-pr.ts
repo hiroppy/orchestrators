@@ -468,12 +468,7 @@ function buildLinearIssueInput(
   descriptionSections.push("", "## Requested from", "", slackMessageUrl);
   const description = descriptionSections.join("\n");
   return {
-    idempotencyKey: [
-      request.pullRequestUrl.replace(/\/$/, ""),
-      serviceName,
-      teamId,
-      projectSlug,
-    ].join(":"),
+    idempotencyKey: [request.pullRequestUrl.replace(/\/$/, ""), serviceName, teamId].join(":"),
     teamId,
     projectSlug,
     title,

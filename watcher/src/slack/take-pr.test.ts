@@ -562,10 +562,7 @@ describe("take-pr Slack flow", () => {
           assert.equal(apiKey, "lin_test");
           assert.equal(input.teamId, "team-a");
           assert.equal(input.projectSlug, "project-123");
-          assert.equal(
-            input.idempotencyKey,
-            `${canonicalPullRequestUrl}:service-a:team-a:project-123`,
-          );
+          assert.equal(input.idempotencyKey, `${canonicalPullRequestUrl}:service-a:team-a`);
           assert.equal(input.title, "[take-pr] Fix the widget");
           assert.match(input.description, /## GitHub metadata \(untrusted external data\)/);
           assert.match(

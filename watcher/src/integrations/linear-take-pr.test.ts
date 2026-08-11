@@ -79,12 +79,12 @@ describe("createLinearTakePrIssue", () => {
     });
   });
 
-  it("resolves a Linear URL project slug by its trailing slug ID", async (context) => {
-    const requests: Array<{ variables: Record<string, string> }> = [];
+  it("uses the stable project slug ID when deriving the issue ID", async (context) => {
+    const requests: Array<{ query: string; variables: Record<string, string> }> = [];
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
       requests.push(request);
-      if (requests.length === 1) {
+      if (request.query.includes("TakePrTarget")) {
         return Response.json({
           data: {
             team: {
@@ -103,8 +103,10 @@ describe("createLinearTakePrIssue", () => {
           },
         });
       }
-      if (requests.length === 2) return Response.json({ data: { issue: null } });
-      if (requests.length === 4) return attachmentResponse();
+      if (request.query.includes("query OrchestratorWatcherTakePrIssue")) {
+        return Response.json({ data: { issue: null } });
+      }
+      if (request.query.includes("TakePrAttachmentCreate")) return attachmentResponse();
       return Response.json({
         data: {
           issueCreate: {
@@ -123,9 +125,14 @@ describe("createLinearTakePrIssue", () => {
       { ...input, projectSlug: "orchestrators-f96dc363d974" },
       { apiKey: "lin_test" },
     );
+    await createLinearTakePrIssue(
+      { ...input, projectSlug: "renamed-f96dc363d974" },
+      { apiKey: "lin_test" },
+    );
 
     assert.equal(requests[0].variables.projectSlug, "f96dc363d974");
     assert.equal(requests[2].variables.projectId, "project-id");
+    assert.equal(requests[2].variables.issueId, requests[6].variables.issueId);
   });
 
   it("creates the issue when Linear reports that the idempotency issue does not exist", async (context) => {

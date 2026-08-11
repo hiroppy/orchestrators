@@ -195,8 +195,8 @@ export async function createLinearTakePrIssue(
   { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
 ): Promise<CreatedLinearIssue> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
-  const issueId = stableUuid(`take-pr:${input.idempotencyKey}`);
   const projectSlugId = linearProjectSlugId(input.projectSlug);
+  const issueId = stableUuid(`take-pr:${input.idempotencyKey}:${projectSlugId}`);
 
   const target = await linearRequest<{
     team?: {
