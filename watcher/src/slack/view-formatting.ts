@@ -35,7 +35,7 @@ export function escapeSlack(value: unknown): string {
 }
 
 export function escapeSlackLinkLabel(value: unknown): string {
-  return escapeSlack(value).replaceAll("|", "&#124;");
+  return escapeSlack(value).replaceAll("|", "｜");
 }
 
 export function isPresent<T>(value: T | null | undefined | false): value is T {

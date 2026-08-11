@@ -313,7 +313,7 @@ describe("Slack event publishing", () => {
               { type: "mrkdwn", text: "*Status*\nDone" },
               {
                 type: "mrkdwn",
-                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|Merge &#124; &lt;deploy&gt; &amp; _verify_>",
+                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|Merge ｜ &lt;deploy&gt; &amp; _verify_>",
               },
             ],
           },
