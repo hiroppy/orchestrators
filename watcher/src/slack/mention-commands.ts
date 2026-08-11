@@ -190,11 +190,19 @@ async function handleAssignCommand({
 async function handleUnassignCommand({
   event,
   client,
+  logger,
   store,
   args,
 }: MentionCommandContext): Promise<void> {
   const threadTs = event.threadTs;
-  if (!threadTs) return;
+  if (!threadTs) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel },
+      "Run `unassign` from a tracked task thread.",
+    );
+    return;
+  }
 
   const task = store.getTaskBySlackThread(event.channel, threadTs);
   if (!task) {
@@ -225,7 +233,17 @@ async function handleUnassignCommand({
   }
 
   store.unassignTaskNotificationMention(task.id, slackUserId);
-  await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  try {
+    await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were unassigned, but the confirmation reaction could not be added.",
+      logger,
+    );
+  }
 }
 
 async function handleStatusCommand({

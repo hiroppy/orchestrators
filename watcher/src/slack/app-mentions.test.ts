@@ -519,13 +519,71 @@ describe("Slack mention commands", () => {
       }
 
       assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U123>"]);
-      assert.equal(calls.length, 3);
+      assert.equal(calls.length, 4);
       assert.match(String(calls[0].args.text), /tracked task thread/);
-      assert.equal(calls[1].args.text, "[error] Usage: <@UBOT> `unassign @user`");
+      assert.equal(calls[0].args.thread_ts, undefined);
+      assert.match(String(calls[1].args.text), /tracked task thread/);
+      assert.equal(calls[1].args.thread_ts, "99.000");
+      assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user`");
       assert.equal(
-        calls[2].args.text,
+        calls[3].args.text,
         "[error] You can only unassign yourself from task notifications.",
       );
+    });
+  });
+
+  it("reports a confirmation failure without misreporting the completed unassignment", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTaskNotificationMention(task.id, "U123");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const errors: unknown[] = [];
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> unassign <@U123>",
+          },
+          client: {
+            reactions: {
+              add: async () => {
+                throw new Error("reaction unavailable");
+              },
+            },
+            chat: {
+              postMessage: async (args: Record<string, unknown>) => {
+                calls.push({ method: "postMessage", args });
+                return { ok: true };
+              },
+            },
+          } as never,
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+      );
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.equal(errors.length, 1);
+      assert.deepEqual(calls, [
+        {
+          method: "postMessage",
+          args: {
+            channel: "C123",
+            thread_ts: "10.000",
+            text: "[error] You were unassigned, but the confirmation reaction could not be added.",
+          },
+        },
+      ]);
     });
   });
 
