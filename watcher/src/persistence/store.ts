@@ -37,14 +37,32 @@ import { syncDefinitions } from "./definitions.ts";
 export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
+const TAKE_PR_ACTIVE_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
   blocked: "Blocked",
 } as const;
 
+export interface PendingTakePrRequest {
+  id: string;
+  pullRequestUrl: string;
+  repository: string;
+  pullRequestTitle: string;
+  pullRequestBody: string;
+  headBranch: string;
+  baseBranch: string;
+  channelId: string;
+  threadTs: string;
+  requesterSlackUserId?: string;
+  createdAt: string;
+}
+
+type NewPendingTakePrRequest = Omit<PendingTakePrRequest, "createdAt">;
+
 export class WatcherStore {
   private readonly db: WatcherDatabase;
+  private readonly pendingTakePrRequests = new Map<string, PendingTakePrRequest>();
 
   constructor(db: WatcherDatabase) {
     this.db = db;
@@ -386,6 +404,36 @@ export class WatcherStore {
       .map(({ slackUserId }) => `<@${slackUserId}>`);
   }
 
+  createPendingTakePrRequest(
+    request: NewPendingTakePrRequest,
+    now = new Date(),
+  ): PendingTakePrRequest {
+    this.pruneExpiredTakePrRequests(now);
+    const existing = this.pendingTakePrRequests.get(request.id);
+    if (existing) return existing;
+    const pending: PendingTakePrRequest = {
+      ...request,
+      createdAt: now.toISOString(),
+    };
+    this.pendingTakePrRequests.set(request.id, pending);
+    return pending;
+  }
+
+  getPendingTakePrRequest(id: string, now = new Date()): PendingTakePrRequest | undefined {
+    this.pruneExpiredTakePrRequests(now);
+    return this.pendingTakePrRequests.get(id);
+  }
+
+  takePendingTakePrRequest(id: string, now = new Date()): PendingTakePrRequest | undefined {
+    const request = this.getPendingTakePrRequest(id, now);
+    if (request) this.pendingTakePrRequests.delete(id);
+    return request;
+  }
+
+  restorePendingTakePrRequest(request: PendingTakePrRequest): void {
+    this.pendingTakePrRequests.set(request.id, request);
+  }
+
   updateTaskStatus(
     taskId: string,
     statusName: string,
@@ -482,6 +530,14 @@ export class WatcherStore {
     const task = this.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
     return task;
+  }
+
+  private pruneExpiredTakePrRequests(now: Date): void {
+    for (const [id, request] of this.pendingTakePrRequests) {
+      if (Date.parse(request.createdAt) <= now.getTime() - TAKE_PR_ACTIVE_RETENTION_MS) {
+        this.pendingTakePrRequests.delete(id);
+      }
+    }
   }
 }
 

@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid",
+            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -76,11 +76,14 @@ describe("findPullRequest", () => {
       url: "https://github.com/example/example-service/pull/123",
       number: 123,
       title: "Add the contact form",
+      body: null,
       state: "OPEN",
       isDraft: false,
       reviewDecision: "REVIEW_REQUIRED",
       headRefName: "eng-65-contact-form",
       headRefOid: "abc123",
+      baseRefName: null,
+      repository: "example/example-service",
     });
   });
 
@@ -94,7 +97,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,reactionGroups",
+            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
           ]);
           return {
             stdout: JSON.stringify({
@@ -175,7 +178,7 @@ describe("findPullRequestByUrl", () => {
           "view",
           url,
           "--json",
-          "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,reactionGroups",
+          "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
         ]);
         assert.equal(options.cwd, undefined);
         return {

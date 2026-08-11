@@ -141,7 +141,7 @@ export function buildTaskCard(
                 {
                   type: "static_select",
                   action_id: TASK_STATUS_ACTION_ID,
-                  placeholder: { type: "plain_text", text: "Change status" },
+                  placeholder: { type: "plain_text", text: "Status" },
                   options: selectOptions,
                   ...(selected ? { initial_option: selected } : {}),
                 },

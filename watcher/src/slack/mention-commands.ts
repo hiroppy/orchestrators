@@ -10,6 +10,7 @@ import {
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
 import { resolveSlackDisplayName } from "./users.ts";
+import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
@@ -19,6 +20,7 @@ const commandHandlers: Record<string, CommandHandler> = {
   assign: handleAssignCommand,
   help: handleHelpCommand,
   status: handleStatusCommand,
+  "take-pr": handleTakePrCommand,
 };
 
 export async function handleAppMention(
@@ -26,6 +28,7 @@ export async function handleAppMention(
   store: WatcherStore,
   configuredMentionTargets: string[] = [],
   botUserId?: string,
+  takePrOptions?: TakePrOptions,
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
@@ -40,16 +43,44 @@ export async function handleAppMention(
       store,
       args: mention.args,
       configuredMentionTargets,
+      takePrOptions,
     });
   } catch (error) {
     logger.error(error);
     await postSlackOperationError(
       client,
-      { channel: mention.event.channel, threadTs: mention.event.threadTs },
-      "Failed to load the current task status.",
+      {
+        channel: mention.event.channel,
+        threadTs:
+          mention.command === "take-pr"
+            ? (mention.event.threadTs ?? mention.event.ts)
+            : mention.event.threadTs,
+      },
+      mention.command === "take-pr"
+        ? "Failed to start take-pr. No Linear issue was created."
+        : "Failed to load the current task status.",
       logger,
     );
   }
+}
+
+async function handleTakePrCommand({
+  event,
+  client,
+  logger,
+  store,
+  args,
+  takePrOptions,
+}: MentionCommandContext): Promise<void> {
+  if (!takePrOptions) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs: event.threadTs ?? event.ts },
+      "The take-pr command is not configured.",
+    );
+    return;
+  }
+  await handleTakePrMention(event, args, client, logger, store, takePrOptions);
 }
 
 function parseMentionCommand(
@@ -236,4 +267,5 @@ interface MentionCommandContext {
   store: WatcherStore;
   args: string[];
   configuredMentionTargets: string[];
+  takePrOptions?: TakePrOptions;
 }
