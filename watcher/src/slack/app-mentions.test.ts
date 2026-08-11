@@ -64,7 +64,6 @@ describe("Slack mention commands", () => {
           logger: { error: (error: unknown) => assert.fail(String(error)) },
         },
         store,
-        [],
         "UBOT",
       );
 
@@ -214,7 +213,7 @@ describe("Slack mention commands", () => {
     });
   });
 
-  it("assigns one user to task notifications without affecting another task", async () => {
+  it("assigns one user to the task without affecting another task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -250,8 +249,8 @@ describe("Slack mention commands", () => {
         );
       }
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@UHIROPPY>"]);
-      assert.deepEqual(store.getTaskNotificationMentions(otherTask.id), []);
+      assert.deepEqual(store.getTaskAssignees(task.id), ["<@UHIROPPY>"]);
+      assert.deepEqual(store.getTaskAssignees(otherTask.id), []);
       assert.deepEqual(calls, [
         {
           method: "addReaction",
@@ -263,8 +262,7 @@ describe("Slack mention commands", () => {
         },
       ]);
 
-      const mention = {
-        targets: ["<!subteam^SREVIEWERS>"],
+      const notification = {
         statuses: ["In Review"],
         events: [] as const,
       };
@@ -278,7 +276,7 @@ describe("Slack mention commands", () => {
           issueIdentifier: "ENG-62",
           state: "In Review",
         },
-        mention,
+        notification,
       );
       await publishWatcherEvent(
         client,
@@ -290,7 +288,7 @@ describe("Slack mention commands", () => {
           issueIdentifier: "ENG-63",
           state: "In Review",
         },
-        mention,
+        notification,
       );
 
       const notificationTexts = calls
@@ -298,19 +296,17 @@ describe("Slack mention commands", () => {
         .map(({ args }) => String(args.text));
       assert.equal(notificationTexts.length, 2);
       assert.equal(notificationTexts[0].match(/<@UHIROPPY>/g)?.length, 1);
-      assert.match(notificationTexts[0], /<!subteam\^SREVIEWERS>/);
       assert.doesNotMatch(notificationTexts[1], /<@UHIROPPY>/);
 
       assert.deepEqual(
         notificationTargetsForWatcherEvent(
-          { ...mention, targets: ["<@UHIROPPY>"] },
+          notification,
           "In Progress",
           "In Review",
           "updated",
-          undefined,
-          false,
           ["<@UHIROPPY>"],
-        )?.mentions,
+          false,
+        ),
         ["<@UHIROPPY>"],
       );
     });
@@ -368,17 +364,14 @@ describe("Slack mention commands", () => {
         );
       }
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.deepEqual(store.getTaskAssignees(task.id), []);
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       for (const call of calls.slice(1, -1)) {
         assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
-      assert.equal(
-        calls.at(-1)?.args.text,
-        "[error] You can only assign yourself to task notifications.",
-      );
+      assert.equal(calls.at(-1)?.args.text, "[error] You can only assign yourself to the task.");
     });
   });
 
@@ -391,6 +384,7 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTask(task.id, `U${"X".repeat(1_990)}`);
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
       await handleAppMention(
@@ -406,15 +400,15 @@ describe("Slack mention commands", () => {
           logger: { error: (error: unknown) => assert.fail(String(error)) },
         },
         store,
-        [`<!subteam^${"X".repeat(1_975)}>`],
+        "UBOT",
       );
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.equal(store.getTaskAssignees(task.id).length, 1);
       assert.match(String(calls[0].args.text), /reached Slack's text limit/);
     });
   });
 
-  it("idempotently unassigns the requesting user from task notifications", async () => {
+  it("idempotently unassigns the requesting user from the task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -423,15 +417,15 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTaskNotificationMention(task.id, "U123");
-      store.assignTaskNotificationMention(task.id, "U456");
+      store.assignTask(task.id, "U123");
+      store.assignTask(task.id, "U456");
       const otherTask = store.upsertTaskFromEvent({
         type: "started",
         service: "service-a",
         issueIdentifier: "ENG-63",
         state: "In Progress",
       });
-      store.assignTaskNotificationMention(otherTask.id, "U123");
+      store.assignTask(otherTask.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
       for (const ts of ["20.000", "21.000"]) {
@@ -451,8 +445,8 @@ describe("Slack mention commands", () => {
         );
       }
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U456>"]);
-      assert.deepEqual(store.getTaskNotificationMentions(otherTask.id), ["<@U123>"]);
+      assert.deepEqual(store.getTaskAssignees(task.id), ["<@U456>"]);
+      assert.deepEqual(store.getTaskAssignees(otherTask.id), ["<@U123>"]);
       assert.deepEqual(calls, [
         {
           method: "addReaction",
@@ -475,7 +469,7 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTaskNotificationMention(task.id, "U123");
+      store.assignTask(task.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
 
@@ -518,17 +512,14 @@ describe("Slack mention commands", () => {
         );
       }
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U123>"]);
+      assert.deepEqual(store.getTaskAssignees(task.id), ["<@U123>"]);
       assert.equal(calls.length, 4);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       assert.equal(calls[0].args.thread_ts, undefined);
       assert.match(String(calls[1].args.text), /tracked task thread/);
       assert.equal(calls[1].args.thread_ts, "99.000");
       assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user`");
-      assert.equal(
-        calls[3].args.text,
-        "[error] You can only unassign yourself from task notifications.",
-      );
+      assert.equal(calls[3].args.text, "[error] You can only unassign yourself from the task.");
     });
   });
 
@@ -541,7 +532,7 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTaskNotificationMention(task.id, "U123");
+      store.assignTask(task.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const errors: unknown[] = [];
 
@@ -572,7 +563,7 @@ describe("Slack mention commands", () => {
         store,
       );
 
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
+      assert.deepEqual(store.getTaskAssignees(task.id), []);
       assert.equal(errors.length, 1);
       assert.deepEqual(calls, [
         {
@@ -596,11 +587,11 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTaskNotificationMention(task.id, "U123");
+      store.assignTask(task.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const errors: unknown[] = [];
-      const originalUnassign = store.unassignTaskNotificationMention.bind(store);
-      store.unassignTaskNotificationMention = () => {
+      const originalUnassign = store.unassignTask.bind(store);
+      store.unassignTask = () => {
         throw new Error("database unavailable");
       };
 
@@ -619,18 +610,18 @@ describe("Slack mention commands", () => {
         store,
       );
 
-      store.unassignTaskNotificationMention = originalUnassign;
-      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U123>"]);
+      store.unassignTask = originalUnassign;
+      assert.deepEqual(store.getTaskAssignees(task.id), ["<@U123>"]);
       assert.equal(errors.length, 1);
       assert.equal(calls.length, 1);
       assert.equal(
         calls[0].args.text,
-        "[error] Failed to unassign you from task notifications. No assignment was changed.",
+        "[error] Failed to unassign you from the task. No assignment was changed.",
       );
     });
   });
 
-  it("keeps persisted task mentions visible after configured targets expand", async () => {
+  it("keeps persisted task assignees visible after default assignees expand", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -639,7 +630,7 @@ describe("Slack mention commands", () => {
         state: "In Progress",
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTaskNotificationMention(task.id, "U123");
+      store.assignTask(task.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
       await publishWatcherEvent(

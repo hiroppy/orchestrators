@@ -76,19 +76,20 @@ describe("watcher configuration", () => {
     );
   });
 
-  it("does not assume a workflow-specific mention status and validates configured events", () => {
+  it("resolves default assignees and validates configured notification events", () => {
     const config = resolveWatcherConfig(
       {
         ...baseConfig(),
         slack: {
-          mentions: {},
+          defaultAssignees: ["<@U123>"],
+          notifications: {},
         },
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.mention, {
-      targets: [],
+    assert.deepEqual(config.defaultAssignees, ["<@U123>"]);
+    assert.deepEqual(config.notifications, {
       statuses: [],
       events: [],
     });
@@ -98,7 +99,7 @@ describe("watcher configuration", () => {
           {
             ...baseConfig(),
             slack: {
-              mentions: {
+              notifications: {
                 events: ["unknown"],
               },
             },
@@ -112,22 +113,22 @@ describe("watcher configuration", () => {
         resolveWatcherConfig(
           {
             ...baseConfig(),
-            slack: { mentions: { targets: [123] } },
+            slack: { defaultAssignees: [123] },
           } as never,
           { requireSlack: false },
         ),
-      /targets must be an array of non-empty Slack mentions/,
+      /defaultAssignees must contain only Slack user mentions/,
     );
     assert.throws(
       () =>
         resolveWatcherConfig(
           {
             ...baseConfig(),
-            slack: { mentions: { targets: ["x".repeat(2_001)] } },
+            slack: { defaultAssignees: [`<@${"X".repeat(2_001)}>`] },
           },
           { requireSlack: false },
         ),
-      /targets must not exceed 2000 characters combined/,
+      /defaultAssignees must not exceed 2000 characters combined/,
     );
   });
 
@@ -147,7 +148,7 @@ describe("watcher configuration", () => {
           },
         },
         slack: {
-          mentions: {
+          notifications: {
             statuses: ["In Review"],
           },
         },
@@ -170,7 +171,7 @@ describe("watcher configuration", () => {
 
     await assert.rejects(
       resolveLinearWorkflowStatuses(unresolved, async () => ["Todo", "In Progress", "Done"]),
-      /slack\.mentions\.statuses references unknown Linear status "In Review"/,
+      /slack\.notifications\.statuses references unknown Linear status "In Review"/,
     );
     await assert.rejects(
       resolveLinearWorkflowStatuses(unresolved, async () =>

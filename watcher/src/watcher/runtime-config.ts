@@ -42,8 +42,8 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
       ["watcher.reviewReaction.inProgressStatus", config.reviewReaction.inProgressStatus],
     );
   }
-  for (const status of config.mention?.statuses ?? []) {
-    rules.push(["slack.mentions.statuses", status]);
+  for (const status of config.notifications?.statuses ?? []) {
+    rules.push(["slack.notifications.statuses", status]);
   }
   for (const [index, hook] of config.statusHooks.entries()) {
     rules.push([`watcher.statusHooks[${index}].status`, hook.status]);

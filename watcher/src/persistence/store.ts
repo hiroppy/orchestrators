@@ -1,7 +1,7 @@
 import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskNotificationMentions, taskObservations, tasks } from "./schema.ts";
+import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
 import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
@@ -370,9 +370,9 @@ export class WatcherStore {
       .run();
   }
 
-  assignTaskNotificationMention(taskId: string, slackUserId: string, now = new Date()): boolean {
+  assignTask(taskId: string, slackUserId: string, now = new Date()): boolean {
     const result = this.db
-      .insert(taskNotificationMentions)
+      .insert(taskAssignees)
       .values({
         taskId,
         slackUserId,
@@ -384,26 +384,21 @@ export class WatcherStore {
     return result.changes > 0;
   }
 
-  unassignTaskNotificationMention(taskId: string, slackUserId: string): boolean {
+  unassignTask(taskId: string, slackUserId: string): boolean {
     const result = this.db
-      .delete(taskNotificationMentions)
-      .where(
-        and(
-          eq(taskNotificationMentions.taskId, taskId),
-          eq(taskNotificationMentions.slackUserId, slackUserId),
-        ),
-      )
+      .delete(taskAssignees)
+      .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.slackUserId, slackUserId)))
       .run();
 
     return result.changes > 0;
   }
 
-  getTaskNotificationMentions(taskId: string): string[] {
+  getTaskAssignees(taskId: string): string[] {
     return this.db
-      .select({ slackUserId: taskNotificationMentions.slackUserId })
-      .from(taskNotificationMentions)
-      .where(eq(taskNotificationMentions.taskId, taskId))
-      .orderBy(asc(taskNotificationMentions.createdAt), asc(taskNotificationMentions.slackUserId))
+      .select({ slackUserId: taskAssignees.slackUserId })
+      .from(taskAssignees)
+      .where(eq(taskAssignees.taskId, taskId))
+      .orderBy(asc(taskAssignees.createdAt), asc(taskAssignees.slackUserId))
       .all()
       .map(({ slackUserId }) => `<@${slackUserId}>`);
   }

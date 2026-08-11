@@ -58,7 +58,7 @@ describe("watcher review reactions", () => {
           reaction: "👀",
           maxRequeues: 3,
         },
-        mention: {
+        notifications: {
           statuses: ["In Review", "Blocked"],
           events: [],
         },
@@ -160,7 +160,12 @@ describe("watcher review reactions", () => {
         ),
         /Review reaction detected/,
       );
-      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+      assert.doesNotMatch(
+        JSON.stringify(
+          calls.find(({ text }) => String(text).includes("👀 review reaction detected")),
+        ),
+        /<@U123>/,
+      );
 
       await run("In Progress");
       linearState = "In Review";
@@ -171,7 +176,7 @@ describe("watcher review reactions", () => {
         2,
       );
       assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached/);
-      assert.doesNotMatch(JSON.stringify(calls), /<@U123>/);
+      assert.equal(store.getTaskAssignees("service-a:ENG-62").includes("<@U123>"), true);
 
       await run("In Progress");
       linearState = "In Review";
@@ -233,9 +238,11 @@ describe("watcher review reactions", () => {
         /Review requeue limit reached.*Requeues/s,
       );
       assert.match(JSON.stringify(calls), /<@U123>/);
-      const blockedMentionCallCount = calls.filter((call) =>
-        JSON.stringify(call).includes("<@U123>"),
-      ).length;
+      const assigneeNotificationCount = () =>
+        calls.filter(
+          (call) => call.method === "postMessage" && JSON.stringify(call).includes("<@U123>"),
+        ).length;
+      const blockedMentionCallCount = assigneeNotificationCount();
 
       hasReviewReaction = true;
       linearState = "In Review";
@@ -259,10 +266,7 @@ describe("watcher review reactions", () => {
         1,
       );
       assert.equal(statusUpdates.length, 3);
-      assert.equal(
-        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
-        blockedMentionCallCount,
-      );
+      assert.equal(store.getTaskAssignees("service-a:ENG-62").includes("<@U123>"), true);
 
       omitLinearPullRequestOnce = true;
       failWorkspacePullRequestLookupOnce = true;
@@ -292,10 +296,7 @@ describe("watcher review reactions", () => {
         1,
       );
       assert.equal(statusUpdates.length, 3);
-      assert.equal(
-        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
-        blockedMentionCallCount,
-      );
+      assert.equal(assigneeNotificationCount(), blockedMentionCallCount);
 
       hasReviewReaction = false;
       store.updateTaskStatus("service-a:ENG-62", "In Review");
@@ -310,13 +311,8 @@ describe("watcher review reactions", () => {
         0,
       );
       assert.equal(statusUpdates.length, 3);
-      assert.ok(
-        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length >
-          blockedMentionCallCount,
-      );
-      const mentionCallCount = calls.filter((call) =>
-        JSON.stringify(call).includes("<@U123>"),
-      ).length;
+      assert.ok(assigneeNotificationCount() > blockedMentionCallCount);
+      const mentionCallCount = assigneeNotificationCount();
 
       hasReviewReaction = true;
       linearState = "In Progress";
@@ -326,10 +322,7 @@ describe("watcher review reactions", () => {
       await run("In Review");
       assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
       assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
-      assert.equal(
-        calls.filter((call) => JSON.stringify(call).includes("<@U123>")).length,
-        mentionCallCount,
-      );
+      assert.equal(assigneeNotificationCount(), mentionCallCount);
       assert.match(
         JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
         /PR#42/,
@@ -398,7 +391,7 @@ describe("watcher review reactions", () => {
           reaction: "👀",
           maxRequeues: 2,
         },
-        mention: {
+        notifications: {
           statuses: ["In Review"],
           events: [],
         },

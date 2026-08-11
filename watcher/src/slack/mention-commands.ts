@@ -13,7 +13,7 @@ import { resolveSlackDisplayName } from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
-const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
+const MAX_ASSIGNEES_LENGTH = 2_000 - "*Assignees*\n".length;
 
 type CommandHandler = (context: MentionCommandContext) => Promise<void>;
 const commandHandlers: Record<string, CommandHandler> = {
@@ -27,7 +27,6 @@ const commandHandlers: Record<string, CommandHandler> = {
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
-  configuredMentionTargets: string[] = [],
   botUserId?: string,
   takePrOptions?: TakePrOptions,
 ): Promise<void> {
@@ -43,7 +42,6 @@ export async function handleAppMention(
       logger,
       store,
       args: mention.args,
-      configuredMentionTargets,
       takePrOptions,
     });
   } catch (error) {
@@ -67,7 +65,7 @@ function commandFailureMessage(command: string): string {
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
   if (command === "unassign") {
-    return "Failed to unassign you from task notifications. No assignment was changed.";
+    return "Failed to unassign you from the task. No assignment was changed.";
   }
   return "Failed to load the current task status.";
 }
@@ -138,7 +136,6 @@ async function handleAssignCommand({
   client,
   store,
   args,
-  configuredMentionTargets,
 }: MentionCommandContext): Promise<void> {
   const threadTs = event.threadTs;
   if (!threadTs) return;
@@ -166,27 +163,25 @@ async function handleAssignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You can only assign yourself to task notifications.",
+      "You can only assign yourself to the task.",
     );
     return;
   }
 
-  const assignedMentions = store.getTaskNotificationMentions(task.id);
+  const assignedMentions = store.getTaskAssignees(task.id);
   const slackMention = `<@${slackUserId}>`;
   const alreadyAssigned = assignedMentions.includes(slackMention);
-  const combinedTargets = [
-    ...new Set([...configuredMentionTargets, ...assignedMentions, slackMention]),
-  ];
-  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_MENTIONS_LENGTH) {
+  const combinedTargets = [...new Set([...assignedMentions, slackMention])];
+  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_ASSIGNEES_LENGTH) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
+      `Cannot assign ${slackMention}: task assignees reached Slack's text limit.`,
     );
     return;
   }
 
-  if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
+  if (!alreadyAssigned) store.assignTask(task.id, slackUserId);
   await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
 }
 
@@ -230,12 +225,12 @@ async function handleUnassignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You can only unassign yourself from task notifications.",
+      "You can only unassign yourself from the task.",
     );
     return;
   }
 
-  store.unassignTaskNotificationMention(task.id, slackUserId);
+  store.unassignTask(task.id, slackUserId);
   try {
     await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
   } catch (error) {
@@ -333,6 +328,5 @@ interface MentionCommandContext {
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];
-  configuredMentionTargets: string[];
   takePrOptions?: TakePrOptions;
 }

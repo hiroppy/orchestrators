@@ -73,7 +73,7 @@ export function decideReviewReaction(
         reconciliationIsAuthoritative &&
         isInReview &&
         event.pullRequest?.hasConfiguredReaction === false &&
-        notificationIsEligible(config.mention, undefined, currentStatus, event.type),
+        notificationIsEligible(config.notifications, undefined, currentStatus, event.type),
     };
   }
 

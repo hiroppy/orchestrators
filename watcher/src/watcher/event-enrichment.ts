@@ -6,14 +6,11 @@ import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
 } from "../integrations/github.ts";
-import { fetchLinearIssueState, TransientLinearError } from "../integrations/linear.ts";
-import { notificationIsEligible } from "../slack/notifications.ts";
+import { fetchLinearIssueState } from "../integrations/linear.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { reviewReactionForStatus } from "./review-reactions.ts";
 
 const creatorMentionCache = new Map<string, string | null>();
-
-export class RetryablePollError extends Error {}
 
 export async function enrichEvent(
   event: WatcherEvent,
@@ -30,7 +27,7 @@ export async function enrichEvent(
   const isEnded = event.type === "ended";
   const linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
     apiKey: linearTeamForService(config, event.service)?.apiKey,
-    includeCreator: false,
+    includeCreator: true,
     maxAttempts: isEnded ? config.endedTaskRetry.maxAttempts : 1,
     retryDelayMs: isEnded ? config.endedTaskRetry.delayMs : 0,
   });
@@ -50,6 +47,8 @@ export async function enrichEvent(
     event: compactObject({
       ...event,
       issueTitle: linearIssue?.title,
+      creatorName: linearIssue?.creatorName,
+      creatorEmail: linearIssue?.creatorEmail,
       issueUrl: linearIssue?.url ?? event.issueUrl,
       resolvedState: linearIssue?.state,
       resolvedStateType: linearIssue?.stateType
@@ -62,54 +61,12 @@ export async function enrichEvent(
   };
 }
 
-export async function enrichCreatorForNotification(
+export async function enrichCreatorAssignee(
   event: WatcherEvent,
-  config: ResolvedWatcherRuntimeConfig,
-  previousStatus: string | undefined,
-  options: {
-    suppress: boolean;
-    forceMention?: boolean;
-    slackClient?: WebClient;
-  },
+  slackClient?: WebClient,
 ): Promise<WatcherEvent> {
-  const currentStatus = event.resolvedState ?? event.state ?? "Unknown";
-  if (
-    options.suppress ||
-    !notificationIsEligible(
-      config.mention,
-      previousStatus,
-      currentStatus,
-      event.type,
-      options.forceMention,
-    )
-  ) {
-    return event;
-  }
   if (event.issueIdentifier === `watcher:${event.service}`) return event;
-
-  let linearIssue;
-  try {
-    linearIssue = await fetchLinearIssueState(event.issueIdentifier, {
-      apiKey: linearTeamForService(config, event.service)?.apiKey,
-      includeCreator: true,
-      maxAttempts: 1,
-      throwOnTransientFailure: Boolean(options.slackClient),
-    });
-  } catch (error) {
-    if (!(error instanceof TransientLinearError)) throw error;
-    throw new RetryablePollError(
-      `Could not fetch Linear creator for notification: ${event.issueIdentifier}`,
-    );
-  }
-  if (!linearIssue) return event;
-  return enrichCreatorMention(
-    compactObject({
-      ...event,
-      creatorName: linearIssue.creatorName,
-      creatorEmail: linearIssue.creatorEmail,
-    }),
-    options.slackClient,
-  );
+  return enrichCreatorMention(event, slackClient);
 }
 
 async function enrichCreatorMention(

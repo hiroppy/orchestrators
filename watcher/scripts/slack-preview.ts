@@ -32,8 +32,8 @@ import {
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 const DEFAULT_ATTENTION_TARGET = "@attention-target";
-const DEFAULT_MENTION_TARGETS = ["@reviewer-one", "@reviewer-two"];
-export const SLACK_PREVIEW_CATEGORIES = ["post", "thread", "mentions"] as const;
+const DEFAULT_ASSIGNEES = ["@reviewer-one", "@reviewer-two"];
+export const SLACK_PREVIEW_CATEGORIES = ["post", "thread", "assignees"] as const;
 export const SLACK_PREVIEW_EVENT_TYPES = [
   "start",
   "update",
@@ -91,8 +91,8 @@ export interface SlackPreviewConfig {
 }
 
 export interface SlackPreviewOptions {
-  mentionTarget?: string;
-  mentions?: string[];
+  assignee?: string;
+  assignees?: string[];
   task?: Task;
   configuredStatuses?: string[];
   interactive?: boolean;
@@ -109,7 +109,7 @@ export function resolveSlackPreviewCase(
   typeValue?: string,
   extraValue?: string,
 ): SlackPreviewCase {
-  const usage = "Usage: pnpm slack:preview <post|thread|mentions> <type>";
+  const usage = "Usage: pnpm slack:preview <post|thread|assignees> <type>";
   const category = SLACK_PREVIEW_CATEGORIES.find((candidate) => candidate === categoryValue);
 
   if (!category) {
@@ -258,9 +258,9 @@ export function buildSlackPreviewMessage(
   }
 
   const eventPreviewType = type === "attention" ? "start" : type;
-  const mentionTarget =
-    options.mentionTarget ?? (type === "attention" ? DEFAULT_ATTENTION_TARGET : undefined);
-  const mentions = options.mentions ?? (type === "attention" ? DEFAULT_MENTION_TARGETS : []);
+  const assignee =
+    options.assignee ?? (type === "attention" ? DEFAULT_ATTENTION_TARGET : undefined);
+  const assignees = options.assignees ?? (type === "attention" ? DEFAULT_ASSIGNEES : []);
   const service = options.task?.serviceName ?? "preview-service";
   const issueIdentifier = options.task?.issueIdentifier ?? "PREVIEW-123";
   const eventType = PREVIEW_EVENT_TYPES[eventPreviewType];
@@ -270,10 +270,13 @@ export function buildSlackPreviewMessage(
   const event = previewEvent(eventType, service, eventIssueIdentifier, status, now);
 
   if (category === "thread") {
-    const context = { ...previewThreadContext(eventType), mentions };
-    const blocks = buildThreadMessageBlocks(event, mentionTarget, context);
+    const context = {
+      ...previewThreadContext(eventType),
+      assignees: [assignee, ...assignees].filter((value): value is string => Boolean(value)),
+    };
+    const blocks = buildThreadMessageBlocks(event, context);
     return {
-      text: buildThreadMessage(event, mentionTarget, context),
+      text: buildThreadMessage(event, context),
       ...(blocks ? { blocks } : {}),
     };
   }
@@ -295,10 +298,16 @@ export function buildSlackPreviewMessage(
         status,
         updatedAt: now.toISOString(),
       } satisfies Task);
-  return buildTaskCard(task, options.configuredStatuses ?? PREVIEW_STATUSES, event, mentionTarget, {
-    interactive: options.interactive ?? false,
-    titlePrefix: "🔥 Preview",
-  });
+  return buildTaskCard(
+    task,
+    options.configuredStatuses ?? PREVIEW_STATUSES,
+    event,
+    assignee ? [assignee] : [],
+    {
+      interactive: options.interactive ?? false,
+      titlePrefix: "🔥 Preview",
+    },
+  );
 }
 
 function previewStatusTasks(now: Date): Task[] {
@@ -385,7 +394,7 @@ export function postSlackPreview(
   return client.chat.postMessage({
     channel: channelId,
     ...buildSlackPreviewMessage(previewCase, now, options),
-    ...(previewCase.category === "mentions" && previewCase.type === "status"
+    ...(previewCase.category === "assignees" && previewCase.type === "status"
       ? { unfurl_links: false, unfurl_media: false }
       : {}),
   });

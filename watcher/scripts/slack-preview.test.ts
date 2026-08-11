@@ -151,7 +151,7 @@ describe("Slack preview", () => {
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
       { category: "post", type: "watcher-started" },
-      { category: "mentions", type: "status" },
+      { category: "assignees", type: "status" },
     ] as const;
     const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
 
@@ -212,7 +212,7 @@ describe("Slack preview", () => {
 
   it("previews the configured attention target in parent and thread messages", () => {
     const options = {
-      mentionTarget: "<@UCREATOR>",
+      assignee: "<@UCREATOR>",
       mentions: ["<!subteam^SREVIEWERS>"],
     };
     const parent = buildSlackPreviewMessage(
@@ -226,13 +226,13 @@ describe("Slack preview", () => {
       options,
     );
 
-    assert.match(JSON.stringify(parent.blocks), /\*Creator\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(parent.blocks), /\*Assignees\*\\n<@UCREATOR>/);
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Mentions/);
     assert.match(JSON.stringify(parent.blocks), /PR#123/);
     assert.match(JSON.stringify(parent.blocks), /Improve the watcher Slack preview/);
     assert.equal(
       thread.text,
-      "*PR created* | Creator: <@UCREATOR> | Mentions: <!subteam^SREVIEWERS> | <https://github.com/example/preview/pull/123|PR#123>",
+      "*PR created* | Assignees: <@UCREATOR> @reviewer-one @reviewer-two | <https://github.com/example/preview/pull/123|PR#123>",
     );
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Waiting for required credentials/);
     assert.doesNotMatch(thread.text, /Waiting for required credentials/);
@@ -242,7 +242,7 @@ describe("Slack preview", () => {
       new Date("2026-07-29T00:00:00.000Z"),
       options,
     );
-    assert.match(JSON.stringify(blocked.blocks), /\*Creator\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(blocked.blocks), /\*Assignees\*\\n<@UCREATOR>/);
     assert.doesNotMatch(JSON.stringify(blocked.blocks), /Mentions/);
 
     const defaults = buildSlackPreviewMessage(
@@ -261,11 +261,11 @@ describe("Slack preview", () => {
       category: "thread",
       type: "update",
     });
-    assert.deepEqual(resolveSlackPreviewCase("mentions", "status"), {
-      category: "mentions",
+    assert.deepEqual(resolveSlackPreviewCase("assignees", "status"), {
+      category: "assignees",
       type: "status",
     });
-    assert.deepEqual(SLACK_PREVIEW_CATEGORIES, ["post", "thread", "mentions"]);
+    assert.deepEqual(SLACK_PREVIEW_CATEGORIES, ["post", "thread", "assignees"]);
     assert.deepEqual(SLACK_PREVIEW_TYPES, [
       "start",
       "update",
@@ -284,7 +284,7 @@ describe("Slack preview", () => {
     ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
-      /Missing Slack preview category.*Usage: pnpm slack:preview <post\|thread\|mentions> <type>/s,
+      /Missing Slack preview category.*Usage: pnpm slack:preview <post\|thread\|assignees> <type>/s,
     );
     assert.throws(
       () => resolveSlackPreviewCase("unknown", "start"),
@@ -296,7 +296,7 @@ describe("Slack preview", () => {
     );
     assert.throws(
       () => resolveSlackPreviewCase("post", "unknown"),
-      /Unknown Slack preview type: unknown.*Usage: pnpm slack:preview <post\|thread\|mentions> <type>/s,
+      /Unknown Slack preview type: unknown.*Usage: pnpm slack:preview <post\|thread\|assignees> <type>/s,
     );
     assert.throws(
       () => resolveSlackPreviewCase("post", "start", "extra"),

@@ -18,7 +18,7 @@ import {
 import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
-import type { ResolvedMentionConfig } from "../config/runtime.ts";
+import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import { withQueue } from "./async-queue.ts";
 import { notificationTargetsForWatcherEvent } from "./notifications.ts";
 import { handleAppMention } from "./mention-commands.ts";
@@ -58,7 +58,6 @@ export interface SlackAppOptions {
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
   botUserId: string;
-  configuredMentionTargets?: string[];
   createStatusTransitionEvent?: StatusTransitionEventFactory;
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
@@ -71,7 +70,6 @@ export function createSlackApp({
   createLinearWorkpadReply,
   store,
   botUserId,
-  configuredMentionTargets = [],
   createStatusTransitionEvent,
   onStatusTransition,
   takePr,
@@ -95,7 +93,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, configuredMentionTargets, botUserId, takePr);
+    await handleAppMention(args, store, botUserId, takePr);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
@@ -155,8 +153,6 @@ export async function handleStatusAction(
       if (!existingTask.parentChannelId || !existingTask.parentMessageTs) {
         throw new Error(`Task has no Slack parent message: ${taskId}`);
       }
-      const mentionTarget = undefined;
-
       const card = buildTaskCard(
         {
           ...existingTask,
@@ -170,7 +166,7 @@ export async function handleStatusAction(
           issueIdentifier: existingTask.issueIdentifier,
           resolvedState: selectedStatus,
         },
-        mentionTarget,
+        store.getTaskAssignees(taskId),
       );
       await updateLinearStatus(existingTask, selectedStatus);
       await client.chat.update({
@@ -193,11 +189,10 @@ export async function handleStatusAction(
         fromStatus,
         selectedStatus,
       );
-      const historyLine = [statusChangedLine, mentionTarget].filter(Boolean).join(" | ");
       const reply = await client.chat.postMessage({
         channel: existingTask.parentChannelId,
         thread_ts: existingTask.parentMessageTs,
-        text: historyLine,
+        text: statusChangedLine,
         blocks: buildStatusChangedMessageBlocks(actorDisplayName, fromStatus, selectedStatus),
       });
       store.addEvent({
@@ -206,7 +201,7 @@ export async function handleStatusAction(
         actor,
         fromStatus,
         toStatus: selectedStatus,
-        body: historyLine,
+        body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
     });
@@ -224,8 +219,9 @@ export async function publishWatcherEvent(
   store: WatcherStore,
   destinationChannel: string,
   event: WatcherEvent,
-  mention?: ResolvedMentionConfig,
+  notificationConfig?: ResolvedNotificationConfig,
   options: {
+    defaultAssignees?: string[];
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -242,6 +238,14 @@ export async function publishWatcherEvent(
         ? options.createStatusTransitionEvent?.(task, previous.status)
         : undefined,
   );
+  if (!persistedTask.parentMessageTs && store.getTaskAssignees(taskId).length === 0) {
+    const initialAssignees = [...(options.defaultAssignees ?? []), event.creatorMention].filter(
+      (value): value is string => Boolean(value?.match(/^<@[A-Z0-9]+>$/i)),
+    );
+    for (const assignee of new Set(initialAssignees)) {
+      store.assignTask(taskId, assignee.slice(2, -1));
+    }
+  }
   let task = persistedTask;
   const statusChanged =
     previousTask !== undefined &&
@@ -249,21 +253,16 @@ export async function publishWatcherEvent(
   if (statusChanged) {
     await options.onStatusTransition?.(task, previousTask.status);
   }
-  const notifications = notificationTargetsForWatcherEvent(
-    mention,
+  const assignees = store.getTaskAssignees(taskId);
+  const notificationAssignees = notificationTargetsForWatcherEvent(
+    notificationConfig,
     previousTask?.status,
     task.status,
     event.type,
-    event.creatorMention ?? undefined,
+    assignees,
     options.forceMention,
-    store.getTaskNotificationMentions(taskId),
   );
-  const card = buildTaskCard(
-    task,
-    store.getSelectableStatuses(task.serviceName),
-    event,
-    notifications?.creator,
-  );
+  const card = buildTaskCard(task, store.getSelectableStatuses(task.serviceName), event, assignees);
   const summary = JSON.stringify(card);
   const announceTerminalParent =
     Boolean(previousTask?.parentMessageTs) &&
@@ -314,14 +313,14 @@ export async function publishWatcherEvent(
     fromStatus: previousTask?.status,
     toStatus: task.status,
   };
-  const notificationContext = { ...threadContext, mentions: notifications?.mentions };
-  const threadBody = buildThreadMessage(threadEvent, notifications?.creator, notificationContext);
-  const threadBlocks = buildThreadMessageBlocks(
-    threadEvent,
-    notifications?.creator,
-    notificationContext,
-  );
-  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
+  const notificationContext = { ...threadContext, assignees: notificationAssignees };
+  const threadBody = buildThreadMessage(threadEvent, notificationContext);
+  const threadBlocks = buildThreadMessageBlocks(threadEvent, notificationContext);
+  const reply = shouldPostThreadMessage(
+    statusChanged,
+    isNewPullRequest,
+    Boolean(notificationAssignees),
+  )
     ? await client.chat.postMessage({
         channel: task.parentChannelId!,
         thread_ts: task.parentMessageTs!,

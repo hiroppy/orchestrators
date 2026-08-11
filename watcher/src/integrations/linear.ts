@@ -5,7 +5,7 @@ const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
-export class TransientLinearError extends Error {}
+class TransientLinearError extends Error {}
 
 import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";

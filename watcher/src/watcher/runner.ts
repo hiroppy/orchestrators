@@ -36,11 +36,7 @@ import { enteredTerminalLinearState } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
-import {
-  enrichCreatorForNotification,
-  enrichEvent,
-  RetryablePollError,
-} from "./event-enrichment.ts";
+import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
   decideReviewReaction,
   pendingReviewPullRequest,
@@ -119,12 +115,12 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
             }),
           store,
           botUserId: botUserId!,
-          configuredMentionTargets: runtimeConfig.mention?.targets,
           takePr: {
             authorizedChannelId: slackConfig.channelId,
             services: runtimeConfig.services,
             linearTeams: runtimeConfig.linearTeams,
             symphoniesDirectory: resolve(rootDirectory, "symphonies"),
+            defaultAssignees: runtimeConfig.defaultAssignees,
           },
           createStatusTransitionEvent: (task, fromStatus, toStatus) =>
             createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
@@ -173,12 +169,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
 }
 
 export async function runPoll(options: RunOnceOptions): Promise<void> {
-  try {
-    await runOnce(options);
-  } catch (error) {
-    if (!(error instanceof RetryablePollError)) throw error;
-    console.warn(error.message);
-  }
+  await runOnce(options);
 }
 
 interface RunOnceOptions {
@@ -238,15 +229,9 @@ export async function runOnce({
       enrichment.event,
       enrichment.isAuthoritative,
     );
-    const enrichedEvent = await enrichCreatorForNotification(
+    const enrichedEvent = await enrichCreatorAssignee(
       enrichment.event,
-      config,
-      store.getTask(taskIdFor(event.service, event.issueIdentifier))?.status,
-      {
-        suppress: shouldSuppressReviewMention(reviewDecision),
-        forceMention: reviewDecision.deliverDeferredMention,
-        slackClient: dryRun ? undefined : slackClient,
-      },
+      dryRun ? undefined : slackClient,
     );
     preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
   }
@@ -259,13 +244,16 @@ export async function runOnce({
       const notificationTargets = shouldSuppressReviewMention(reviewDecision)
         ? undefined
         : notificationTargetsForWatcherEvent(
-            config.mention,
+            config.notifications,
             store.getTask(taskId)?.status,
             status,
             enrichedEvent.type,
-            enrichedEvent.creatorMention ?? undefined,
+            [
+              ...(config.defaultAssignees ?? []),
+              ...(enrichedEvent.creatorMention ? [enrichedEvent.creatorMention] : []),
+              ...store.getTaskAssignees(taskId),
+            ],
             reviewDecision.deliverDeferredMention,
-            store.getTaskNotificationMentions(taskId),
           );
       const task = {
         id: taskId,
@@ -284,10 +272,10 @@ export async function runOnce({
                 task,
                 linearTeamForService(config, task.serviceName)?.statuses ?? [],
                 enrichedEvent,
-                notificationTargets?.creator,
+                notificationTargets ?? [],
               ),
-              thread: buildThreadMessage(enrichedEvent, notificationTargets?.creator, {
-                mentions: notificationTargets?.mentions,
+              thread: buildThreadMessage(enrichedEvent, {
+                assignees: notificationTargets,
               }),
             },
           },
@@ -362,7 +350,7 @@ async function reconcileLinearStatuses({
 
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
-      includeCreator: false,
+      includeCreator: true,
       maxAttempts: 1,
     });
     if (!linearIssue?.state) continue;
@@ -402,6 +390,8 @@ async function reconcileLinearStatuses({
       service: task.serviceName,
       issueIdentifier: task.issueIdentifier,
       issueTitle: linearIssue.title,
+      creatorName: linearIssue.creatorName,
+      creatorEmail: linearIssue.creatorEmail,
       issueUrl: linearIssue.url ?? task.linkUrl,
       state: task.status,
       resolvedState: linearIssue.state,
@@ -423,11 +413,7 @@ async function reconcileLinearStatuses({
       continue;
     }
 
-    const enrichedEvent = await enrichCreatorForNotification(event, config, task.status, {
-      suppress: shouldSuppressReviewMention(reviewDecision),
-      forceMention: reviewDecision.deliverDeferredMention,
-      slackClient,
-    });
+    const enrichedEvent = await enrichCreatorAssignee(event, slackClient);
 
     await processWatcherEvent({
       config,
@@ -465,8 +451,9 @@ async function processWatcherEvent({
     store,
     slackChannelId,
     event,
-    shouldSuppressReviewMention(reviewDecision) ? undefined : config.mention,
+    shouldSuppressReviewMention(reviewDecision) ? undefined : config.notifications,
     {
+      defaultAssignees: config.defaultAssignees ?? [],
       forceMention: reviewDecision.deliverDeferredMention,
       createStatusTransitionEvent: (task, fromStatus) =>
         createPendingStatusHookEvent(
