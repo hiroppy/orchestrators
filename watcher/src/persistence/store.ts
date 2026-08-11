@@ -1,16 +1,9 @@
 import { randomBytes } from "node:crypto";
 
-import { asc, and, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
+import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
-import {
-  pendingTakePrRequests,
-  services,
-  statuses,
-  taskNotificationMentions,
-  taskObservations,
-  tasks,
-} from "./schema.ts";
+import { services, statuses, taskNotificationMentions, taskObservations, tasks } from "./schema.ts";
 import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
@@ -58,6 +51,7 @@ export interface PendingTakePrRequest {
   pullRequestUrl: string;
   repository: string;
   pullRequestTitle: string;
+  pullRequestBody: string;
   headBranch: string;
   baseBranch: string;
   channelId: string;
@@ -85,6 +79,7 @@ type NewPendingTakePrRequest = Omit<
 
 export class WatcherStore {
   private readonly db: WatcherDatabase;
+  private readonly pendingTakePrRequests = new Map<string, PendingTakePrRequest>();
 
   constructor(db: WatcherDatabase) {
     this.db = db;
@@ -431,26 +426,24 @@ export class WatcherStore {
     now = new Date(),
   ): PendingTakePrRequest {
     const timestamp = now.toISOString();
-    this.db
-      .insert(pendingTakePrRequests)
-      .values({
-        ...request,
-        requesterSlackUserId: request.requesterSlackUserId ?? null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .onConflictDoNothing({ target: pendingTakePrRequests.id })
-      .run();
-    return this.requirePendingTakePrRequest(request.id);
+    const existing = this.pendingTakePrRequests.get(request.id);
+    if (existing) return existing;
+    const pending: PendingTakePrRequest = {
+      ...request,
+      status: "pending",
+      selectedService: undefined,
+      claimToken: undefined,
+      linearIssueIdentifier: undefined,
+      linearIssueUrl: undefined,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.pendingTakePrRequests.set(request.id, pending);
+    return pending;
   }
 
   getPendingTakePrRequest(id: string): PendingTakePrRequest | undefined {
-    const row = this.db
-      .select()
-      .from(pendingTakePrRequests)
-      .where(eq(pendingTakePrRequests.id, id))
-      .get();
-    return row ? pendingTakePrRequestFromRow(row) : undefined;
+    return this.pendingTakePrRequests.get(id);
   }
 
   claimPendingTakePrRequest(
@@ -458,62 +451,30 @@ export class WatcherStore {
     selectedService: string,
     now = new Date(),
   ): PendingTakePrRequest | undefined {
-    return this.db.transaction(() => {
-      const request = this.getPendingTakePrRequest(id);
-      if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
-
-      const staleBefore = new Date(now.getTime() - TAKE_PR_PROCESSING_LEASE_MS).toISOString();
-      const claimToken = randomBytes(12).toString("base64url");
-
-      const result = this.db
-        .update(pendingTakePrRequests)
-        .set({
-          status: "processing",
-          selectedService,
-          claimToken,
-          updatedAt: now.toISOString(),
-        })
-        .where(
-          and(
-            eq(pendingTakePrRequests.id, id),
-            or(
-              eq(pendingTakePrRequests.status, "pending"),
-              and(
-                eq(pendingTakePrRequests.status, "created"),
-                eq(pendingTakePrRequests.selectedService, selectedService),
-              ),
-              and(
-                eq(pendingTakePrRequests.status, "processing"),
-                eq(pendingTakePrRequests.selectedService, selectedService),
-                lte(pendingTakePrRequests.updatedAt, staleBefore),
-              ),
-            ),
-          ),
-        )
-        .run();
-      if (result.changes === 0) return undefined;
-      return this.requirePendingTakePrRequest(id);
-    });
+    const request = this.getPendingTakePrRequest(id);
+    if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
+    const claimed: PendingTakePrRequest = {
+      ...request,
+      status: "processing",
+      selectedService,
+      claimToken: randomBytes(12).toString("base64url"),
+      updatedAt: now.toISOString(),
+    };
+    this.pendingTakePrRequests.set(id, claimed);
+    return claimed;
   }
 
   releasePendingTakePrRequest(id: string, claimToken: string, now = new Date()): boolean {
-    const result = this.db
-      .update(pendingTakePrRequests)
-      .set({
-        status: "pending",
-        selectedService: null,
-        claimToken: null,
-        updatedAt: now.toISOString(),
-      })
-      .where(
-        and(
-          eq(pendingTakePrRequests.id, id),
-          eq(pendingTakePrRequests.status, "processing"),
-          eq(pendingTakePrRequests.claimToken, claimToken),
-        ),
-      )
-      .run();
-    return result.changes > 0;
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "pending",
+      selectedService: undefined,
+      claimToken: undefined,
+      updatedAt: now.toISOString(),
+    });
+    return true;
   }
 
   markPendingTakePrIssueCreated(
@@ -523,23 +484,16 @@ export class WatcherStore {
     linearIssueUrl: string,
     now = new Date(),
   ): boolean {
-    const result = this.db
-      .update(pendingTakePrRequests)
-      .set({
-        status: "created",
-        linearIssueIdentifier,
-        linearIssueUrl,
-        updatedAt: now.toISOString(),
-      })
-      .where(
-        and(
-          eq(pendingTakePrRequests.id, id),
-          eq(pendingTakePrRequests.status, "processing"),
-          eq(pendingTakePrRequests.claimToken, claimToken),
-        ),
-      )
-      .run();
-    return result.changes > 0;
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "created",
+      linearIssueIdentifier,
+      linearIssueUrl,
+      updatedAt: now.toISOString(),
+    });
+    return true;
   }
 
   refreshPendingTakePrPullRequest(
@@ -547,37 +501,29 @@ export class WatcherStore {
     claimToken: string,
     pullRequest: Pick<
       PendingTakePrRequest,
-      "repository" | "pullRequestTitle" | "headBranch" | "baseBranch"
+      "repository" | "pullRequestTitle" | "pullRequestBody" | "headBranch" | "baseBranch"
     >,
     now = new Date(),
   ): boolean {
-    const result = this.db
-      .update(pendingTakePrRequests)
-      .set({ ...pullRequest, updatedAt: now.toISOString() })
-      .where(
-        and(
-          eq(pendingTakePrRequests.id, id),
-          eq(pendingTakePrRequests.status, "processing"),
-          eq(pendingTakePrRequests.claimToken, claimToken),
-        ),
-      )
-      .run();
-    return result.changes > 0;
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      ...pullRequest,
+      updatedAt: now.toISOString(),
+    });
+    return true;
   }
 
   restorePendingTakePrIssueCreated(id: string, claimToken: string, now = new Date()): boolean {
-    const result = this.db
-      .update(pendingTakePrRequests)
-      .set({ status: "created", updatedAt: now.toISOString() })
-      .where(
-        and(
-          eq(pendingTakePrRequests.id, id),
-          eq(pendingTakePrRequests.status, "processing"),
-          eq(pendingTakePrRequests.claimToken, claimToken),
-        ),
-      )
-      .run();
-    return result.changes > 0;
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "created",
+      updatedAt: now.toISOString(),
+    });
+    return true;
   }
 
   completePendingTakePrRequest(
@@ -586,38 +532,24 @@ export class WatcherStore {
     linearIssueUrl: string,
     now = new Date(),
   ): boolean {
-    const result = this.db
-      .update(pendingTakePrRequests)
-      .set({
-        status: "completed",
-        claimToken: null,
-        linearIssueUrl,
-        updatedAt: now.toISOString(),
-      })
-      .where(
-        and(
-          eq(pendingTakePrRequests.id, id),
-          eq(pendingTakePrRequests.claimToken, claimToken),
-          or(
-            eq(pendingTakePrRequests.status, "created"),
-            eq(pendingTakePrRequests.status, "processing"),
-          ),
-        ),
-      )
-      .run();
-    return result.changes > 0;
+    const request = this.pendingTakePrRequests.get(id);
+    if (
+      request?.claimToken !== claimToken ||
+      (request.status !== "created" && request.status !== "processing")
+    )
+      return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "completed",
+      claimToken: undefined,
+      linearIssueUrl,
+      updatedAt: now.toISOString(),
+    });
+    return true;
   }
 
   pendingTakePrClaimIsCurrent(id: string, claimToken: string): boolean {
-    return Boolean(
-      this.db
-        .select({ id: pendingTakePrRequests.id })
-        .from(pendingTakePrRequests)
-        .where(
-          and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.claimToken, claimToken)),
-        )
-        .get(),
-    );
+    return this.pendingTakePrRequests.get(id)?.claimToken === claimToken;
   }
 
   updateTaskStatus(
@@ -718,24 +650,14 @@ export class WatcherStore {
     return task;
   }
 
-  private requirePendingTakePrRequest(id: string): PendingTakePrRequest {
-    const request = this.getPendingTakePrRequest(id);
-    if (!request) throw new Error(`Pending take-pr request not found: ${id}`);
-    return request;
+  private currentTakePrClaim(
+    id: string,
+    claimToken: string,
+    status: PendingTakePrRequest["status"],
+  ): PendingTakePrRequest | undefined {
+    const request = this.pendingTakePrRequests.get(id);
+    return request?.claimToken === claimToken && request.status === status ? request : undefined;
   }
-}
-
-function pendingTakePrRequestFromRow(
-  row: typeof pendingTakePrRequests.$inferSelect,
-): PendingTakePrRequest {
-  return {
-    ...row,
-    requesterSlackUserId: row.requesterSlackUserId ?? undefined,
-    selectedService: row.selectedService ?? undefined,
-    claimToken: row.claimToken ?? undefined,
-    linearIssueIdentifier: row.linearIssueIdentifier ?? undefined,
-    linearIssueUrl: row.linearIssueUrl ?? undefined,
-  };
 }
 
 function takePrRequestCanBeClaimed(
