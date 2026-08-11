@@ -208,3 +208,15 @@ export const TAKE_PR_ISSUE_QUERY = `
     }
   }
 `;
+
+export const TAKE_PR_ATTACHMENT_CREATE_MUTATION = `
+  mutation OrchestratorWatcherTakePrAttachmentCreate(
+    $issueId: String!
+    $title: String!
+    $url: String!
+  ) {
+    attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
+      success
+    }
+  }
+`;

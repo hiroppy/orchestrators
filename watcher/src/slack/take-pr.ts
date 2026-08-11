@@ -458,13 +458,21 @@ function buildLinearIssueInput(
     0,
     MAX_LINEAR_ISSUE_TITLE_LENGTH,
   );
-  const descriptionSections = ["## 対象の既存PR", "", request.pullRequestUrl];
+  const descriptionSections = ["## Existing pull request", "", request.pullRequestUrl];
   if (request.pullRequestBody.trim()) {
-    descriptionSections.push("", "## PR本文", "", request.pullRequestBody);
+    descriptionSections.push("", "## Pull request description", "", request.pullRequestBody);
   }
-  descriptionSections.push("", "## 依頼元", "", slackMessageUrl);
+  descriptionSections.push("", "## Requested from", "", slackMessageUrl);
   const description = descriptionSections.join("\n");
-  return { idempotencyKey: request.id, teamId, projectSlug, title, description };
+  return {
+    idempotencyKey: request.id,
+    teamId,
+    projectSlug,
+    title,
+    description,
+    pullRequestTitle: singleLine(request.pullRequestTitle),
+    pullRequestUrl: request.pullRequestUrl,
+  };
 }
 
 function singleLine(value: string): string {
