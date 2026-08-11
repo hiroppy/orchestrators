@@ -21,6 +21,9 @@ efficiently keep many tasks moving, even while away from your desk.
 - Mention the configured bot with `assign @user` in a tracked task thread to include that
   user in configured notification mentions for only that task. The mentioned
   user must be the person running the command.
+- Mention the configured bot with `unassign @user` in a tracked task thread to remove that
+  user from the task's notification mentions. The mentioned user must be the person running
+  the command.
 - Attach an existing pull request to Linear so the watcher can monitor it
 - Reply to a Linear workpad from its Slack task thread, so you can keep
   Symphony work moving directly from Slack
@@ -81,7 +84,7 @@ used by the watcher:
 
 - `chat:write` — post and update task messages
 - `app_mentions:read` — respond to the bot mention commands `help`, `status`,
-  and task-thread `assign @user`
+  and task-thread `assign @user` and `unassign @user`
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
 - `files:read` — download images attached to task thread replies for copying to

@@ -394,6 +394,20 @@ export class WatcherStore {
     return result.changes > 0;
   }
 
+  unassignTaskNotificationMention(taskId: string, slackUserId: string): boolean {
+    const result = this.db
+      .delete(taskNotificationMentions)
+      .where(
+        and(
+          eq(taskNotificationMentions.taskId, taskId),
+          eq(taskNotificationMentions.slackUserId, slackUserId),
+        ),
+      )
+      .run();
+
+    return result.changes > 0;
+  }
+
   getTaskNotificationMentions(taskId: string): string[] {
     return this.db
       .select({ slackUserId: taskNotificationMentions.slackUserId })
