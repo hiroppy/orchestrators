@@ -150,8 +150,6 @@ describe("WatcherStore", () => {
         {
           issue_identifier: "ENG-62",
           state: "Custom Workflow State",
-          last_message: "working",
-          tokens: { total_tokens: 123 },
         },
       ]);
       assert.deepEqual(store.getSelectableStatuses("service-a"), ["Todo", "In Progress", "Done"]);

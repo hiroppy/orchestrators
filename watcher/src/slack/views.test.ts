@@ -58,10 +58,11 @@ describe("Slack rendering", () => {
     const overview = card.blocks.filter(
       (block) => block.type === "section" && "fields" in block,
     ) as Array<{ fields: Array<{ text: string }> }>;
-    assert.deepEqual(
-      overview.map(({ fields }) => fields.map(({ text }) => text)),
-      [["*Event*\nStarted", "*Activity*\nRunning tests"]],
-    );
+    assert.deepEqual(overview, []);
+    assert.deepEqual(card.blocks[2], {
+      type: "section",
+      text: { type: "mrkdwn", text: "*Event*\nStarted" },
+    });
     assert.deepEqual(card.blocks[3], {
       type: "section",
       text: {
@@ -113,24 +114,17 @@ describe("Slack rendering", () => {
     assert.doesNotMatch(card.text, /Awaiting Customer/);
   });
 
-  it("keeps parent activity concise and Slack-safe", () => {
+  it("does not render activity", () => {
     const card = buildTaskCard(task, ["In Progress"], {
       type: "updated",
       service: "service-a",
       issueIdentifier: "ENG-62",
       activity: `<unsafe> & ${"x".repeat(200)}`,
     });
-    const overview = card.blocks.find((block) => block.type === "section" && "fields" in block) as {
-      fields: Array<{ text: string }>;
-    };
-
-    const activity = overview.fields.find(({ text }) => text.startsWith("*Activity*\n"))?.text;
-    assert.match(activity!, /&lt;unsafe&gt; &amp; /);
-    assert.doesNotMatch(activity!, /<unsafe>/);
-    assert.match(activity!, /…$/);
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Activity|unsafe/);
   });
 
-  it("keeps an error visible when activity is also present", () => {
+  it("keeps an error visible while omitting activity", () => {
     const event = {
       type: "blocked" as const,
       service: "service-a",
@@ -141,8 +135,10 @@ describe("Slack rendering", () => {
     const card = buildTaskCard(task, ["In Progress"], event);
     const blocks = buildThreadMessageBlocks(event);
 
-    assert.match(JSON.stringify(card.blocks), /Running tests.*…\\n⚠️ Test command failed/);
-    assert.match(JSON.stringify(blocks), /Running tests.*…\\n⚠️ Test command failed/);
+    assert.doesNotMatch(JSON.stringify(card.blocks), /Running tests/);
+    assert.doesNotMatch(JSON.stringify(blocks), /Running tests/);
+    assert.match(JSON.stringify(card.blocks), /\*Error\*\\nTest command failed/);
+    assert.match(JSON.stringify(blocks), /\*Error\*\\nTest command failed/);
   });
 
   it("does not render a status select for watcher fetch errors", () => {
@@ -178,8 +174,9 @@ describe("Slack rendering", () => {
     };
     assert.deepEqual(
       overview.fields.map(({ text }) => text),
-      ["*Status*\nUnavailable", "*Event*\nRetrying", "*Activity*\nfetch failed"],
+      ["*Status*\nUnavailable", "*Event*\nRetrying"],
     );
+    assert.match(JSON.stringify(card.blocks), /\*Error\*\\nfetch failed/);
     assert.equal(
       card.blocks.some((block) => block.type === "context"),
       false,
@@ -262,7 +259,7 @@ describe("Slack rendering", () => {
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4> \| Turns: 1$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4>$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -284,7 +281,7 @@ describe("Slack rendering", () => {
           toStatus: "In Review",
         },
       )?.map(({ type }) => type),
-      ["section", "section", "section", "section"],
+      ["section", "section", "section"],
     );
   });
 
@@ -319,11 +316,10 @@ describe("Slack rendering", () => {
     assert.deepEqual(card.blocks.slice(2), [
       {
         type: "section",
-        text: { type: "mrkdwn", text: "*Event*\nEnded" },
-      },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "*Creator*\n<@UCREATOR>" },
+        fields: [
+          { type: "mrkdwn", text: "*Event*\nEnded" },
+          { type: "mrkdwn", text: "*Creator*\n<@UCREATOR>" },
+        ],
       },
     ]);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Mentions/);

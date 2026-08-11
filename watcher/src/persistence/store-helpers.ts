@@ -120,23 +120,14 @@ export function observationToRow(
   row: typeof taskObservations.$inferSelect,
   trackerStatus: string | null,
 ): SnapshotRow {
-  const tokens = compactObject({
-    input_tokens: row.inputTokens,
-    output_tokens: row.outputTokens,
-    total_tokens: row.totalTokens,
-  });
-
   return compactObject({
     issue_identifier: issueIdentifier,
     issue_url: row.issueUrl,
     state: trackerStatus,
-    last_message: row.lastMessage,
     error: row.error,
     workspace_path: row.workspacePath,
     started_at: row.startedAt,
     blocked_at: row.blockedAt,
-    turn_count: row.turnCount,
-    tokens: Object.keys(tokens).length > 0 ? tokens : null,
     last_event: row.lastEvent,
     last_event_at: row.lastEventAt,
     attempt: row.attempt,

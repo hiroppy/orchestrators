@@ -6,20 +6,8 @@ export function normalizeStatus(status: string): string {
   return status.trim().toLowerCase();
 }
 
-export function positiveNumber(value: unknown): boolean {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0;
-}
-
 export function formatNumber(value: unknown): string {
   return Math.trunc(Number(value)).toLocaleString("en-US");
-}
-
-export function formatCompactNumber(value: unknown): string {
-  const number = Number(value);
-  if (number < 1_000) return formatNumber(number);
-  if (number < 1_000_000) return `${stripTrailingZero((number / 1_000).toFixed(1))}k`;
-  return `${stripTrailingZero((number / 1_000_000).toFixed(1))}m`;
 }
 
 export function truncate(value: string, length: number): string {
@@ -40,8 +28,4 @@ export function escapeSlackLinkLabel(value: unknown): string {
 
 export function isPresent<T>(value: T | null | undefined | false): value is T {
   return value !== null && value !== undefined && value !== false;
-}
-
-function stripTrailingZero(value: string): string {
-  return value.endsWith(".0") ? value.slice(0, -2) : value;
 }
