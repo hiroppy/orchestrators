@@ -102,10 +102,11 @@ export function buildTaskCard(
   const selected = selectOptions.find(({ value }) => value === task.status);
   const blockId = taskBlockId(task.id, task.status);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
+  const displayedAssignees = assignees.map(formatNonNotifyingAssignee);
   const primaryFields = [
     watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
     event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
-    assignees.length > 0 ? `*Assignees*\n${assignees.join(" ")}` : null,
+    displayedAssignees.length > 0 ? formatAssignees(displayedAssignees) : null,
   ].filter(isPresent);
   const errorFields = [event?.error ? `*Error*\n${formatError(event.error)}` : null].filter(
     isPresent,
@@ -115,7 +116,9 @@ export function buildTaskCard(
   ].filter(isPresent);
   const overviewBlocks = buildFieldSections(primaryFields, errorFields, pullRequestFields);
   const fallbackText =
-    assignees.length > 0 ? `${displayTitle}. Assigned to ${assignees.join(" ")}` : displayTitle;
+    displayedAssignees.length > 0
+      ? `${displayTitle}. Assigned to ${displayedAssignees.join(" ")}`
+      : displayTitle;
   return {
     text: fallbackText,
     metadata: {
@@ -151,6 +154,40 @@ export function buildTaskCard(
       ...overviewBlocks,
     ],
   };
+}
+
+export function replaceTaskCardAssignees(card: TaskCard, assignees: string[]): TaskCard {
+  const field =
+    assignees.length > 0 ? formatAssignees(assignees.map(formatNonNotifyingAssignee)) : undefined;
+  let replaced = false;
+  const blocks = card.blocks.flatMap((block) => {
+    if (block.type !== "section") return [block];
+
+    if (Array.isArray(block.fields)) {
+      const fields = (block.fields as Array<Record<string, unknown>>).flatMap((item) => {
+        if (typeof item.text !== "string" || !item.text.startsWith("*Assignees*\n")) {
+          return [item];
+        }
+        replaced = true;
+        return field ? [{ ...item, text: field }] : [];
+      });
+      return fields.length > 0 ? [{ ...block, fields }] : [];
+    }
+
+    const text = block.text as Record<string, unknown> | undefined;
+    if (typeof text?.text !== "string" || !text.text.startsWith("*Assignees*\n")) {
+      return [block];
+    }
+    replaced = true;
+    return field ? [{ ...block, text: { ...text, text: field } }] : [];
+  });
+
+  if (field && !replaced) {
+    const insertAt = blocks.findLastIndex((block) => block.type === "actions") + 1;
+    blocks.splice(insertAt, 0, buildTextSection(field));
+  }
+
+  return { ...card, blocks };
 }
 
 export interface ThreadMessageContext {
@@ -440,6 +477,12 @@ function formatAssignees(assignees: string[]): string {
   }
 
   return `${label}${targets.join(" ")}`;
+}
+
+function formatNonNotifyingAssignee(mention: string): string {
+  return mention
+    .replace(/^<@([A-Z0-9]+)>$/i, "@$1")
+    .replace(/^<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>$/i, "@$1");
 }
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {

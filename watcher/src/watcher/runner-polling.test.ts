@@ -71,6 +71,8 @@ describe("watcher polling", () => {
       assert.match(output[0], /Use another Linear account/);
       assert.match(output[0], /Private Creator/);
       assert.doesNotMatch(output[0], /private@example\.com/);
+      const preview = JSON.parse(output[0]) as { slack: unknown };
+      assert.doesNotMatch(JSON.stringify(preview.slack), /Private Creator|Assignees/);
       assert.equal(
         slackCalls.some(({ method }) => method === "lookupByEmail"),
         false,

@@ -226,7 +226,7 @@ describe("Slack preview", () => {
       options,
     );
 
-    assert.match(JSON.stringify(parent.blocks), /\*Assignees\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(parent.blocks), /\*Assignees\*\\n@UCREATOR/);
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Mentions/);
     assert.match(JSON.stringify(parent.blocks), /PR#123/);
     assert.match(JSON.stringify(parent.blocks), /Improve the watcher Slack preview/);
@@ -242,7 +242,7 @@ describe("Slack preview", () => {
       new Date("2026-07-29T00:00:00.000Z"),
       options,
     );
-    assert.match(JSON.stringify(blocked.blocks), /\*Assignees\*\\n<@UCREATOR>/);
+    assert.match(JSON.stringify(blocked.blocks), /\*Assignees\*\\n@UCREATOR/);
     assert.doesNotMatch(JSON.stringify(blocked.blocks), /Mentions/);
 
     const defaults = buildSlackPreviewMessage(

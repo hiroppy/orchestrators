@@ -312,14 +312,14 @@ describe("Slack rendering", () => {
 
     assert.equal(
       card.text,
-      "[service-a] Build the Slack control plane. Assigned to <@UCREATOR> <!subteam^SXXXXXXXX>",
+      "[service-a] Build the Slack control plane. Assigned to @UCREATOR @SXXXXXXXX",
     );
     assert.deepEqual(card.blocks.slice(2), [
       {
         type: "section",
         fields: [
           { type: "mrkdwn", text: "*Event*\nEnded" },
-          { type: "mrkdwn", text: "*Assignees*\n<@UCREATOR> <!subteam^SXXXXXXXX>" },
+          { type: "mrkdwn", text: "*Assignees*\n@UCREATOR @SXXXXXXXX" },
         ],
       },
     ]);
@@ -370,5 +370,16 @@ describe("Slack rendering", () => {
     assert.ok(assigneesField);
     assert.ok(assigneesField.text.length <= 2_000);
     assert.match(assigneesField.text, />$/);
+
+    const card = buildTaskCard(task, ["In Progress"], undefined, mentions);
+    const cardAssigneesField = card.blocks
+      .flatMap((block) => {
+        if ("fields" in block) return block.fields as Array<{ text: string }>;
+        return "text" in block ? [block.text as { text: string }] : [];
+      })
+      .find(({ text }) => text.startsWith("*Assignees*\n"));
+    assert.ok(cardAssigneesField);
+    assert.ok(cardAssigneesField.text.length <= 2_000);
+    assert.doesNotMatch(JSON.stringify(card), /<@U/);
   });
 });

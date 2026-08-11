@@ -250,7 +250,9 @@ export async function runOnce({
             enrichedEvent.type,
             [
               ...(config.defaultAssignees ?? []),
-              ...(enrichedEvent.creatorMention ? [enrichedEvent.creatorMention] : []),
+              ...(isSlackUserMention(enrichedEvent.creatorMention)
+                ? [enrichedEvent.creatorMention]
+                : []),
               ...store.getTaskAssignees(taskId),
             ],
             reviewDecision.deliverDeferredMention,
@@ -583,6 +585,10 @@ function normalizeStatus(status: string): string {
 function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
   const { creatorEmail: _, ...safeEvent } = event;
   return safeEvent;
+}
+
+function isSlackUserMention(value: string | null | undefined): value is string {
+  return /^<@[A-Z0-9]+>$/i.test(value ?? "");
 }
 
 function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {

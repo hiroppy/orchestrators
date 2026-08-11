@@ -7,6 +7,7 @@ import {
   publishWatcherEvent,
 } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
+import { buildTaskCard } from "./views.ts";
 
 describe("Slack mention commands", () => {
   it("replies to an exact help mention with the available commands", async () => {
@@ -227,7 +228,18 @@ describe("Slack mention commands", () => {
         issueIdentifier: "ENG-63",
         state: "In Progress",
       });
-      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.setParentMessage(
+        task.id,
+        "C123",
+        "10.000",
+        JSON.stringify(
+          buildTaskCard(task, ["In Progress"], {
+            type: "started",
+            service: "service-a",
+            issueIdentifier: "ENG-62",
+          }),
+        ),
+      );
       store.setParentMessage(otherTask.id, "C123", "11.000", "{}");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
@@ -251,7 +263,14 @@ describe("Slack mention commands", () => {
 
       assert.deepEqual(store.getTaskAssignees(task.id), ["<@UHIROPPY>"]);
       assert.deepEqual(store.getTaskAssignees(otherTask.id), []);
-      assert.deepEqual(calls, [
+      assert.equal(calls[0].method, "update");
+      assert.equal(calls[0].args.channel, "C123");
+      assert.equal(calls[0].args.ts, "10.000");
+      assert.match(JSON.stringify(calls[0].args.blocks), /Assignees.*@UHIROPPY/s);
+      assert.match(JSON.stringify(calls[0].args.blocks), /Event.*Started/s);
+      assert.doesNotMatch(JSON.stringify(calls[0].args), /<@UHIROPPY>/);
+      assert.match(String(calls[0].args.text), /Assigned to @UHIROPPY/);
+      assert.deepEqual(calls.slice(1), [
         {
           method: "addReaction",
           args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
@@ -447,7 +466,12 @@ describe("Slack mention commands", () => {
 
       assert.deepEqual(store.getTaskAssignees(task.id), ["<@U456>"]);
       assert.deepEqual(store.getTaskAssignees(otherTask.id), ["<@U123>"]);
-      assert.deepEqual(calls, [
+      assert.equal(calls[0].method, "update");
+      assert.equal(calls[0].args.channel, "C123");
+      assert.equal(calls[0].args.ts, "10.000");
+      assert.match(JSON.stringify(calls[0].args.blocks), /Assignees.*@U456/s);
+      assert.doesNotMatch(JSON.stringify(calls[0].args), /<@U456>/);
+      assert.deepEqual(calls.slice(1), [
         {
           method: "addReaction",
           args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
@@ -552,6 +576,7 @@ describe("Slack mention commands", () => {
               },
             },
             chat: {
+              update: async () => ({ ok: true }),
               postMessage: async (args: Record<string, unknown>) => {
                 calls.push({ method: "postMessage", args });
                 return { ok: true };

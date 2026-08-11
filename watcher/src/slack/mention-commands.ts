@@ -1,4 +1,5 @@
 import type { WatcherStore } from "../persistence/store.ts";
+import type { Task } from "../domain/types.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import {
@@ -6,7 +7,10 @@ import {
   buildHelpMessageBlocks,
   buildStatusSummary,
   buildStatusSummaryBlocks,
+  buildTaskCard,
+  replaceTaskCardAssignees,
   STATUS_SUMMARY_STATUSES,
+  type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
 import { resolveSlackDisplayName } from "./users.ts";
@@ -134,6 +138,7 @@ function escapeRegExp(value: string): string {
 async function handleAssignCommand({
   event,
   client,
+  logger,
   store,
   args,
 }: MentionCommandContext): Promise<void> {
@@ -181,7 +186,21 @@ async function handleAssignCommand({
     return;
   }
 
-  if (!alreadyAssigned) store.assignTask(task.id, slackUserId);
+  if (!alreadyAssigned) {
+    store.assignTask(task.id, slackUserId);
+    try {
+      await refreshTaskAssignees(client, store, task, logger);
+    } catch (error) {
+      logger.error(error);
+      await postSlackOperationError(
+        client,
+        { channel: event.channel, threadTs },
+        "You were assigned, but the task card could not be updated.",
+        logger,
+      );
+      return;
+    }
+  }
   await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
 }
 
@@ -230,7 +249,22 @@ async function handleUnassignCommand({
     return;
   }
 
+  const wasAssigned = store.getTaskAssignees(task.id).includes(`<@${slackUserId}>`);
   store.unassignTask(task.id, slackUserId);
+  if (wasAssigned) {
+    try {
+      await refreshTaskAssignees(client, store, task, logger);
+    } catch (error) {
+      logger.error(error);
+      await postSlackOperationError(
+        client,
+        { channel: event.channel, threadTs },
+        "You were unassigned, but the task card could not be updated.",
+        logger,
+      );
+      return;
+    }
+  }
   try {
     await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
   } catch (error) {
@@ -242,6 +276,45 @@ async function handleUnassignCommand({
       logger,
     );
   }
+}
+
+async function refreshTaskAssignees(
+  client: Pick<SlackClient, "chat">,
+  store: WatcherStore,
+  task: Task,
+  logger: { error(error: unknown): void },
+): Promise<void> {
+  if (!task.parentChannelId || !task.parentMessageTs) return;
+
+  const assignees = store.getTaskAssignees(task.id);
+  const baseCard = buildTaskCard(
+    task,
+    store.getSelectableStatuses(task.serviceName),
+    undefined,
+    assignees,
+  );
+  let currentCard = baseCard;
+  try {
+    if (task.lastRenderedSummary) {
+      const parsed = JSON.parse(task.lastRenderedSummary) as unknown;
+      if (isTaskCard(parsed)) currentCard = { ...parsed, text: baseCard.text };
+    }
+  } catch (error) {
+    logger.error(error);
+  }
+  const card = replaceTaskCardAssignees(currentCard, assignees);
+  await client.chat.update({
+    channel: task.parentChannelId,
+    ts: task.parentMessageTs,
+    ...card,
+  });
+  store.setRenderedSummary(task.id, JSON.stringify(card));
+}
+
+function isTaskCard(value: unknown): value is TaskCard {
+  if (!value || typeof value !== "object") return false;
+  const card = value as Partial<TaskCard>;
+  return typeof card.text === "string" && Array.isArray(card.blocks) && card.metadata !== undefined;
 }
 
 async function handleStatusCommand({
