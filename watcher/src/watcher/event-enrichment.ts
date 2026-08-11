@@ -2,6 +2,7 @@ import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
@@ -120,10 +121,6 @@ function withCreatorName(event: WatcherEvent): WatcherEvent {
 
 function escapeSlackText(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
 }
 
 function compactObject<T extends object>(object: T): T {

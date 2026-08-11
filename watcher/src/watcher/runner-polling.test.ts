@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { runOnce, runPoll } from "./runner.ts";
+import { runOnce } from "./runner.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -56,36 +56,25 @@ describe("watcher polling", () => {
         },
       });
       store.syncDefinitions(config.services, config.linearTeams);
-      const output: string[] = [];
       const slackCalls: Array<Record<string, unknown>> = [];
-      context.mock.method(console, "log", (line) => output.push(String(line)));
 
       await runOnce({
         config,
         store,
-        dryRun: true,
         slackClient: fakeSlackClient(slackCalls),
+        slackChannelId: "C123",
       });
 
       assert.deepEqual(authorizationHeaders, ["lin_other"]);
-      assert.match(output[0], /Use another Linear account/);
-      assert.match(output[0], /Private Creator/);
-      assert.doesNotMatch(output[0], /private@example\.com/);
-      const preview = JSON.parse(output[0]) as { slack: unknown };
-      assert.doesNotMatch(JSON.stringify(preview.slack), /Private Creator|Assignees/);
       assert.equal(
         slackCalls.some(({ method }) => method === "lookupByEmail"),
-        false,
+        true,
       );
-      assert.deepEqual(store.getSnapshots()["service-b"], {
-        running: [],
-        retrying: [],
-        blocked: [],
-      });
+      assert.deepEqual(store.getSnapshots()["service-b"], current);
     });
   });
 
-  it("persists poll snapshots in SQLite only after a non-dry run", async () => {
+  it("persists poll snapshots in SQLite", async () => {
     await withStore(async (store) => {
       const current = {
         running: [{ issue_identifier: "ENG-62", state: "In Progress" }],
@@ -127,55 +116,6 @@ describe("watcher polling", () => {
     });
   });
 
-  it("models persisted task assignees independently from dry-run notifications", async (context) => {
-    await withStore(async (store) => {
-      const current = {
-        running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
-        retrying: [],
-        blocked: [],
-      };
-      const nativeFetch = globalThis.fetch;
-      context.mock.method(globalThis, "fetch", async (url, options) => {
-        if (String(url).startsWith("data:")) return nativeFetch(url, options);
-        return Response.json({
-          data: {
-            issue: {
-              identifier: "ENG-62",
-              title: "Investigate the blocker",
-              state: { name: "Blocked", type: "started" },
-            },
-          },
-        });
-      });
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "Blocked"]),
-        defaultAssignees: ["<@UDEFAULT>"],
-        notifications: { statuses: [], events: [] },
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      store.upsertTaskFromEvent({
-        type: "started",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Progress",
-      });
-      store.assignTask("service-a:ENG-62", "U123");
-      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
-      const output: string[] = [];
-      context.mock.method(console, "log", (line) => output.push(String(line)));
-
-      await runOnce({ config, store, dryRun: true });
-
-      const preview = JSON.parse(output[0]) as {
-        slack: { parent: unknown; thread: unknown };
-      };
-      assert.match(JSON.stringify(preview.slack.parent), /@U123/);
-      assert.doesNotMatch(JSON.stringify(preview.slack.parent), /UDEFAULT/);
-      assert.doesNotMatch(JSON.stringify(preview.slack.thread), /U123|UDEFAULT/);
-    });
-  });
-
   it("fetches task metadata and creator in one Linear request", async (context) => {
     await withStore(async (store) => {
       const current = {
@@ -212,7 +152,7 @@ describe("watcher polling", () => {
 
       const warnings: string[] = [];
       context.mock.method(console, "warn", (message) => warnings.push(String(message)));
-      await runPoll({
+      await runOnce({
         config,
         store,
         slackClient: fakeSlackClient([]),
@@ -310,7 +250,7 @@ describe("watcher polling", () => {
       const calls: Array<Record<string, unknown>> = [];
       context.mock.method(console, "warn", () => {});
 
-      await runPoll({
+      await runOnce({
         config,
         store,
         slackClient: fakeSlackClient(calls),

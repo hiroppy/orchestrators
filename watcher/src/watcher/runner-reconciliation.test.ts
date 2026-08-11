@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { collectSnapshots, reconcileSlackStatusTransition, runOnce } from "./runner.ts";
+import { reconcileSlackStatusTransition, runOnce } from "./runner.ts";
+import { collectSnapshots } from "./snapshots.ts";
 import {
   dataUrl,
   fakeSlackClient,

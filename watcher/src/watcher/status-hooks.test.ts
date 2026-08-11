@@ -11,7 +11,6 @@ import {
   createPendingStatusHookEvent,
   deliverPendingStatusHooks,
   dispatchStatusHooks,
-  queueStatusHooks,
   runStatusHooks,
   type StatusHookContext,
 } from "./status-hooks.ts";
@@ -29,6 +28,18 @@ const helpers = {
     postThreadMessage: async () => {},
   },
 } as const;
+
+function queueStatusHook(
+  store: WatcherStore,
+  hooks: Parameters<typeof createPendingStatusHookEvent>[0],
+  task: Parameters<typeof createPendingStatusHookEvent>[1],
+  fromStatus: string,
+  toStatus: string,
+  pullRequest?: Parameters<typeof createPendingStatusHookEvent>[4],
+): void {
+  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest);
+  if (event) store.addEvent(event);
+}
 
 describe("status hooks", () => {
   it("runs matching TypeScript hooks with context and returns their message", async () => {
@@ -141,7 +152,7 @@ describe("status hooks", () => {
           },
         },
       ];
-      queueStatusHooks(hooks, store, inReview, "In Progress", "In Review", context.pullRequest);
+      queueStatusHook(store, hooks, inReview, "In Progress", "In Review", context.pullRequest);
 
       store.upsertTaskFromEvent({
         type: "updated",
@@ -288,7 +299,7 @@ describe("status hooks", () => {
           },
         },
       ];
-      queueStatusHooks(hooks, store, task, "In Progress", "In Review");
+      queueStatusHook(store, hooks, task, "In Progress", "In Review");
       const posts: string[] = [];
       const options = {
         hooks,
@@ -348,8 +359,8 @@ describe("status hooks", () => {
           },
         },
       ];
-      queueStatusHooks(hooks, store, first, "In Progress", "In Review");
-      queueStatusHooks(hooks, store, second, "In Progress", "In Review");
+      queueStatusHook(store, hooks, first, "In Progress", "In Review");
+      queueStatusHook(store, hooks, second, "In Progress", "In Review");
 
       await deliverPendingStatusHooks({
         hooks,

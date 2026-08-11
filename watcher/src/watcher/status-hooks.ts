@@ -2,6 +2,7 @@ import type { ChatPostMessageArguments } from "@slack/web-api";
 
 import type { ResolvedStatusHookConfig } from "../config/runtime.ts";
 import type { PullRequest, StatusHookContext, StatusHookHelpers, Task } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 
 export type { StatusHookContext } from "../domain/types.ts";
@@ -22,18 +23,6 @@ interface StatusHookSlackClient {
   chat: {
     postMessage(args: ChatPostMessageArguments): Promise<unknown>;
   };
-}
-
-export function queueStatusHooks(
-  hooks: ResolvedStatusHookConfig[],
-  store: WatcherStore,
-  task: Task,
-  fromStatus: string,
-  toStatus: string,
-  pullRequest?: PullRequest,
-): void {
-  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest);
-  if (event) store.addEvent(event);
 }
 
 export function createPendingStatusHookEvent(
@@ -80,6 +69,16 @@ export async function deliverPendingStatusHooks({
     delivery.catch(() => {}),
   );
   return delivery;
+}
+
+export async function deliverPendingStatusHooksSafely(
+  options: Parameters<typeof deliverPendingStatusHooks>[0],
+): Promise<void> {
+  try {
+    await deliverPendingStatusHooks(options);
+  } catch (error) {
+    console.error("Status hook delivery failed; it will be retried:", error);
+  }
 }
 
 async function deliverPendingStatusHooksSerially({
@@ -271,8 +270,4 @@ export async function runStatusHooks(
       }
     }),
   );
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
 }

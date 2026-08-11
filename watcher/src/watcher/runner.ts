@@ -19,19 +19,10 @@ import {
 } from "../integrations/github.ts";
 import {
   createSlackApp,
-  initialTaskAssignees,
-  notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
   type SlackClient,
 } from "../slack/app.ts";
-import {
-  buildReviewRequeueLimitMessage,
-  buildReviewRequeueMessage,
-  buildReviewRequeueMessageBlocks,
-  buildTaskCard,
-  buildThreadMessage,
-} from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
@@ -40,16 +31,14 @@ import type {
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
-import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
+import { normalizeStatus } from "../domain/status.ts";
+import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
-import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   decideReviewReaction,
   pendingReviewPullRequest,
-  REVIEW_REQUEUE_EVENT,
-  REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
   REVIEW_REQUEUE_RECONCILED_EVENT,
   REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
   reviewReactionForStatus,
@@ -60,19 +49,8 @@ import {
   deliverPendingReviewLimitNotifications,
   markReviewRequeueReconciled,
 } from "./review-limit-delivery.ts";
+import { requeueReviewTask } from "./review-requeue.ts";
 
-export { collectSnapshots } from "./snapshots.ts";
-export { resolveLinearWorkflowStatuses } from "./runtime-config.ts";
-
-async function deliverPendingStatusHooksSafely(
-  options: Parameters<typeof deliverPendingStatusHooks>[0],
-): Promise<void> {
-  try {
-    await deliverPendingStatusHooks(options);
-  } catch (error) {
-    console.error("Status hook delivery failed; it will be retried:", error);
-  }
-}
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
@@ -81,104 +59,93 @@ export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Pr
   return response.user_id;
 }
 
-export async function startWatcher(config: OrchestratorConfig, args: string[] = []): Promise<void> {
-  const options = parseArgs(args);
-  const unresolvedConfig = resolveWatcherConfig(config, {
-    requireSlack: !options.dryRun,
-  });
+export async function startWatcher(config: OrchestratorConfig): Promise<void> {
+  const unresolvedConfig = resolveWatcherConfig(config, { requireSlack: true });
   const runtimeConfig = await resolveLinearWorkflowStatuses(unresolvedConfig);
   await requireGitHubCli();
-  const slackConfig = runtimeConfig.slack;
-  const client = slackConfig ? new WebClient(slackConfig.botToken) : undefined;
-  const botUserId = client && !options.dryRun ? await requireSlackBotUserId(client) : undefined;
+  const slackConfig = runtimeConfig.slack!;
+  const client = new WebClient(slackConfig.botToken);
+  const botUserId = await requireSlackBotUserId(client);
   const databasePath = resolve(rootDirectory, DEFAULT_DATABASE_PATH);
 
   const database = createDatabase(databasePath);
   const store = new WatcherStore(database.db);
   store.syncDefinitions(runtimeConfig.services, runtimeConfig.linearTeams);
 
-  const app =
-    slackConfig && !options.dryRun
-      ? createSlackApp({
-          botToken: slackConfig.botToken,
-          appToken: slackConfig.appToken,
-          updateLinearStatus: async (task, status) => {
-            await updateLinearIssueStatus(task.issueIdentifier, status, {
-              apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
-            });
-          },
-          createLinearWorkpadReply: async (task, reply, idempotencyKey) =>
-            createLinearWorkpadReply(task.issueIdentifier, reply.text, {
-              apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
-              idempotencyKey,
-              authorName: reply.authorName,
-              files: reply.files.map((file) => ({
-                filename: file.filename,
-                contentType: file.contentType,
-                loadData: () =>
-                  downloadSlackFile(file.downloadUrl, slackConfig.botToken, {
-                    expectedSize: file.size,
-                  }),
-              })),
+  const app = createSlackApp({
+    botToken: slackConfig.botToken,
+    appToken: slackConfig.appToken,
+    updateLinearStatus: async (task, status) => {
+      await updateLinearIssueStatus(task.issueIdentifier, status, {
+        apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
+      });
+    },
+    createLinearWorkpadReply: async (task, reply, idempotencyKey) =>
+      createLinearWorkpadReply(task.issueIdentifier, reply.text, {
+        apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
+        idempotencyKey,
+        authorName: reply.authorName,
+        files: reply.files.map((file) => ({
+          filename: file.filename,
+          contentType: file.contentType,
+          loadData: () =>
+            downloadSlackFile(file.downloadUrl, slackConfig.botToken, {
+              expectedSize: file.size,
             }),
-          store,
-          botUserId: botUserId!,
-          takePr: {
-            authorizedChannelId: slackConfig.channelId,
-            services: runtimeConfig.services,
-            linearTeams: runtimeConfig.linearTeams,
-            symphoniesDirectory: resolve(rootDirectory, "symphonies"),
-            defaultAssignees: runtimeConfig.defaultAssignees,
-          },
-          createStatusTransitionEvent: (task, fromStatus, toStatus) =>
-            createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
-          onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
-            await reconcileSlackStatusTransition({
-              config: runtimeConfig,
-              store,
-              slackClient,
-              slackChannelId: slackConfig.channelId,
-              task,
-            });
-            await deliverPendingStatusHooksSafely({
-              hooks: runtimeConfig.statusHooks,
-              store,
-              slackClient,
-              watcherChannelId: slackConfig.channelId,
-              taskId: task.id,
-            });
-          },
-        })
-      : undefined;
+        })),
+      }),
+    store,
+    botUserId,
+    takePr: {
+      authorizedChannelId: slackConfig.channelId,
+      services: runtimeConfig.services,
+      linearTeams: runtimeConfig.linearTeams,
+      symphoniesDirectory: resolve(rootDirectory, "symphonies"),
+      defaultAssignees: runtimeConfig.defaultAssignees,
+    },
+    createStatusTransitionEvent: (task, fromStatus, toStatus) =>
+      createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
+    onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+      await reconcileSlackStatusTransition({
+        config: runtimeConfig,
+        store,
+        slackClient,
+        slackChannelId: slackConfig.channelId,
+        task,
+      });
+      await deliverPendingStatusHooksSafely({
+        hooks: runtimeConfig.statusHooks,
+        store,
+        slackClient,
+        watcherChannelId: slackConfig.channelId,
+        taskId: task.id,
+      });
+    },
+  });
 
   try {
-    if (app) {
-      await app.start();
-      try {
-        await publishWatcherStarted(
-          client!,
-          slackConfig!.channelId,
-          runtimeConfig.services.map(({ name }) => name),
-        );
-      } catch (error) {
-        console.error("Failed to post watcher startup notification:", error);
-      }
+    await app.start();
+    try {
+      await publishWatcherStarted(
+        client,
+        slackConfig.channelId,
+        runtimeConfig.services.map(({ name }) => name),
+      );
+    } catch (error) {
+      console.error("Failed to post watcher startup notification:", error);
     }
 
     while (true) {
-      await runPoll({
+      await runOnce({
         config: runtimeConfig,
         store,
         slackClient: client,
-        slackChannelId: slackConfig?.channelId,
-        dryRun: options.dryRun,
+        slackChannelId: slackConfig.channelId,
       });
-
-      if (options.dryRun) break;
       await sleep(runtimeConfig.pollIntervalMs);
     }
   } finally {
-    if (app) await app.stop();
+    await app.stop();
     database.close();
   }
 }
@@ -216,16 +183,11 @@ export async function reconcileSlackStatusTransition({
   });
 }
 
-export async function runPoll(options: RunOnceOptions): Promise<void> {
-  await runOnce(options);
-}
-
 interface RunOnceOptions {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
-  slackClient?: WebClient;
-  slackChannelId?: string;
-  dryRun?: boolean;
+  slackClient: WebClient;
+  slackChannelId: string;
   findPullRequest?: typeof findPullRequestDefault;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
@@ -236,28 +198,23 @@ export async function runOnce({
   store,
   slackClient,
   slackChannelId,
-  dryRun = false,
   findPullRequest = findPullRequestDefault,
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
 }: RunOnceOptions) {
-  let reviewReconciliationTaskIds = new Set<string>();
-  if (!dryRun) {
-    if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
-    await deliverPendingStatusHooksSafely({
-      hooks: config.statusHooks ?? [],
-      store,
-      slackClient,
-      watcherChannelId: slackChannelId,
-    });
-    await deliverPendingReviewLimitNotifications(store, slackClient);
-    reviewReconciliationTaskIds = new Set(
-      store.getTaskIdsWithIncompleteEvent(
-        REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
-        REVIEW_REQUEUE_RECONCILED_EVENT,
-      ),
-    );
-  }
+  await deliverPendingStatusHooksSafely({
+    hooks: config.statusHooks ?? [],
+    store,
+    slackClient,
+    watcherChannelId: slackChannelId,
+  });
+  await deliverPendingReviewLimitNotifications(store, slackClient);
+  const reviewReconciliationTaskIds = new Set(
+    store.getTaskIdsWithIncompleteEvent(
+      REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
+      REVIEW_REQUEUE_RECONCILED_EVENT,
+    ),
+  );
 
   const previous = store.getSnapshots();
   const current = await collectSnapshots(config.services, previous);
@@ -277,96 +234,40 @@ export async function runOnce({
       enrichment.event,
       enrichment.isAuthoritative,
     );
-    const enrichedEvent = await enrichCreatorAssignee(
-      enrichment.event,
-      dryRun ? undefined : slackClient,
-    );
+    const enrichedEvent = await enrichCreatorAssignee(enrichment.event, slackClient);
     preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
   }
 
   for (const prepared of preparedEvents) {
     const { source, enrichment, event: enrichedEvent, reviewDecision } = prepared;
-    if (dryRun) {
-      const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
-      const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
-      const persistedTask = store.getTask(taskId);
-      const persistedAssignees = store.getTaskAssignees(taskId);
-      const parentAssignees =
-        !persistedTask?.parentMessageTs && persistedAssignees.length === 0
-          ? initialTaskAssignees(config.defaultAssignees ?? [], enrichedEvent.creatorMention)
-          : persistedAssignees;
-      const notificationTargets = shouldSuppressReviewMention(reviewDecision)
-        ? undefined
-        : notificationTargetsForWatcherEvent(
-            config.notifications,
-            persistedTask?.parentMessageTs ? persistedTask.status : undefined,
-            status,
-            enrichedEvent.type,
-            parentAssignees,
-            reviewDecision.deliverDeferredMention,
-          );
-      const task = {
-        id: taskId,
-        serviceName: enrichedEvent.service,
-        issueIdentifier: enrichedEvent.issueIdentifier,
-        title: enrichedEvent.issueTitle ?? enrichedEvent.issueIdentifier,
-        status,
-        updatedAt: new Date().toISOString(),
-      };
-      console.log(
-        JSON.stringify(
-          {
-            event: withoutCreatorEmail(enrichedEvent),
-            slack: {
-              parent: buildTaskCard(
-                task,
-                linearTeamForService(config, task.serviceName)?.statuses ?? [],
-                enrichedEvent,
-                parentAssignees,
-              ),
-              thread: buildThreadMessage(enrichedEvent, {
-                assignees: notificationTargets,
-              }),
-            },
-          },
-          null,
-          2,
-        ),
-      );
-    } else {
-      if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
-      await processWatcherEvent({
-        config,
-        store,
-        slackClient,
-        slackChannelId,
-        event: enrichedEvent,
-        reviewDecision,
-        updateLinearStatus,
-      });
-      if (enrichment.isAuthoritative) {
-        markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
-      }
-    }
-  }
-
-  if (!dryRun) {
-    if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
-    store.replaceSnapshots(current);
-    await reconcileLinearStatuses({
+    await processWatcherEvent({
       config,
       store,
       slackClient,
       slackChannelId,
-      skipTaskIds: new Set([
-        ...processedTaskIds,
-        ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
-      ]),
-      findPullRequestByUrl,
+      event: enrichedEvent,
+      reviewDecision,
       updateLinearStatus,
-      reviewReconciliationTaskIds,
     });
+    if (enrichment.isAuthoritative) {
+      markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
+    }
   }
+
+  store.replaceSnapshots(current);
+  await reconcileLinearStatuses({
+    config,
+    store,
+    slackClient,
+    slackChannelId,
+    skipTaskIds: new Set([
+      ...processedTaskIds,
+      ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
+    ]),
+    findPullRequestByUrl,
+    updateLinearStatus,
+    reviewReconciliationTaskIds,
+  });
   return { events, current };
 }
 
@@ -495,7 +396,6 @@ async function processWatcherEvent({
   reviewDecision: ReviewReactionDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  const taskId = taskIdFor(event.service, event.issueIdentifier);
   await publishWatcherEvent(
     slackClient,
     store,
@@ -524,101 +424,14 @@ async function processWatcherEvent({
       },
     },
   );
-  const review = config.reviewReaction;
-  if (!reviewDecision.shouldRequeue || !review) return;
-
-  const task = store.getTask(taskId)!;
-  if (!reviewDecision.reachesLimit) {
-    await slackClient.chat.postMessage({
-      channel: task.parentChannelId!,
-      thread_ts: task.parentMessageTs!,
-      text: buildReviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
-      blocks: buildReviewRequeueMessageBlocks(
-        review.reaction,
-        task.status,
-        review.inProgressStatus,
-      ),
-    });
-  }
-
-  await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
-    apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
-  });
-  const { task: requeuedTask, fromStatus } = store.updateTaskStatusAtomically(
-    task.id,
-    review.inProgressStatus,
-    (updatedTask, previousStatus) =>
-      createPendingStatusHookEvent(
-        config.statusHooks ?? [],
-        updatedTask,
-        previousStatus,
-        updatedTask.status,
-        event.pullRequest,
-      ),
-  );
-  await deliverPendingStatusHooksSafely({
-    hooks: config.statusHooks ?? [],
+  await requeueReviewTask({
+    config,
     store,
     slackClient,
     watcherChannelId: slackChannelId,
-    taskId: requeuedTask.id,
-  });
-  const auditBody = buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status);
-  const requeueEvent = {
-    taskId: task.id,
-    type: REVIEW_REQUEUE_EVENT,
-    actor: "watcher",
-    fromStatus,
-    toStatus: requeuedTask.status,
-    body: auditBody,
-  };
-
-  if (reviewDecision.reachesLimit) {
-    const limitMessage = buildReviewRequeueLimitMessage(
-      review.reaction,
-      review.maxRequeues,
-      fromStatus,
-      requeuedTask.status,
-    );
-    store.addEvents([
-      requeueEvent,
-      {
-        taskId: task.id,
-        type: REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
-        actor: "watcher",
-        fromStatus,
-        toStatus: requeuedTask.status,
-        body: JSON.stringify({
-          message: limitMessage,
-          event: withoutCreatorDetails(event),
-          reaction: review.reaction,
-          maxRequeues: review.maxRequeues,
-        }),
-      },
-    ]);
-    await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
-    return;
-  }
-
-  store.addEvent(requeueEvent);
-  await withTaskCardQueue(requeuedTask.id, async () => {
-    const currentTask = store.getTask(requeuedTask.id) ?? requeuedTask;
-    const card = buildTaskCard(
-      currentTask,
-      store.getSelectableStatuses(currentTask.serviceName),
-      {
-        ...event,
-        state: fromStatus,
-        resolvedState: currentTask.status,
-      },
-      store.getTaskAssignees(currentTask.id),
-    );
-    await slackClient.chat.update({
-      channel: currentTask.parentChannelId!,
-      ts: currentTask.parentMessageTs!,
-      ...card,
-    });
-    store.setRenderedSummary(currentTask.id, JSON.stringify(card));
+    event,
+    decision: reviewDecision,
+    updateLinearStatus,
   });
 }
 
@@ -632,38 +445,6 @@ function taskIdsInSnapshots(snapshots: SnapshotsByService): string[] {
     }
   }
   return ids;
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
-}
-
-function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
-  const { creatorEmail: _, ...safeEvent } = event;
-  return safeEvent;
-}
-
-function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {
-  const { creatorName: _name, creatorEmail: _email, ...safeEvent } = event;
-  return safeEvent;
-}
-
-interface CliOptions {
-  dryRun: boolean;
-}
-
-function parseArgs(args: string[]): CliOptions {
-  const options: CliOptions = { dryRun: false };
-
-  for (const arg of args) {
-    if (arg === "--dry-run") {
-      options.dryRun = true;
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return options;
 }
 
 function sleep(ms: number): Promise<void> {

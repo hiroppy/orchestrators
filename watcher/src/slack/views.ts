@@ -1,4 +1,5 @@
 import type { EventType, PullRequest, RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import { TASK_STATUS_ACTION_ID, taskBlockId } from "./interactions.ts";
 import {
   capitalize,
@@ -7,7 +8,6 @@ import {
   escapeSlackLinkLabel,
   formatNumber,
   isPresent,
-  normalizeStatus,
   truncate,
 } from "./view-formatting.ts";
 

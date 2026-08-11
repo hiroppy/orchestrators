@@ -18,6 +18,7 @@ import {
 import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./notifications.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
@@ -417,10 +418,6 @@ function shouldPostThreadMessage(
   hasNotifications: boolean,
 ): boolean {
   return statusChanged || isNewPullRequest || hasNotifications;
-}
-
-function normalizeStatus(status?: string): string | undefined {
-  return status?.trim().toLowerCase();
 }
 
 interface StatusActionBody {

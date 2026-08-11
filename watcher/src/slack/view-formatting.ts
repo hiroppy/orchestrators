@@ -2,10 +2,6 @@ export function capitalize(value: string): string {
   return value.length > 0 ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
-export function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
-}
-
 export function formatNumber(value: unknown): string {
   return Math.trunc(Number(value)).toLocaleString("en-US");
 }
