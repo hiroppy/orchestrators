@@ -47,7 +47,11 @@ describe("watcher reconciliation and snapshots", () => {
         resolvedStateType: "started",
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
-      store.updateTaskStatusAtomically(task.id, "Done", () => undefined);
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "Done",
+        () => undefined,
+      );
       const calls: Array<Record<string, unknown>> = [];
 
       await reconcileSlackStatusTransition({
@@ -55,7 +59,7 @@ describe("watcher reconciliation and snapshots", () => {
         store,
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
-        taskId: task.id,
+        task: closedTask,
       });
 
       assert.equal(store.getTask(task.id)?.linearStateType, "completed");

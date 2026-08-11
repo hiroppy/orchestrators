@@ -32,7 +32,12 @@ import {
   buildThreadMessage,
 } from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
-import type { OrchestratorConfig, SnapshotsByService, WatcherEvent } from "../domain/types.ts";
+import type {
+  OrchestratorConfig,
+  SnapshotsByService,
+  Task,
+  WatcherEvent,
+} from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
@@ -135,7 +140,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
               store,
               slackClient,
               slackChannelId: slackConfig.channelId,
-              taskId: task.id,
+              task,
             });
             await deliverPendingStatusHooksSafely({
               hooks: runtimeConfig.statusHooks,
@@ -185,16 +190,14 @@ export async function reconcileSlackStatusTransition({
   store,
   slackClient,
   slackChannelId,
-  taskId,
+  task,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   slackClient: SlackClient;
   slackChannelId: string;
-  taskId: string;
+  task: Task;
 }): Promise<void> {
-  const task = store.getTask(taskId);
-  if (!task) return;
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
     includeCreator: false,
