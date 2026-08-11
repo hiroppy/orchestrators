@@ -98,7 +98,7 @@ export async function handleTakePrMention(
   const requestId = (options.createRequestId ?? createRequestId)();
   store.createPendingTakePrRequest({
     id: requestId,
-    pullRequestUrl: pullRequest.url,
+    pullRequestUrl,
     repository: pullRequest.repository,
     pullRequestTitle: pullRequest.title,
     headBranch: pullRequest.headRefName,
@@ -396,7 +396,7 @@ function buildLinearIssueInput(
   projectSlug: string,
   slackMessageUrl: string,
 ): CreateLinearTakePrIssueInput {
-  const title = `[take-pr] ${singleLine(request.pullRequestTitle)}`.slice(
+  const title = `[take-pr] ${pullRequestIdentity(request.pullRequestUrl)}`.slice(
     0,
     MAX_LINEAR_ISSUE_TITLE_LENGTH,
   );
@@ -434,6 +434,17 @@ function buildLinearIssueInput(
 
 function singleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function pullRequestIdentity(pullRequestUrl: string): string {
+  try {
+    const match = new URL(pullRequestUrl).pathname.match(
+      /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)\/?$/,
+    );
+    return match ? `${match[1]}/${match[2]}#${match[3]}` : "existing GitHub PR";
+  } catch {
+    return "existing GitHub PR";
+  }
 }
 
 function findYamlMapping(
