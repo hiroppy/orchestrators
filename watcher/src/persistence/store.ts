@@ -519,6 +519,21 @@ export class WatcherStore {
       .run();
   }
 
+  refreshPendingTakePrPullRequest(
+    id: string,
+    pullRequest: Pick<
+      PendingTakePrRequest,
+      "repository" | "pullRequestTitle" | "headBranch" | "baseBranch"
+    >,
+    now = new Date(),
+  ): void {
+    this.db
+      .update(pendingTakePrRequests)
+      .set({ ...pullRequest, updatedAt: now.toISOString() })
+      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .run();
+  }
+
   restorePendingTakePrIssueCreated(id: string, now = new Date()): void {
     this.db
       .update(pendingTakePrRequests)

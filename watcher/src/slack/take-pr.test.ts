@@ -268,6 +268,53 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("uses refreshed PR metadata after a delayed selection", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await createPending(store, calls, options());
+      calls.length = 0;
+      const updatedPullRequest = {
+        ...pullRequest,
+        title: "Updated widget fix",
+        headRefName: "fix/updated-widget",
+        baseRefName: "release",
+      };
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        options({
+          findPullRequest: async () => updatedPullRequest,
+          createLinearIssue: async (input) => {
+            assert.match(input.description, /Updated widget fix/);
+            assert.match(input.description, /fix\/updated-widget/);
+            assert.match(input.description, /"baseBranch": "release"/);
+            assert.doesNotMatch(
+              input.description,
+              /Fix the widget|fix\/widget|"baseBranch": "main"/,
+            );
+            return {
+              identifier: "ENG-100",
+              url: "https://linear.app/example/issue/ENG-100/take-pr",
+            };
+          },
+        }),
+      );
+
+      const completed = store.getPendingTakePrRequest("request123");
+      assert.equal(completed?.pullRequestTitle, updatedPullRequest.title);
+      assert.equal(completed?.headBranch, updatedPullRequest.headRefName);
+      assert.equal(completed?.baseBranch, updatedPullRequest.baseRefName);
+      assert.match(String(calls[1].args.text), /Updated widget fix/);
+    });
+  });
+
   it("revalidates a stale processing retry before another Linear mutation", async () => {
     await withStore(async (store) => {
       const startedAt = new Date("2026-08-11T00:00:00.000Z");

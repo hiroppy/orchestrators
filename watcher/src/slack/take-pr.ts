@@ -174,17 +174,26 @@ export async function handleTakePrAction(
   if (!claimed) return;
 
   try {
+    let issueRequest = claimed;
     let issue =
       claimed.linearIssueIdentifier && claimed.linearIssueUrl
         ? { identifier: claimed.linearIssueIdentifier, url: claimed.linearIssueUrl }
         : undefined;
     if (!issue) {
-      const pullRequestError = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
-      if (pullRequestError) {
+      const validation = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
+      if ("error" in validation) {
         store.releasePendingTakePrRequest(claimed.id);
-        await postTakePrError(client, claimed.channelId, claimed.threadTs, pullRequestError);
+        await postTakePrError(client, claimed.channelId, claimed.threadTs, validation.error);
         return;
       }
+      const refreshedPullRequest = {
+        repository: validation.pullRequest.repository,
+        pullRequestTitle: validation.pullRequest.title,
+        headBranch: validation.pullRequest.headRefName,
+        baseBranch: validation.pullRequest.baseRefName,
+      };
+      store.refreshPendingTakePrPullRequest(claimed.id, refreshedPullRequest);
+      issueRequest = { ...claimed, ...refreshedPullRequest };
       const linearTeam = options.linearTeams[service.linearTeam];
       if (!linearTeam?.apiKey || !linearTeam.teamId) {
         throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
@@ -207,7 +216,12 @@ export async function handleTakePrAction(
       }
 
       issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
-        buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug, permalinkResponse.permalink),
+        buildLinearIssueInput(
+          issueRequest,
+          linearTeam.teamId,
+          projectSlug,
+          permalinkResponse.permalink,
+        ),
         { apiKey: linearTeam.apiKey },
       );
       store.markPendingTakePrIssueCreated(claimed.id, issue.identifier, issue.url);
@@ -217,7 +231,7 @@ export async function handleTakePrAction(
       thread_ts: claimed.threadTs,
       text: [
         `Created <${issue.url}|${issue.identifier}> for service \`${service.name}\`.`,
-        `Existing PR: <${claimed.pullRequestUrl}|${escapeSlackLinkLabel(`${claimed.repository}: ${singleLine(claimed.pullRequestTitle)}`)}>`,
+        `Existing PR: <${issueRequest.pullRequestUrl}|${escapeSlackLinkLabel(`${issueRequest.repository}: ${singleLine(issueRequest.pullRequestTitle)}`)}>`,
       ].join("\n"),
       client_msg_id: stableSlackClientMessageId(claimed.id),
       unfurl_links: false,
@@ -439,7 +453,7 @@ async function revalidatePullRequest(
   pullRequestUrl: string,
   options: TakePrOptions,
   logger: { error(error: unknown): void },
-): Promise<string | undefined> {
+): Promise<{ pullRequest: CompletePullRequest } | { error: string }> {
   let pullRequest: PullRequest | null;
   try {
     pullRequest = await (options.findPullRequest ?? findPullRequestByUrl)(pullRequestUrl);
@@ -448,12 +462,12 @@ async function revalidatePullRequest(
     pullRequest = null;
   }
   if (!hasCompletePullRequestMetadata(pullRequest)) {
-    return "Could not revalidate the GitHub pull request. No Linear issue was created.";
+    return { error: "Could not revalidate the GitHub pull request. No Linear issue was created." };
   }
   if (pullRequest.state.toUpperCase() !== "OPEN") {
-    return "The GitHub pull request is no longer open. No Linear issue was created.";
+    return { error: "The GitHub pull request is no longer open. No Linear issue was created." };
   }
-  return undefined;
+  return { pullRequest };
 }
 
 function stableSlackClientMessageId(requestId: string): string {
