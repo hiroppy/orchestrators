@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { handleAppMention } from "./mention-commands.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
+import { AmbiguousLinearTakePrIssueError } from "../integrations/linear.ts";
 import {
   handleTakePrAction,
   handleTakePrMention,
@@ -18,6 +19,7 @@ const pullRequest = {
   repository: "example/widget",
   headRefName: "fix/widget",
   baseRefName: "main",
+  state: "OPEN",
 };
 
 describe("take-pr parsing", () => {
@@ -78,6 +80,47 @@ other:
 });
 
 describe("take-pr Slack flow", () => {
+  it("recovers a processing request after its lease expires", async () => {
+    await withStore((store) => {
+      const startedAt = new Date("2026-08-11T00:00:00.000Z");
+      store.createPendingTakePrRequest(
+        {
+          id: "request123",
+          pullRequestUrl: pullRequest.url,
+          repository: pullRequest.repository,
+          pullRequestTitle: pullRequest.title,
+          headBranch: pullRequest.headRefName,
+          baseBranch: pullRequest.baseRefName,
+          channelId: "C123",
+          threadTs: "10.000",
+          requesterSlackUserId: "U123",
+        },
+        startedAt,
+      );
+
+      assert.equal(
+        store.claimPendingTakePrRequest("request123", "service-a", startedAt)?.status,
+        "processing",
+      );
+      assert.equal(
+        store.claimPendingTakePrRequest(
+          "request123",
+          "service-a",
+          new Date(startedAt.getTime() + 4 * 60 * 1_000),
+        ),
+        undefined,
+      );
+      assert.equal(
+        store.claimPendingTakePrRequest(
+          "request123",
+          "service-a",
+          new Date(startedAt.getTime() + 5 * 60 * 1_000),
+        )?.status,
+        "processing",
+      );
+    });
+  });
+
   it("stores PR metadata and replies in the source thread with enabled service options", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -157,6 +200,23 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("rejects a closed PR before creating pending state", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await handleTakePrMention(
+        { channel: "C123", ts: "10.000", user: "U123" },
+        [pullRequest.url],
+        fakeClient(calls),
+        { error: (error) => assert.fail(String(error)) },
+        store,
+        options({ findPullRequest: async () => ({ ...pullRequest, state: "CLOSED" }) }),
+      );
+
+      assert.equal(store.getPendingTakePrRequest("request123"), undefined);
+      assert.match(String(calls[0].args.text), /must be open/);
+    });
+  });
+
   it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -186,6 +246,7 @@ describe("take-pr Slack flow", () => {
             acknowledged = true;
           },
           action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
           client: fakeClient(calls),
           logger: { error: (error) => assert.fail(String(error)) },
         },
@@ -210,6 +271,65 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("rejects a service selection from a different Slack user", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
+      const takePrOptions = options({
+        createLinearIssue: async () => {
+          creations += 1;
+          throw new Error("should not create");
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "UOTHER" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(creations, 0);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+      assert.match(String(calls[0].args.text), /Only the user who ran take-pr/);
+    });
+  });
+
+  it("keeps an ambiguously created Linear request processing for idempotent recovery", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const takePrOptions = options({
+        createLinearIssue: async () => {
+          throw new AmbiguousLinearTakePrIssueError("mutation outcome unknown");
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: () => {} },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "processing");
+      assert.match(String(calls[0].args.text), /mutation outcome unknown/);
+    });
+  });
+
   it("does not create an issue when service or WORKFLOW configuration is invalid", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -229,6 +349,7 @@ describe("take-pr Slack flow", () => {
         {
           ack: async () => {},
           action: { selected_option: { value: "request123:missing-service" } },
+          body: { user: { id: "U123" } },
           client: fakeClient(calls),
           logger: { error: (error) => errors.push(error) },
         },
@@ -239,6 +360,7 @@ describe("take-pr Slack flow", () => {
         {
           ack: async () => {},
           action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
           client: fakeClient(calls),
           logger: { error: (error) => errors.push(error) },
         },
@@ -249,6 +371,7 @@ describe("take-pr Slack flow", () => {
         {
           ack: async () => {},
           action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
           client: fakeClient(calls),
           logger: { error: (error) => errors.push(error) },
         },
@@ -262,6 +385,45 @@ describe("take-pr Slack flow", () => {
       assert.match(String(calls[1].args.text), /Linear configuration is incomplete/);
       assert.match(String(calls[2].args.text), /tracker\.provider\.project_slug/);
       assert.equal(errors.length, 2);
+    });
+  });
+
+  it("escapes hostile PR titles in selection and completion link labels", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const hostileTitle = "Fix | <@U999> & >";
+      const takePrOptions = options({
+        findPullRequest: async () => ({ ...pullRequest, title: hostileTitle }),
+        createLinearIssue: async () => ({
+          identifier: "ENG-100",
+          url: "https://linear.app/example/issue/ENG-100/take-pr",
+        }),
+      });
+      await createPending(store, calls, takePrOptions);
+      const selection = calls[0].args;
+      assert.equal(
+        selection.text,
+        "Choose a service for example/widget#42: Fix | &lt;@U999&gt; &amp; &gt;",
+      );
+      assert.match(
+        JSON.stringify(selection.blocks),
+        /example\/widget#42: Fix ｜ &lt;@U999&gt; &amp; &gt;/,
+      );
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.match(String(calls[0].args.text), /example\/widget: Fix ｜ &lt;@U999&gt; &amp; &gt;/);
     });
   });
 });

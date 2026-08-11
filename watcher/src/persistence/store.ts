@@ -1,4 +1,4 @@
-import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { asc, and, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import {
@@ -44,6 +44,7 @@ import { syncDefinitions } from "./definitions.ts";
 export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
+const TAKE_PR_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
@@ -448,17 +449,31 @@ export class WatcherStore {
   ): PendingTakePrRequest | undefined {
     return this.db.transaction(() => {
       const request = this.getPendingTakePrRequest(id);
-      if (!request || request.status !== "pending") return undefined;
+      if (!request || !takePrRequestCanBeClaimed(request, now)) return undefined;
 
-      this.db
+      const staleBefore = new Date(now.getTime() - TAKE_PR_PROCESSING_LEASE_MS).toISOString();
+
+      const result = this.db
         .update(pendingTakePrRequests)
         .set({
           status: "processing",
           selectedService,
           updatedAt: now.toISOString(),
         })
-        .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "pending")))
+        .where(
+          and(
+            eq(pendingTakePrRequests.id, id),
+            or(
+              eq(pendingTakePrRequests.status, "pending"),
+              and(
+                eq(pendingTakePrRequests.status, "processing"),
+                lte(pendingTakePrRequests.updatedAt, staleBefore),
+              ),
+            ),
+          ),
+        )
         .run();
+      if (result.changes === 0) return undefined;
       return this.requirePendingTakePrRequest(id);
     });
   }
@@ -601,6 +616,12 @@ function pendingTakePrRequestFromRow(
     selectedService: row.selectedService ?? undefined,
     linearIssueUrl: row.linearIssueUrl ?? undefined,
   };
+}
+
+function takePrRequestCanBeClaimed(request: PendingTakePrRequest, now: Date): boolean {
+  if (request.status === "pending") return true;
+  if (request.status !== "processing") return false;
+  return Date.parse(request.updatedAt) <= now.getTime() - TAKE_PR_PROCESSING_LEASE_MS;
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {

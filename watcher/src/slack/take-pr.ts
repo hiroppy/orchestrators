@@ -5,6 +5,7 @@ import { relative, resolve } from "node:path";
 import type { KnownBlock } from "@slack/web-api";
 
 import {
+  AmbiguousLinearTakePrIssueError,
   createLinearTakePrIssue,
   type CreateLinearTakePrIssueInput,
   type CreatedLinearIssue,
@@ -14,6 +15,7 @@ import type { PullRequest, ResolvedLinearTeamConfig, ServiceDefinition } from ".
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
 import { postSlackOperationError } from "./errors.ts";
+import { escapeSlack, escapeSlackLinkLabel } from "./view-formatting.ts";
 
 export const TAKE_PR_SERVICE_ACTION_ID = "take_pr_service_select";
 const MAX_STATIC_SELECT_OPTIONS = 100;
@@ -89,16 +91,18 @@ export async function handleTakePrMention(
     );
     return;
   }
-  const metadata = pullRequest;
-
+  if (pullRequest.state.toUpperCase() !== "OPEN") {
+    await postTakePrError(client, event.channel, threadTs, "The GitHub pull request must be open.");
+    return;
+  }
   const requestId = (options.createRequestId ?? createRequestId)();
   store.createPendingTakePrRequest({
     id: requestId,
-    pullRequestUrl: metadata.url,
-    repository: metadata.repository,
-    pullRequestTitle: metadata.title,
-    headBranch: metadata.headRefName,
-    baseBranch: metadata.baseRefName,
+    pullRequestUrl: pullRequest.url,
+    repository: pullRequest.repository,
+    pullRequestTitle: pullRequest.title,
+    headBranch: pullRequest.headRefName,
+    baseBranch: pullRequest.baseRefName,
     channelId: event.channel,
     threadTs,
     requesterSlackUserId: event.user,
@@ -107,15 +111,15 @@ export async function handleTakePrMention(
   await client.chat.postMessage({
     channel: event.channel,
     thread_ts: threadTs,
-    text: `Choose a service for ${metadata.repository}#${metadata.number ?? "?"}: ${metadata.title}`,
-    blocks: buildTakePrServiceSelectionBlocks(requestId, metadata, options.services),
+    text: `Choose a service for ${escapeSlack(pullRequest.repository)}#${pullRequest.number ?? "?"}: ${escapeSlack(pullRequest.title)}`,
+    blocks: buildTakePrServiceSelectionBlocks(requestId, pullRequest, options.services),
     unfurl_links: false,
     unfurl_media: false,
   });
 }
 
 export async function handleTakePrAction(
-  { ack, action, client, logger }: TakePrActionArguments,
+  { ack, action, body, client, logger }: TakePrActionArguments,
   store: WatcherStore,
   options: TakePrOptions,
 ): Promise<void> {
@@ -133,6 +137,16 @@ export async function handleTakePrAction(
     return;
   }
   if (request.status === "completed") return;
+  const actor = slackUserIdFromActionBody(body);
+  if (!actor || actor !== request.requesterSlackUserId) {
+    await postTakePrError(
+      client,
+      request.channelId,
+      request.threadTs,
+      "Only the user who ran take-pr can select the service.",
+    );
+    return;
+  }
 
   const service = options.services.find(({ name }) => name === selection.serviceName);
   if (!service) {
@@ -172,13 +186,15 @@ export async function handleTakePrAction(
       thread_ts: claimed.threadTs,
       text: [
         `Created <${issue.url}|${issue.identifier}> in *In Progress* for service \`${service.name}\`.`,
-        `Existing PR: <${claimed.pullRequestUrl}|${claimed.repository}: ${claimed.pullRequestTitle}>`,
+        `Existing PR: <${claimed.pullRequestUrl}|${escapeSlackLinkLabel(`${claimed.repository}: ${claimed.pullRequestTitle}`)}>`,
       ].join("\n"),
       unfurl_links: false,
       unfurl_media: false,
     });
   } catch (error) {
-    store.releasePendingTakePrRequest(claimed.id);
+    if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
+      store.releasePendingTakePrRequest(claimed.id);
+    }
     logger.error(error);
     await postTakePrError(client, claimed.channelId, claimed.threadTs, takePrErrorMessage(error));
   }
@@ -238,7 +254,7 @@ function buildTakePrServiceSelectionBlocks(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Take existing PR*\n<${pullRequest.url}|${pullRequest.repository}#${pullRequest.number ?? "?"}: ${pullRequest.title}>`,
+        text: `*Take existing PR*\n<${pullRequest.url}|${escapeSlackLinkLabel(`${pullRequest.repository}#${pullRequest.number ?? "?"}: ${pullRequest.title}`)}>`,
       },
     },
     {
@@ -267,7 +283,8 @@ function hasCompletePullRequestMetadata(
     pullRequest.title &&
     pullRequest.repository &&
     pullRequest.headRefName &&
-    pullRequest.baseRefName,
+    pullRequest.baseRefName &&
+    pullRequest.state,
   );
 }
 
@@ -310,6 +327,7 @@ async function readWorkflow(path: string): Promise<string> {
 
 function buildLinearIssueInput(
   request: {
+    id: string;
     pullRequestUrl: string;
     repository: string;
     pullRequestTitle: string;
@@ -333,7 +351,7 @@ function buildLinearIssueInput(
     "",
     "上記の既存 PR と head branch の作業を引き継ぎ、必要な修正を同じ PR に反映してください。新しい PR を作成せず、既存 PR を更新してください。",
   ].join("\n");
-  return { teamId, projectSlug, title, description };
+  return { idempotencyKey: request.id, teamId, projectSlug, title, description };
 }
 
 function findYamlMapping(
@@ -385,11 +403,19 @@ type CompletePullRequest = PullRequest & {
   repository: string;
   headRefName: string;
   baseRefName: string;
+  state: string;
 };
 
 interface TakePrActionArguments {
   ack: () => Promise<unknown>;
   action: unknown;
+  body: unknown;
   client: Pick<SlackClient, "chat">;
   logger: { error(error: unknown): void };
+}
+
+function slackUserIdFromActionBody(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const id = (body as { user?: { id?: unknown } }).user?.id;
+  return typeof id === "string" ? id : undefined;
 }

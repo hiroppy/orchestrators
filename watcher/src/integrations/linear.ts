@@ -19,6 +19,7 @@ import {
   ISSUE_WORKPAD_QUERY,
   TEAM_WORKFLOW_STATES_QUERY,
   TAKE_PR_ISSUE_CREATE_MUTATION,
+  TAKE_PR_ISSUE_QUERY,
   TAKE_PR_TARGET_QUERY,
 } from "./linear-queries.ts";
 import {
@@ -34,6 +35,7 @@ interface LinearRequestOptions {
 }
 
 export interface CreateLinearTakePrIssueInput {
+  idempotencyKey: string;
   teamId: string;
   projectSlug: string;
   title: string;
@@ -44,6 +46,8 @@ export interface CreatedLinearIssue {
   identifier: string;
   url: string;
 }
+
+export class AmbiguousLinearTakePrIssueError extends Error {}
 
 interface FetchLinearOptions extends LinearRequestOptions {
   includeCreator?: boolean;
@@ -188,6 +192,7 @@ export async function createLinearTakePrIssue(
   { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
 ): Promise<CreatedLinearIssue> {
   if (!apiKey) throw new Error("Linear API key is not configured.");
+  const issueId = stableUuid(`take-pr:${input.idempotencyKey}`);
 
   const target = await linearRequest<{
     team?: {
@@ -224,30 +229,68 @@ export async function createLinearTakePrIssue(
   );
   if (!inProgress) throw new Error(`Linear team has no In Progress state: ${input.teamId}`);
 
-  const created = await linearRequest<{
-    issueCreate?: {
-      success?: boolean;
-      issue?: {
-        identifier?: string;
-        url?: string;
-        state?: { name?: string };
+  const existingIssue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
+  if (existingIssue) return existingIssue;
+
+  try {
+    const created = await linearRequest<{
+      issueCreate?: {
+        success?: boolean;
+        issue?: LinearTakePrIssue;
       };
-    };
-  }>(
+    }>(
+      apiKey,
+      TAKE_PR_ISSUE_CREATE_MUTATION,
+      {
+        issueId,
+        teamId: team.id,
+        projectId: project.id,
+        stateId: inProgress.id,
+        title: input.title,
+        description: input.description,
+      },
+      timeoutMs,
+    );
+    if (!created.issueCreate?.success) {
+      throw new Error("Linear rejected take-pr issue creation in In Progress.");
+    }
+    return requireCreatedLinearTakePrIssue(created.issueCreate.issue);
+  } catch (error) {
+    try {
+      const reconciled = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
+      if (reconciled) return reconciled;
+    } catch (reconciliationError) {
+      throw new AmbiguousLinearTakePrIssueError(
+        `Linear issue creation could not be reconciled: ${errorMessage(reconciliationError)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+interface LinearTakePrIssue {
+  identifier?: string;
+  url?: string;
+  state?: { name?: string };
+}
+
+async function findLinearTakePrIssue(
+  apiKey: string,
+  issueId: string,
+  timeoutMs: number,
+): Promise<CreatedLinearIssue | null> {
+  const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
     apiKey,
-    TAKE_PR_ISSUE_CREATE_MUTATION,
-    {
-      teamId: team.id,
-      projectId: project.id,
-      stateId: inProgress.id,
-      title: input.title,
-      description: input.description,
-    },
+    TAKE_PR_ISSUE_QUERY,
+    { issueId },
     timeoutMs,
   );
-  const issue = created.issueCreate?.issue;
+  return data.issue ? requireCreatedLinearTakePrIssue(data.issue) : null;
+}
+
+function requireCreatedLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
   if (
-    !created.issueCreate?.success ||
     !issue?.identifier ||
     !issue.url ||
     issue.state?.name?.trim().toLowerCase() !== "in progress"
@@ -255,6 +298,10 @@ export async function createLinearTakePrIssue(
     throw new Error("Linear rejected take-pr issue creation in In Progress.");
   }
   return { identifier: issue.identifier, url: issue.url };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown error";
 }
 
 export async function createLinearWorkpadReply(

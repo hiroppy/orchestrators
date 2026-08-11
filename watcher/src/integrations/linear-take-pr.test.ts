@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createLinearTakePrIssue } from "./linear.ts";
+import { AmbiguousLinearTakePrIssueError, createLinearTakePrIssue } from "./linear.ts";
 
 const input = {
+  idempotencyKey: "request123",
   teamId: "team-a",
   projectSlug: "project-123",
   title: "既存PRを更新: Fix widget",
@@ -36,6 +37,7 @@ describe("createLinearTakePrIssue", () => {
           },
         });
       }
+      if (requests.length === 2) return Response.json({ data: { issue: null } });
       return Response.json({
         data: {
           issueCreate: {
@@ -58,13 +60,62 @@ describe("createLinearTakePrIssue", () => {
       teamId: "team-a",
       projectSlug: "project-123",
     });
-    assert.deepEqual(requests[1].variables, {
+    assert.match(requests[1].variables.issueId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(requests[2].variables, {
+      issueId: requests[1].variables.issueId,
       teamId: "team-a",
       projectId: "project-id",
       stateId: "state-progress",
       title: input.title,
       description: input.description,
     });
+  });
+
+  it("reconciles an ambiguously successful create mutation by its stable issue ID", async (context) => {
+    let requests = 0;
+    let issueId: string | undefined;
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      requests += 1;
+      const request = JSON.parse(String(options?.body));
+      if (requests === 1) return takePrTargetResponse();
+      if (requests === 2) {
+        issueId = request.variables.issueId;
+        return Response.json({ data: { issue: null } });
+      }
+      if (requests === 3) throw new TypeError("connection lost after commit");
+      assert.equal(request.variables.issueId, issueId);
+      return Response.json({
+        data: {
+          issue: {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+            state: { name: "In Progress" },
+          },
+        },
+      });
+    });
+
+    assert.deepEqual(await createLinearTakePrIssue(input, { apiKey: "lin_test" }), {
+      identifier: "ENG-100",
+      url: "https://linear.app/example/issue/ENG-100/take-pr",
+    });
+    assert.equal(requests, 4);
+  });
+
+  it("reports an ambiguous result when post-mutation reconciliation also fails", async (context) => {
+    let requests = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requests += 1;
+      if (requests === 1) return takePrTargetResponse();
+      if (requests === 2) return Response.json({ data: { issue: null } });
+      throw new TypeError("Linear unavailable");
+    });
+
+    await assert.rejects(
+      createLinearTakePrIssue(input, { apiKey: "lin_test" }),
+      AmbiguousLinearTakePrIssueError,
+    );
+    assert.equal(requests, 4);
   });
 
   it("does not create an issue for a missing project, team mismatch, or missing state", async (context) => {
@@ -119,3 +170,24 @@ describe("createLinearTakePrIssue", () => {
     }
   });
 });
+
+function takePrTargetResponse(): Response {
+  return Response.json({
+    data: {
+      team: {
+        id: "team-a",
+        states: { nodes: [{ id: "state-progress", name: "In Progress" }] },
+      },
+      projects: {
+        nodes: [
+          {
+            id: "project-id",
+            name: "Project",
+            slugId: "project-123",
+            teams: { nodes: [{ id: "team-a" }] },
+          },
+        ],
+      },
+    },
+  });
+}

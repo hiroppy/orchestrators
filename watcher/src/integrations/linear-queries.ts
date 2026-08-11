@@ -168,6 +168,7 @@ export const TAKE_PR_TARGET_QUERY = `
 
 export const TAKE_PR_ISSUE_CREATE_MUTATION = `
   mutation OrchestratorWatcherTakePrIssueCreate(
+    $issueId: String!
     $teamId: String!
     $projectId: String!
     $stateId: String!
@@ -176,6 +177,7 @@ export const TAKE_PR_ISSUE_CREATE_MUTATION = `
   ) {
     issueCreate(
       input: {
+        id: $issueId
         teamId: $teamId
         projectId: $projectId
         stateId: $stateId
@@ -190,6 +192,18 @@ export const TAKE_PR_ISSUE_CREATE_MUTATION = `
         state {
           name
         }
+      }
+    }
+  }
+`;
+
+export const TAKE_PR_ISSUE_QUERY = `
+  query OrchestratorWatcherTakePrIssue($issueId: String!) {
+    issue(id: $issueId) {
+      identifier
+      url
+      state {
+        name
       }
     }
   }
