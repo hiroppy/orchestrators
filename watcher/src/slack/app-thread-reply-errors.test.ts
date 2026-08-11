@@ -38,6 +38,42 @@ describe("Slack thread reply errors", () => {
         "UBOT",
       );
       await handleThreadReply(
+        args("2.500", "<@UCOLLEAGUE> hello <@UBOT> help"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
+        args("2.750", "<@UBOT>help"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
+        args("2.875", "<@UBOT> take-pr https://github.com/example/repo/pull/1"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
+        args("2.900", "<@UBOT> help me understand this failure"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
         args("3.000", "<@UCOLLEAGUE> status is still blocked"),
         store,
         async (_task, reply) => {
@@ -47,8 +83,12 @@ describe("Slack thread reply errors", () => {
         "UBOT",
       );
 
-      assert.deepEqual(replies, ["<@UCOLLEAGUE> status is still blocked"]);
+      assert.deepEqual(replies, [
+        "<@UBOT> help me understand this failure",
+        "<@UCOLLEAGUE> status is still blocked",
+      ]);
       assert.deepEqual(reactions, [
+        { channel: "C123", name: "white_check_mark", timestamp: "2.900" },
         { channel: "C123", name: "white_check_mark", timestamp: "3.000" },
       ]);
     });

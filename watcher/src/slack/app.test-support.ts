@@ -6,9 +6,23 @@ import { join } from "node:path";
 import { createDatabase } from "../persistence/database.ts";
 import { WatcherStore } from "../persistence/store.ts";
 
-export function fakeClient(calls: Array<{ method: string; args: Record<string, unknown> }>) {
+export function fakeClient(
+  calls: Array<{ method: string; args: Record<string, unknown> }>,
+  userNames: Record<string, string> = {},
+) {
   let timestamp = 0;
   return {
+    ...(Object.keys(userNames).length > 0
+      ? {
+          users: {
+            async info(args: Record<string, unknown>) {
+              calls.push({ method: "usersInfo", args });
+              const name = userNames[String(args.user)];
+              return { ok: true, user: name ? { profile: { display_name: name } } : undefined };
+            },
+          },
+        }
+      : {}),
     reactions: {
       async add(args: Record<string, unknown>) {
         calls.push({ method: "addReaction", args });

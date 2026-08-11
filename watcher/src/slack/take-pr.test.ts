@@ -176,6 +176,7 @@ describe("take-pr Slack flow", () => {
         },
         store,
         [],
+        undefined,
         options(),
       );
 
@@ -392,6 +393,7 @@ describe("take-pr Slack flow", () => {
         },
         store,
         [],
+        undefined,
         options(),
       );
 

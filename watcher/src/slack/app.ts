@@ -95,7 +95,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, configuredMentionTargets, takePr);
+    await handleAppMention(args, store, configuredMentionTargets, botUserId, takePr);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
