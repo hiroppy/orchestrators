@@ -193,8 +193,16 @@ export async function handleTakePrAction(
         );
       }
 
+      const permalinkResponse = await client.chat.getPermalink({
+        channel: claimed.channelId,
+        message_ts: claimed.threadTs,
+      });
+      if (!permalinkResponse.permalink) {
+        throw new Error("Could not get the Slack parent message URL.");
+      }
+
       issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
-        buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug),
+        buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug, permalinkResponse.permalink),
         { apiKey: linearTeam.apiKey },
       );
       store.markPendingTakePrIssueCreated(claimed.id, issue.identifier, issue.url);
@@ -357,10 +365,11 @@ function buildLinearIssueInput(
   },
   teamId: string,
   projectSlug: string,
+  slackMessageUrl: string,
 ): CreateLinearTakePrIssueInput {
-  const title = `既存PRを更新: ${request.pullRequestTitle}`.slice(0, MAX_LINEAR_ISSUE_TITLE_LENGTH);
+  const title = `[take-pr] ${request.pullRequestTitle}`.slice(0, MAX_LINEAR_ISSUE_TITLE_LENGTH);
   const description = [
-    "## 対象の既存 PR",
+    "## 対象の既存PR",
     "",
     `- PR URL: ${request.pullRequestUrl}`,
     `- Repository: \`${request.repository}\``,
@@ -371,6 +380,10 @@ function buildLinearIssueInput(
     "## 指示",
     "",
     "上記の既存 PR と head branch の作業を引き継ぎ、必要な修正を同じ PR に反映してください。新しい PR を作成せず、既存 PR を更新してください。",
+    "",
+    "## 依頼元",
+    "",
+    slackMessageUrl,
   ].join("\n");
   return { idempotencyKey: request.id, teamId, projectSlug, title, description };
 }

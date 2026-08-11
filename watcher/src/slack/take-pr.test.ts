@@ -234,11 +234,27 @@ describe("take-pr Slack flow", () => {
           assert.equal(apiKey, "lin_test");
           assert.equal(input.teamId, "team-a");
           assert.equal(input.projectSlug, "project-123");
-          assert.match(input.title, /既存PRを更新: Fix the widget/);
-          assert.match(input.description, /example\/widget/);
-          assert.match(input.description, /fix\/widget/);
-          assert.match(input.description, /Base branch: `main`/);
-          assert.match(input.description, /新しい PR を作成せず/);
+          assert.equal(input.title, "[take-pr] Fix the widget");
+          assert.equal(
+            input.description,
+            [
+              "## 対象の既存PR",
+              "",
+              "- PR URL: https://github.com/example/widget/pull/42",
+              "- Repository: `example/widget`",
+              "- PR title: Fix the widget",
+              "- Head branch: `fix/widget`",
+              "- Base branch: `main`",
+              "",
+              "## 指示",
+              "",
+              "上記の既存 PR と head branch の作業を引き継ぎ、必要な修正を同じ PR に反映してください。新しい PR を作成せず、既存 PR を更新してください。",
+              "",
+              "## 依頼元",
+              "",
+              "https://example.slack.com/archives/C123/p10000",
+            ].join("\n"),
+          );
           return {
             identifier: "ENG-100",
             url: "https://linear.app/example/issue/ENG-100/take-pr",
@@ -276,7 +292,11 @@ describe("take-pr Slack flow", () => {
           issueUrl: "https://linear.app/example/issue/ENG-100/take-pr",
         },
       );
-      assert.match(String(calls[0].args.text), /ENG-100.*service-a.*Existing PR/s);
+      assert.deepEqual(calls[0], {
+        method: "getPermalink",
+        args: { channel: "C123", message_ts: "10.000" },
+      });
+      assert.match(String(calls[1].args.text), /ENG-100.*service-a.*Existing PR/s);
     });
   });
 
@@ -335,7 +355,7 @@ describe("take-pr Slack flow", () => {
       );
 
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "processing");
-      assert.match(String(calls[0].args.text), /mutation outcome unknown/);
+      assert.match(String(calls[1].args.text), /mutation outcome unknown/);
     });
   });
 
@@ -362,6 +382,10 @@ describe("take-pr Slack flow", () => {
             body: { user: { id: "U123" } },
             client: {
               chat: {
+                getPermalink: async () => ({
+                  ok: true,
+                  permalink: "https://example.slack.com/archives/C123/p10000",
+                }),
                 postMessage: async () => {
                   throw new Error("Slack unavailable");
                 },
@@ -489,7 +513,7 @@ describe("take-pr Slack flow", () => {
         takePrOptions,
       );
 
-      assert.match(String(calls[0].args.text), /example\/widget: Fix ｜ &lt;@U999&gt; &amp; &gt;/);
+      assert.match(String(calls[1].args.text), /example\/widget: Fix ｜ &lt;@U999&gt; &amp; &gt;/);
     });
   });
 });
