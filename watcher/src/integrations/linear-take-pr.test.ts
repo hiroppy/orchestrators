@@ -89,7 +89,7 @@ describe("createLinearTakePrIssue", () => {
           issue: {
             identifier: "ENG-100",
             url: "https://linear.app/example/issue/ENG-100/take-pr",
-            state: { name: "In Progress" },
+            state: { name: "In Review" },
           },
         },
       });

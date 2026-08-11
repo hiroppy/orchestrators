@@ -254,7 +254,7 @@ export async function createLinearTakePrIssue(
     if (!created.issueCreate?.success) {
       throw new Error("Linear rejected take-pr issue creation in In Progress.");
     }
-    return requireCreatedLinearTakePrIssue(created.issueCreate.issue);
+    return requireNewLinearTakePrIssue(created.issueCreate.issue);
   } catch (error) {
     try {
       const reconciled = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
@@ -286,16 +286,25 @@ async function findLinearTakePrIssue(
     { issueId },
     timeoutMs,
   );
-  return data.issue ? requireCreatedLinearTakePrIssue(data.issue) : null;
+  return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
 }
 
-function requireCreatedLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
+function requireNewLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
   if (
     !issue?.identifier ||
     !issue.url ||
     issue.state?.name?.trim().toLowerCase() !== "in progress"
   ) {
     throw new Error("Linear rejected take-pr issue creation in In Progress.");
+  }
+  return { identifier: issue.identifier, url: issue.url };
+}
+
+function requireReconciledLinearTakePrIssue(
+  issue: LinearTakePrIssue | undefined,
+): CreatedLinearIssue {
+  if (!issue?.identifier || !issue.url) {
+    throw new Error("Linear take-pr issue reconciliation returned incomplete metadata.");
   }
   return { identifier: issue.identifier, url: issue.url };
 }

@@ -113,10 +113,18 @@ describe("take-pr Slack flow", () => {
       assert.equal(
         store.claimPendingTakePrRequest(
           "request123",
+          "service-b",
+          new Date(startedAt.getTime() + 5 * 60 * 1_000),
+        ),
+        undefined,
+      );
+      assert.equal(
+        store.claimPendingTakePrRequest(
+          "request123",
           "service-a",
           new Date(startedAt.getTime() + 5 * 60 * 1_000),
-        )?.status,
-        "processing",
+        )?.selectedService,
+        "service-a",
       );
     });
   });
@@ -327,6 +335,62 @@ describe("take-pr Slack flow", () => {
 
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "processing");
       assert.match(String(calls[0].args.text), /mutation outcome unknown/);
+    });
+  });
+
+  it("keeps success delivery retryable when Slack fails after Linear creation", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
+      const takePrOptions = options({
+        createLinearIssue: async () => {
+          creations += 1;
+          return {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+          };
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+
+      await assert.rejects(
+        handleTakePrAction(
+          {
+            ack: async () => {},
+            action: { selected_option: { value: "request123:service-a" } },
+            body: { user: { id: "U123" } },
+            client: {
+              chat: {
+                postMessage: async () => {
+                  throw new Error("Slack unavailable");
+                },
+              },
+            },
+            logger: { error: () => {} },
+          },
+          store,
+          takePrOptions,
+        ),
+        /Slack unavailable/,
+      );
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+
+      calls.length = 0;
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(creations, 2);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "completed");
+      assert.match(String(calls[0].args.text), /ENG-100/);
     });
   });
 

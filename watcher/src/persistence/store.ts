@@ -449,7 +449,7 @@ export class WatcherStore {
   ): PendingTakePrRequest | undefined {
     return this.db.transaction(() => {
       const request = this.getPendingTakePrRequest(id);
-      if (!request || !takePrRequestCanBeClaimed(request, now)) return undefined;
+      if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
 
       const staleBefore = new Date(now.getTime() - TAKE_PR_PROCESSING_LEASE_MS).toISOString();
 
@@ -467,6 +467,7 @@ export class WatcherStore {
               eq(pendingTakePrRequests.status, "pending"),
               and(
                 eq(pendingTakePrRequests.status, "processing"),
+                eq(pendingTakePrRequests.selectedService, selectedService),
                 lte(pendingTakePrRequests.updatedAt, staleBefore),
               ),
             ),
@@ -618,10 +619,17 @@ function pendingTakePrRequestFromRow(
   };
 }
 
-function takePrRequestCanBeClaimed(request: PendingTakePrRequest, now: Date): boolean {
+function takePrRequestCanBeClaimed(
+  request: PendingTakePrRequest,
+  selectedService: string,
+  now: Date,
+): boolean {
   if (request.status === "pending") return true;
   if (request.status !== "processing") return false;
-  return Date.parse(request.updatedAt) <= now.getTime() - TAKE_PR_PROCESSING_LEASE_MS;
+  return (
+    request.selectedService === selectedService &&
+    Date.parse(request.updatedAt) <= now.getTime() - TAKE_PR_PROCESSING_LEASE_MS
+  );
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {

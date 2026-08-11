@@ -158,6 +158,15 @@ export async function handleTakePrAction(
     );
     return;
   }
+  if (request.status === "processing" && request.selectedService !== service.name) {
+    await postTakePrError(
+      client,
+      request.channelId,
+      request.threadTs,
+      `This take-pr request is already assigned to service ${request.selectedService ?? "unknown"}.`,
+    );
+    return;
+  }
 
   const claimed = store.claimPendingTakePrRequest(request.id, service.name);
   if (!claimed) return;
@@ -180,17 +189,17 @@ export async function handleTakePrAction(
       buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug),
       { apiKey: linearTeam.apiKey },
     );
-    store.completePendingTakePrRequest(claimed.id, issue.url);
     await client.chat.postMessage({
       channel: claimed.channelId,
       thread_ts: claimed.threadTs,
       text: [
-        `Created <${issue.url}|${issue.identifier}> in *In Progress* for service \`${service.name}\`.`,
+        `Created <${issue.url}|${issue.identifier}> for service \`${service.name}\`.`,
         `Existing PR: <${claimed.pullRequestUrl}|${escapeSlackLinkLabel(`${claimed.repository}: ${claimed.pullRequestTitle}`)}>`,
       ].join("\n"),
       unfurl_links: false,
       unfurl_media: false,
     });
+    store.completePendingTakePrRequest(claimed.id, issue.url);
   } catch (error) {
     if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
       store.releasePendingTakePrRequest(claimed.id);
