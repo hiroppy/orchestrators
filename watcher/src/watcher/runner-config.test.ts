@@ -98,17 +98,6 @@ describe("watcher configuration", () => {
         resolveWatcherConfig(
           {
             ...baseConfig(),
-            slack: { mentions: { targets: ["<@U123>"] } },
-          } as never,
-          { requireSlack: false },
-        ),
-      /slack\.mentions is no longer supported.*slack\.defaultAssignees.*slack\.notifications/,
-    );
-    assert.throws(
-      () =>
-        resolveWatcherConfig(
-          {
-            ...baseConfig(),
             slack: {
               notifications: {
                 events: ["unknown"],

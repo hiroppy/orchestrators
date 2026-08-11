@@ -82,7 +82,6 @@ export function resolveWatcherConfig(
   config: OrchestratorConfig,
   { requireSlack }: ResolveWatcherOptions,
 ): WatcherRuntimeConfig {
-  rejectLegacySlackMentions(config.slack);
   const instances = resolveEnabledInstances(config);
   const services = instances.map(({ name, instance }) => ({
     name,
@@ -113,14 +112,6 @@ export function resolveWatcherConfig(
     notifications: resolveNotificationConfig(config.slack?.notifications),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
-}
-
-function rejectLegacySlackMentions(slack: SlackConfig | undefined): void {
-  if (slack && "mentions" in slack) {
-    throw new Error(
-      "slack.mentions is no longer supported; migrate targets to slack.defaultAssignees and statuses/events to slack.notifications.",
-    );
-  }
 }
 
 function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedStatusHookConfig[] {
