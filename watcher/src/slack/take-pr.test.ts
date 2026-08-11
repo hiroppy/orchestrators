@@ -4,13 +4,8 @@ import { describe, it } from "node:test";
 import { handleAppMention } from "./mention-commands.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 import { AmbiguousLinearTakePrIssueError } from "../integrations/linear.ts";
-import {
-  handleTakePrAction,
-  handleTakePrMention,
-  parseGitHubPullRequestUrl,
-  projectSlugFromWorkflow,
-  type TakePrOptions,
-} from "./take-pr.ts";
+import { handleTakePrAction, handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
+import { parseGitHubPullRequestUrl, projectSlugFromWorkflow } from "./take-pr-parsing.ts";
 
 const pullRequest = {
   url: "https://github.com/example/widget/pull/42",

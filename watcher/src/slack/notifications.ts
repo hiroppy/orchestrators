@@ -1,5 +1,6 @@
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 
 export function initialTaskAssignees(
   defaultAssignees: string[],
@@ -47,10 +48,6 @@ function enteredNotificationStatus(
     notification.statuses.some((status) => normalizeStatus(status) === normalizedCurrent) &&
     normalizeStatus(previousStatus) !== normalizedCurrent
   );
-}
-
-function normalizeStatus(status?: string): string | undefined {
-  return status?.trim().toLowerCase();
 }
 
 function isSlackUserMention(value: string | null | undefined): value is string {

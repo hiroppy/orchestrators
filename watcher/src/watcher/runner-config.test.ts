@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import { resolveWatcherConfig } from "../config/runtime.ts";
 import type { ReviewReactionConfig } from "../domain/types.ts";
-import { requireSlackBotUserId, resolveLinearWorkflowStatuses } from "./runner.ts";
+import { requireSlackBotUserId } from "./runner.ts";
+import { resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { baseConfig, linearTeams } from "./runner.test-support.ts";
 
 describe("requireSlackBotUserId", () => {

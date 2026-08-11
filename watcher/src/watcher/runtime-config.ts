@@ -4,6 +4,7 @@ import {
   type WatcherRuntimeConfig,
 } from "../config/runtime.ts";
 import type { ResolvedLinearTeamConfig } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import { fetchLinearWorkflowStates } from "../integrations/linear.ts";
 
 export function linearTeamForService(
@@ -56,8 +57,4 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
       throw new Error(`${label} references unknown Linear status "${expected}" for ${teamName}.`);
     }
   }
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
 }

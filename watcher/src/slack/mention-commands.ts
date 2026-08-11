@@ -1,5 +1,6 @@
 import type { WatcherStore } from "../persistence/store.ts";
 import type { Task } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import {
@@ -174,11 +175,10 @@ async function handleAssignCommand({
     return;
   }
 
-  const assignedMentions = store.getTaskAssignees(task.id);
+  const assignees = store.getTaskAssignees(task.id);
   const slackMention = `<@${slackUserId}>`;
-  const alreadyAssigned = assignedMentions.includes(slackMention);
-  const combinedTargets = [...new Set([...assignedMentions, slackMention])];
-  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_ASSIGNEES_LENGTH) {
+  const alreadyAssigned = assignees.includes(slackMention);
+  if (!alreadyAssigned && [...assignees, slackMention].join(" ").length > MAX_ASSIGNEES_LENGTH) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
@@ -385,10 +385,6 @@ async function handleHelpCommand({
 
 function slackUserIdFromMention(value: string | undefined): string | undefined {
   return value?.match(/^<@([A-Z0-9]+)>$/i)?.[1];
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
 }
 
 interface AppMentionEvent {

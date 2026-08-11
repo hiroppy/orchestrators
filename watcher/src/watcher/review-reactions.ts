@@ -1,5 +1,6 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { PullRequest, WatcherEvent } from "../domain/types.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { notificationIsEligible } from "../slack/notifications.ts";
 
@@ -138,8 +139,4 @@ export function parseReviewRequeuePendingPayload(body: string): ReviewRequeuePay
     throw new Error("Invalid review requeue pending limit");
   }
   return payload as unknown as ReviewRequeuePayload;
-}
-
-function normalizeStatus(status: string): string {
-  return status.trim().toLowerCase();
 }
