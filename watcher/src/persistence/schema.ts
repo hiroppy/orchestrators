@@ -110,31 +110,6 @@ export const taskNotificationMentions = sqliteTable(
   (table) => [primaryKey({ columns: [table.taskId, table.slackUserId] })],
 );
 
-export const pendingTakePrRequests = sqliteTable(
-  "pending_take_pr_requests",
-  {
-    id: text("id").primaryKey(),
-    pullRequestUrl: text("pull_request_url").notNull(),
-    repository: text("repository").notNull(),
-    pullRequestTitle: text("pull_request_title").notNull(),
-    headBranch: text("head_branch").notNull(),
-    baseBranch: text("base_branch").notNull(),
-    channelId: text("channel_id").notNull(),
-    threadTs: text("thread_ts").notNull(),
-    requesterSlackUserId: text("requester_slack_user_id"),
-    status: text("status", { enum: ["pending", "processing", "created", "completed"] })
-      .notNull()
-      .default("pending"),
-    selectedService: text("selected_service"),
-    claimToken: text("claim_token"),
-    linearIssueIdentifier: text("linear_issue_identifier"),
-    linearIssueUrl: text("linear_issue_url"),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-  },
-  (table) => [index("pending_take_pr_requests_status_idx").on(table.status)],
-);
-
 export const taskObservations = sqliteTable(
   "task_observations",
   {
