@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
 import type { KnownBlock } from "@slack/web-api";
+import { parse as parseYaml } from "yaml";
 
 import {
   AmbiguousLinearTakePrIssueError,
@@ -338,24 +339,16 @@ export function projectSlugFromWorkflow(workflow: string): string | undefined {
   const frontmatter = workflow.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
   if (!frontmatter) return undefined;
 
-  const lines = frontmatter.split(/\r?\n/);
-  const tracker = findYamlMapping(lines, "tracker", -1, 0);
-  if (!tracker) return undefined;
-  const provider = findYamlMapping(lines, "provider", tracker.index, tracker.indent);
-  if (!provider) return undefined;
-
-  let childIndent: number | undefined;
-  for (let index = provider.index + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = indentation(line);
-    if (indent <= provider.indent) break;
-    childIndent ??= indent;
-    if (indent !== childIndent) continue;
-    const match = line.match(/^\s*project_slug:\s*(.*?)\s*$/);
-    if (match) return yamlString(match[1]);
+  try {
+    const document = parseYaml(frontmatter) as {
+      tracker?: { provider?: { project_slug?: unknown } };
+    } | null;
+    const projectSlug = document?.tracker?.provider?.project_slug;
+    if (typeof projectSlug !== "string") return undefined;
+    return projectSlug.trim() || undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 function buildTakePrServiceSelectionBlocks(
@@ -580,36 +573,6 @@ async function revalidatePullRequest(
 function stableSlackClientMessageId(kind: "selection" | "success", requestId: string): string {
   const hex = createHash("sha256").update(`take-pr:${kind}:${requestId}`).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-function findYamlMapping(
-  lines: string[],
-  key: string,
-  afterIndex: number,
-  parentIndent: number,
-): { index: number; indent: number } | undefined {
-  let childIndent = afterIndex < 0 ? 0 : undefined;
-  for (let index = afterIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = indentation(line);
-    if (afterIndex >= 0 && indent <= parentIndent) break;
-    childIndent ??= indent;
-    if (indent !== childIndent) continue;
-    if (line.match(new RegExp(`^\\s*${key}:\\s*(?:#.*)?$`))) return { index, indent };
-  }
-  return undefined;
-}
-
-function yamlString(value: string): string | undefined {
-  const withoutComment = value.replace(/\s+#.*$/, "").trim();
-  const quoted = withoutComment.match(/^(?:"([^"]*)"|'([^']*)')$/);
-  const parsed = quoted ? (quoted[1] ?? quoted[2]) : withoutComment;
-  return parsed.trim() || undefined;
-}
-
-function indentation(line: string): number {
-  return line.length - line.trimStart().length;
 }
 
 function stableTakePrRequestId(event: Pick<TakePrMentionEvent, "channel" | "ts">): string {

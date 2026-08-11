@@ -88,6 +88,16 @@ tracker:
 `),
       "correct-project",
     );
+    assert.equal(
+      projectSlugFromWorkflow(`---
+tracker:
+  provider:
+    project_slug: 123
+---
+`),
+      undefined,
+    );
+    assert.equal(projectSlugFromWorkflow("---\ntracker: [\n---\n"), undefined);
   });
 });
 
