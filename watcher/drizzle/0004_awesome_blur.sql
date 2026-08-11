@@ -1,0 +1,1 @@
+ALTER TABLE `services` ADD `active` integer DEFAULT true NOT NULL;

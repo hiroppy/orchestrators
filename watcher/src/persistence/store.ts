@@ -63,14 +63,20 @@ export class WatcherStore {
       .select({ name: statuses.name })
       .from(statuses)
       .innerJoin(services, eq(statuses.serviceId, services.id))
-      .where(and(eq(services.name, serviceName), eq(statuses.selectable, true)))
+      .where(
+        and(
+          eq(services.name, serviceName),
+          eq(services.active, true),
+          eq(statuses.selectable, true),
+        ),
+      )
       .orderBy(asc(statuses.sortOrder))
       .all()
       .map(({ name }) => name);
   }
 
   getSnapshots(): SnapshotsByService {
-    const serviceRows = this.db.select().from(services).all();
+    const serviceRows = this.db.select().from(services).where(eq(services.active, true)).all();
     const rows = this.db
       .select({
         task: tasks,
@@ -103,8 +109,15 @@ export class WatcherStore {
 
   replaceSnapshots(snapshots: SnapshotsByService, now = new Date()): void {
     const timestamp = now.toISOString();
-    const serviceRows = this.db.select().from(services).all();
+    const serviceRows = this.db.select().from(services).where(eq(services.active, true)).all();
     const servicesByName = new Map(serviceRows.map((service) => [service.name, service]));
+    const activeTaskIds = this.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .innerJoin(services, eq(tasks.serviceId, services.id))
+      .where(eq(services.active, true))
+      .all()
+      .map(({ id }) => id);
 
     this.db.transaction((tx) => {
       const observedTaskIds: string[] = [];
@@ -183,11 +196,16 @@ export class WatcherStore {
         }
       }
 
-      if (observedTaskIds.length === 0) {
-        tx.delete(taskObservations).run();
-      } else {
+      if (observedTaskIds.length === 0 && activeTaskIds.length > 0) {
+        tx.delete(taskObservations).where(inArray(taskObservations.taskId, activeTaskIds)).run();
+      } else if (activeTaskIds.length > 0) {
         tx.delete(taskObservations)
-          .where(notInArray(taskObservations.taskId, observedTaskIds))
+          .where(
+            and(
+              inArray(taskObservations.taskId, activeTaskIds),
+              notInArray(taskObservations.taskId, observedTaskIds),
+            ),
+          )
           .run();
       }
     });
