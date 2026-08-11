@@ -277,6 +277,7 @@ export async function publishWatcherEvent(
           task.parentChannelId,
           task.parentMessageTs,
           task.status,
+          task.title,
         );
         await postRelatedIssues(
           client,
@@ -331,6 +332,7 @@ async function postParentPermalink(
   channel: string,
   messageTs: string,
   status: string,
+  title: string,
 ): Promise<ChatPostMessageResponse> {
   const response = await client.chat.getPermalink({
     channel,
@@ -342,7 +344,9 @@ async function postParentPermalink(
   return client.chat.postMessage({
     channel,
     text: buildTaskClosedMessage(status, response.permalink),
-    blocks: buildTaskClosedMessageBlocks(status, response.permalink),
+    blocks: buildTaskClosedMessageBlocks(status, response.permalink, title),
+    unfurl_links: false,
+    unfurl_media: false,
   });
 }
 

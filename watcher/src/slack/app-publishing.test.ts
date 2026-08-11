@@ -313,11 +313,13 @@ describe("Slack event publishing", () => {
               { type: "mrkdwn", text: "*Status*\nDone" },
               {
                 type: "mrkdwn",
-                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|View task thread>",
+                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
               },
             ],
           },
         ],
+        unfurl_links: false,
+        unfurl_media: false,
       });
       const nextTaskPosts = calls.filter(
         ({ method, args }) => method === "postMessage" && args.thread_ts === "2.000",

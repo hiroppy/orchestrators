@@ -286,10 +286,11 @@ export function buildTaskClosedMessage(status: string, parentPermalink: string):
 export function buildTaskClosedMessageBlocks(
   status: string,
   parentPermalink: string,
+  title: string,
 ): SectionBlock[] {
   return buildNotificationBlocks("*Task closed*", [
     `*Status*\n${escapeSlack(status)}`,
-    `*Task*\n<${parentPermalink}|View task thread>`,
+    `*Task*\n<${parentPermalink}|${escapeSlack(title)}>`,
   ]);
 }
 
