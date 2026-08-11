@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
@@ -40,7 +38,6 @@ export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
 const TAKE_PR_ACTIVE_RETENTION_MS = 24 * 60 * 60 * 1_000;
-const TAKE_PR_COMPLETED_RETENTION_MS = 60 * 60 * 1_000;
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
@@ -58,25 +55,10 @@ export interface PendingTakePrRequest {
   channelId: string;
   threadTs: string;
   requesterSlackUserId?: string;
-  status: "pending" | "processing" | "created" | "completed";
-  selectedService?: string;
-  claimToken?: string;
-  linearIssueIdentifier?: string;
-  linearIssueUrl?: string;
   createdAt: string;
-  updatedAt: string;
 }
 
-type NewPendingTakePrRequest = Omit<
-  PendingTakePrRequest,
-  | "status"
-  | "selectedService"
-  | "claimToken"
-  | "linearIssueIdentifier"
-  | "linearIssueUrl"
-  | "createdAt"
-  | "updatedAt"
->;
+type NewPendingTakePrRequest = Omit<PendingTakePrRequest, "createdAt">;
 
 export class WatcherStore {
   private readonly db: WatcherDatabase;
@@ -427,18 +409,11 @@ export class WatcherStore {
     now = new Date(),
   ): PendingTakePrRequest {
     this.pruneExpiredTakePrRequests(now);
-    const timestamp = now.toISOString();
     const existing = this.pendingTakePrRequests.get(request.id);
     if (existing) return existing;
     const pending: PendingTakePrRequest = {
       ...request,
-      status: "pending",
-      selectedService: undefined,
-      claimToken: undefined,
-      linearIssueIdentifier: undefined,
-      linearIssueUrl: undefined,
-      createdAt: timestamp,
-      updatedAt: timestamp,
+      createdAt: now.toISOString(),
     };
     this.pendingTakePrRequests.set(request.id, pending);
     return pending;
@@ -449,110 +424,14 @@ export class WatcherStore {
     return this.pendingTakePrRequests.get(id);
   }
 
-  claimPendingTakePrRequest(
-    id: string,
-    selectedService: string,
-    now = new Date(),
-  ): PendingTakePrRequest | undefined {
+  takePendingTakePrRequest(id: string, now = new Date()): PendingTakePrRequest | undefined {
     const request = this.getPendingTakePrRequest(id, now);
-    if (!request || !takePrRequestCanBeClaimed(request, selectedService)) return undefined;
-    const claimed: PendingTakePrRequest = {
-      ...request,
-      status: "processing",
-      selectedService,
-      claimToken: randomBytes(12).toString("base64url"),
-      updatedAt: now.toISOString(),
-    };
-    this.pendingTakePrRequests.set(id, claimed);
-    return claimed;
+    if (request) this.pendingTakePrRequests.delete(id);
+    return request;
   }
 
-  releasePendingTakePrRequest(id: string, claimToken: string, now = new Date()): boolean {
-    const request = this.currentTakePrClaim(id, claimToken, "processing", now);
-    if (!request) return false;
-    this.pendingTakePrRequests.set(id, {
-      ...request,
-      status: "pending",
-      selectedService: undefined,
-      claimToken: undefined,
-      updatedAt: now.toISOString(),
-    });
-    return true;
-  }
-
-  markPendingTakePrIssueCreated(
-    id: string,
-    claimToken: string,
-    linearIssueIdentifier: string,
-    linearIssueUrl: string,
-    now = new Date(),
-  ): boolean {
-    const request = this.currentTakePrClaim(id, claimToken, "processing", now);
-    if (!request) return false;
-    this.pendingTakePrRequests.set(id, {
-      ...request,
-      status: "created",
-      linearIssueIdentifier,
-      linearIssueUrl,
-      updatedAt: now.toISOString(),
-    });
-    return true;
-  }
-
-  refreshPendingTakePrPullRequest(
-    id: string,
-    claimToken: string,
-    pullRequest: Pick<
-      PendingTakePrRequest,
-      "repository" | "pullRequestTitle" | "pullRequestBody" | "headBranch" | "baseBranch"
-    >,
-    now = new Date(),
-  ): boolean {
-    const request = this.currentTakePrClaim(id, claimToken, "processing", now);
-    if (!request) return false;
-    this.pendingTakePrRequests.set(id, {
-      ...request,
-      ...pullRequest,
-      updatedAt: now.toISOString(),
-    });
-    return true;
-  }
-
-  restorePendingTakePrIssueCreated(id: string, claimToken: string, now = new Date()): boolean {
-    const request = this.currentTakePrClaim(id, claimToken, "processing", now);
-    if (!request) return false;
-    this.pendingTakePrRequests.set(id, {
-      ...request,
-      status: "created",
-      updatedAt: now.toISOString(),
-    });
-    return true;
-  }
-
-  completePendingTakePrRequest(
-    id: string,
-    claimToken: string,
-    linearIssueUrl: string,
-    now = new Date(),
-  ): boolean {
-    const request = this.getPendingTakePrRequest(id, now);
-    if (
-      request?.claimToken !== claimToken ||
-      (request.status !== "created" && request.status !== "processing")
-    )
-      return false;
-    this.pendingTakePrRequests.set(id, {
-      ...request,
-      status: "completed",
-      claimToken: undefined,
-      linearIssueUrl,
-      updatedAt: now.toISOString(),
-    });
-    return true;
-  }
-
-  pendingTakePrClaimIsCurrent(id: string, claimToken: string, now = new Date()): boolean {
-    return this.getPendingTakePrRequest(id, now)?.claimToken === claimToken;
+  restorePendingTakePrRequest(request: PendingTakePrRequest): void {
+    this.pendingTakePrRequests.set(request.id, request);
   }
 
   updateTaskStatus(
@@ -653,36 +532,13 @@ export class WatcherStore {
     return task;
   }
 
-  private currentTakePrClaim(
-    id: string,
-    claimToken: string,
-    status: PendingTakePrRequest["status"],
-    now: Date,
-  ): PendingTakePrRequest | undefined {
-    const request = this.getPendingTakePrRequest(id, now);
-    return request?.claimToken === claimToken && request.status === status ? request : undefined;
-  }
-
   private pruneExpiredTakePrRequests(now: Date): void {
     for (const [id, request] of this.pendingTakePrRequests) {
-      const retention =
-        request.status === "completed"
-          ? TAKE_PR_COMPLETED_RETENTION_MS
-          : TAKE_PR_ACTIVE_RETENTION_MS;
-      if (Date.parse(request.updatedAt) <= now.getTime() - retention) {
+      if (Date.parse(request.createdAt) <= now.getTime() - TAKE_PR_ACTIVE_RETENTION_MS) {
         this.pendingTakePrRequests.delete(id);
       }
     }
   }
-}
-
-function takePrRequestCanBeClaimed(
-  request: PendingTakePrRequest,
-  selectedService: string,
-): boolean {
-  if (request.status === "pending") return true;
-  if (request.status === "created") return request.selectedService === selectedService;
-  return false;
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {

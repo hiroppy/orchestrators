@@ -179,7 +179,6 @@ export async function handleTakePrAction(
     }
     return;
   }
-  if (request.status === "completed") return;
   const actor = slackUserIdFromActionBody(body);
   if (!actor || actor !== request.requesterSlackUserId) {
     await postTakePrError(
@@ -191,94 +190,64 @@ export async function handleTakePrAction(
     return;
   }
 
-  const service =
-    "serviceIndex" in selection
-      ? options.services[selection.serviceIndex]
-      : options.services.find(({ name }) => name === selection.serviceName);
+  const service = options.services[selection.serviceIndex];
   if (!service) {
     await postTakePrError(
       client,
       request.channelId,
       request.threadTs,
-      `Service is not enabled: ${"serviceName" in selection ? selection.serviceName : selection.serviceIndex}`,
+      `Service is not enabled: ${selection.serviceIndex}`,
     );
     return;
   }
-  if (
-    (request.status === "processing" || request.status === "created") &&
-    request.selectedService !== service.name
-  ) {
-    await postTakePrError(
-      client,
-      request.channelId,
-      request.threadTs,
-      `This take-pr request is already assigned to service ${request.selectedService ?? "unknown"}.`,
-    );
-    return;
-  }
-  const claimed = store.claimPendingTakePrRequest(request.id, service.name);
-  if (!claimed?.claimToken) return;
-  const claimToken = claimed.claimToken;
+  const claimed = store.takePendingTakePrRequest(request.id);
+  if (!claimed) return;
 
   try {
-    let issueRequest = claimed;
-    let issue =
-      claimed.linearIssueIdentifier && claimed.linearIssueUrl
-        ? { identifier: claimed.linearIssueIdentifier, url: claimed.linearIssueUrl }
-        : undefined;
-    if (!issue) {
-      const validation = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
-      if ("error" in validation) {
-        if (!store.releasePendingTakePrRequest(claimed.id, claimToken)) return;
-        await postTakePrError(client, claimed.channelId, claimed.threadTs, validation.error);
-        return;
-      }
-      const refreshedPullRequest = {
-        repository: validation.pullRequest.repository,
-        pullRequestTitle: validation.pullRequest.title,
-        pullRequestBody: validation.pullRequest.body ?? "",
-        headBranch: validation.pullRequest.headRefName,
-        baseBranch: validation.pullRequest.baseRefName,
-      };
-      if (!store.refreshPendingTakePrPullRequest(claimed.id, claimToken, refreshedPullRequest))
-        return;
-      issueRequest = { ...claimed, ...refreshedPullRequest };
-      const linearTeam = options.linearTeams[service.linearTeam];
-      if (!linearTeam?.apiKey || !linearTeam.teamId) {
-        throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
-      }
-      const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
-      const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
-      const projectSlug = projectSlugFromWorkflow(workflow);
-      if (!projectSlug) {
-        throw new Error(
-          `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
-        );
-      }
-
-      const permalinkResponse = await client.chat.getPermalink({
-        channel: claimed.channelId,
-        message_ts: claimed.threadTs,
-      });
-      if (!permalinkResponse.permalink) {
-        throw new Error("Could not get the Slack parent message URL.");
-      }
-
-      issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
-        buildLinearIssueInput(
-          issueRequest,
-          linearTeam.teamId,
-          projectSlug,
-          permalinkResponse.permalink,
-        ),
-        { apiKey: linearTeam.apiKey },
-      );
-      if (
-        !store.markPendingTakePrIssueCreated(claimed.id, claimToken, issue.identifier, issue.url)
-      ) {
-        return;
-      }
+    const validation = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
+    if ("error" in validation) {
+      store.restorePendingTakePrRequest(claimed);
+      await postTakePrError(client, claimed.channelId, claimed.threadTs, validation.error);
+      return;
     }
+    const issueRequest = {
+      ...claimed,
+      repository: validation.pullRequest.repository,
+      pullRequestTitle: validation.pullRequest.title,
+      pullRequestBody: validation.pullRequest.body ?? "",
+      headBranch: validation.pullRequest.headRefName,
+      baseBranch: validation.pullRequest.baseRefName,
+    };
+    const linearTeam = options.linearTeams[service.linearTeam];
+    if (!linearTeam?.apiKey || !linearTeam.teamId) {
+      throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
+    }
+    const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
+    const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
+    const projectSlug = projectSlugFromWorkflow(workflow);
+    if (!projectSlug) {
+      throw new Error(
+        `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
+      );
+    }
+
+    const permalinkResponse = await client.chat.getPermalink({
+      channel: claimed.channelId,
+      message_ts: claimed.threadTs,
+    });
+    if (!permalinkResponse.permalink) {
+      throw new Error("Could not get the Slack parent message URL.");
+    }
+
+    const issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
+      buildLinearIssueInput(
+        issueRequest,
+        linearTeam.teamId,
+        projectSlug,
+        permalinkResponse.permalink,
+      ),
+      { apiKey: linearTeam.apiKey },
+    );
     await client.chat.postMessage({
       channel: claimed.channelId,
       thread_ts: claimed.threadTs,
@@ -290,24 +259,10 @@ export async function handleTakePrAction(
       unfurl_links: false,
       unfurl_media: false,
     });
-    store.completePendingTakePrRequest(claimed.id, claimToken, issue.url);
   } catch (error) {
-    if (!store.pendingTakePrClaimIsCurrent(claimed.id, claimToken)) return;
-    if (claimed.linearIssueIdentifier && claimed.linearIssueUrl) {
-      store.restorePendingTakePrIssueCreated(claimed.id, claimToken);
-    } else {
-      store.releasePendingTakePrRequest(claimed.id, claimToken);
-    }
+    store.restorePendingTakePrRequest(claimed);
     logger.error(error);
-    const deliveryPending = store.getPendingTakePrRequest(claimed.id)?.status === "created";
-    await postTakePrError(
-      client,
-      claimed.channelId,
-      claimed.threadTs,
-      deliveryPending
-        ? "The Linear issue was created, but Slack confirmation delivery could not be verified. Select the same service to retry."
-        : takePrErrorMessage(error),
-    );
+    await postTakePrError(client, claimed.channelId, claimed.threadTs, takePrErrorMessage(error));
   }
 }
 
@@ -412,32 +367,15 @@ function hasCompletePullRequestMetadata(
 function takePrSelectionFromAction(
   action: unknown,
   body: unknown,
-):
-  | { requestId: string; serviceIndex: number }
-  | { requestId: string; serviceName: string }
-  | undefined {
-  if (!action || typeof action !== "object") return undefined;
-  const actionValue = (action as { value?: unknown }).value;
-  const selectedValue = (action as { selected_option?: { value?: unknown } }).selected_option
-    ?.value;
-  let value = typeof selectedValue === "string" ? selectedValue : undefined;
-  if (!value && typeof actionValue === "string") {
-    value = selectedValueFromActionBody(body, actionValue);
-  }
-  if (typeof value !== "string") return undefined;
-  const separator = value.indexOf(":");
-  if (separator < 1) return undefined;
-
-  const requestId = value.slice(0, separator);
-  if (!/^[A-Za-z0-9_-]{8,32}$/.test(requestId)) return undefined;
-  try {
-    const serviceToken = decodeURIComponent(value.slice(separator + 1));
-    const indexedService = serviceToken.match(/^i(0|[1-9]\d*)$/);
-    if (indexedService) return { requestId, serviceIndex: Number(indexedService[1]) };
-    return serviceToken ? { requestId, serviceName: serviceToken } : undefined;
-  } catch {
-    return undefined;
-  }
+): { requestId: string; serviceIndex: number } | undefined {
+  const requestId = takePrConfirmRequestId(action);
+  if (!requestId) return undefined;
+  const value = selectedValueFromActionBody(body, requestId);
+  if (!value) return undefined;
+  const selection = value.match(/^([A-Za-z0-9_-]{8,32}):i(0|[1-9]\d*)$/);
+  return selection?.[1] === requestId
+    ? { requestId: selection[1], serviceIndex: Number(selection[2]) }
+    : undefined;
 }
 
 function takePrConfirmRequestId(action: unknown): string | undefined {
