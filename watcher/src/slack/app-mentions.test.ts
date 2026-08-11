@@ -34,6 +34,8 @@ describe("Slack mention commands", () => {
           "  Show tracked Todo, In Progress, and In Review tasks.",
           "• `@Project Bot assign @user`",
           "  Add yourself to notifications for a tracked task. Run this in the task thread.",
+          "• `@Project Bot unassign @user`",
+          "  Remove yourself from notifications for a tracked task. Run this in the task thread.",
           "• `@Project Bot take-pr <GitHub PR URL>`",
           "  Create a Linear issue for an existing open pull request.",
           "• `@Project Bot help`",
@@ -409,6 +411,107 @@ describe("Slack mention commands", () => {
 
       assert.deepEqual(store.getTaskNotificationMentions(task.id), []);
       assert.match(String(calls[0].args.text), /reached Slack's text limit/);
+    });
+  });
+
+  it("unassigns the requesting user from task notifications", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTaskNotificationMention(task.id, "U123");
+      store.assignTaskNotificationMention(task.id, "U456");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> unassign <@U123>",
+          },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U456>"]);
+      assert.deepEqual(calls, [
+        {
+          method: "addReaction",
+          args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
+        },
+      ]);
+    });
+  });
+
+  it("rejects unassign outside tracked threads and with invalid users", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTaskNotificationMention(task.id, "U123");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+
+      for (const event of [
+        {
+          channel: "C123",
+          ts: "20.000",
+          user: "U123",
+          text: "<@UBOT> unassign <@U123>",
+        },
+        {
+          channel: "C123",
+          thread_ts: "99.000",
+          ts: "21.000",
+          user: "U123",
+          text: "<@UBOT> unassign <@U123>",
+        },
+        {
+          channel: "C123",
+          thread_ts: "10.000",
+          ts: "22.000",
+          user: "U123",
+          text: "<@UBOT> unassign",
+        },
+        {
+          channel: "C123",
+          thread_ts: "10.000",
+          ts: "23.000",
+          user: "U123",
+          text: "<@UBOT> unassign <@U456>",
+        },
+      ]) {
+        await handleAppMention(
+          {
+            event,
+            client,
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
+          },
+          store,
+        );
+      }
+
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U123>"]);
+      assert.equal(calls.length, 3);
+      assert.match(String(calls[0].args.text), /tracked task thread/);
+      assert.equal(calls[1].args.text, "[error] Usage: <@UBOT> `unassign @user`");
+      assert.equal(
+        calls[2].args.text,
+        "[error] You can only unassign yourself from task notifications.",
+      );
     });
   });
 
