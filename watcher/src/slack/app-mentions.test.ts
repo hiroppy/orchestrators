@@ -414,7 +414,7 @@ describe("Slack mention commands", () => {
     });
   });
 
-  it("unassigns the requesting user from task notifications", async () => {
+  it("idempotently unassigns the requesting user from task notifications", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -425,28 +425,42 @@ describe("Slack mention commands", () => {
       store.setParentMessage(task.id, "C123", "10.000", "{}");
       store.assignTaskNotificationMention(task.id, "U123");
       store.assignTaskNotificationMention(task.id, "U456");
+      const otherTask = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        state: "In Progress",
+      });
+      store.assignTaskNotificationMention(otherTask.id, "U123");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
-      await handleAppMention(
-        {
-          event: {
-            channel: "C123",
-            thread_ts: "10.000",
-            ts: "20.000",
-            user: "U123",
-            text: "<@UBOT> unassign <@U123>",
+      for (const ts of ["20.000", "21.000"]) {
+        await handleAppMention(
+          {
+            event: {
+              channel: "C123",
+              thread_ts: "10.000",
+              ts,
+              user: "U123",
+              text: "<@UBOT> unassign <@U123>",
+            },
+            client: fakeClient(calls),
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
           },
-          client: fakeClient(calls),
-          logger: { error: (error: unknown) => assert.fail(String(error)) },
-        },
-        store,
-      );
+          store,
+        );
+      }
 
       assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U456>"]);
+      assert.deepEqual(store.getTaskNotificationMentions(otherTask.id), ["<@U123>"]);
       assert.deepEqual(calls, [
         {
           method: "addReaction",
           args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
+        },
+        {
+          method: "addReaction",
+          args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
         },
       ]);
     });
