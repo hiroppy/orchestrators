@@ -280,8 +280,12 @@ export function buildReviewRequeueLimitMessageBlocks(
   ]);
 }
 
-export function buildTaskClosedMessage(status: string, taskThreadPermalink: string): string {
-  return `Task closed | *${escapeSlack(status)}*\n${taskThreadPermalink}`;
+export function buildTaskClosedMessage(
+  status: string,
+  taskThreadPermalink: string,
+  taskTitle: string,
+): string {
+  return `Task closed | *${escapeSlack(status)}*\n<${taskThreadPermalink}|${escapeSlackLinkLabel(taskTitle)}>`;
 }
 
 export function buildTaskClosedMessageBlocks(

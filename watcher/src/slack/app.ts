@@ -343,7 +343,7 @@ async function postTaskClosedMessage(
   }
   return client.chat.postMessage({
     channel,
-    text: buildTaskClosedMessage(status, response.permalink),
+    text: buildTaskClosedMessage(status, response.permalink, title),
     blocks: buildTaskClosedMessageBlocks(status, response.permalink, title),
     unfurl_links: false,
     unfurl_media: false,

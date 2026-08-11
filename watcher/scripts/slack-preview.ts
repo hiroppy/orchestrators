@@ -207,9 +207,10 @@ export function buildSlackPreviewMessage(
   }
   if (type === "closed") {
     const permalink = "https://example.slack.com/archives/C123/p123456789";
+    const title = "Finish the Slack notification preview";
     return {
-      text: buildTaskClosedMessage("Done", permalink),
-      blocks: buildTaskClosedMessageBlocks("Done", permalink),
+      text: buildTaskClosedMessage("Done", permalink, title),
+      blocks: buildTaskClosedMessageBlocks("Done", permalink, title),
     };
   }
   if (type === "next") {
