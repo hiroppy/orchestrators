@@ -190,6 +190,57 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("reconciles an unverified status change after immediate completion", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({ data: { issue: null } });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({
+              running: [{ issue_identifier: "ENG-62", state: "In Review" }],
+              retrying: [],
+              blocked: [],
+            }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({
+        "service-a": {
+          running: [{ issue_identifier: "ENG-62", state: "In Progress" }],
+          retrying: [],
+          blocked: [],
+        },
+      });
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.getTask(task.id)?.linearStateType, undefined);
+      assert.equal(store.getTasksForLinearSync()[0]?.id, task.id);
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

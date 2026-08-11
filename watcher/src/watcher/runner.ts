@@ -358,6 +358,7 @@ export async function runOnce({
         slackClient,
         slackChannelId,
         event: enrichedEvent,
+        isAuthoritative: enrichment.isAuthoritative,
         reviewDecision,
         updateLinearStatus,
       });
@@ -490,6 +491,7 @@ async function reconcileLinearStatuses({
       slackClient,
       slackChannelId,
       event: enrichedEvent,
+      isAuthoritative: true,
       reviewDecision,
       updateLinearStatus,
     });
@@ -503,6 +505,7 @@ async function processWatcherEvent({
   slackClient,
   slackChannelId,
   event,
+  isAuthoritative,
   reviewDecision,
   updateLinearStatus,
 }: {
@@ -511,10 +514,21 @@ async function processWatcherEvent({
   slackClient: WebClient;
   slackChannelId: string;
   event: WatcherEvent;
+  isAuthoritative: boolean;
   reviewDecision: ReviewReactionDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
+  const existingTask = store.getTask(taskId);
+  const nextStatus = event.resolvedState ?? event.state;
+  if (
+    !isAuthoritative &&
+    existingTask &&
+    nextStatus &&
+    normalizeStatus(existingTask.status) !== normalizeStatus(nextStatus)
+  ) {
+    store.setTaskLinearStateType(taskId, undefined);
+  }
   await publishWatcherEvent(
     slackClient,
     store,
