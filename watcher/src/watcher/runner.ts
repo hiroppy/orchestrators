@@ -39,7 +39,7 @@ import type {
   Task,
   WatcherEvent,
 } from "../domain/types.ts";
-import { enteredTerminalLinearState } from "../domain/linear.ts";
+import { enteredTerminalLinearState, isTerminalLinearStateType } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
@@ -304,11 +304,13 @@ export async function runOnce({
   const preparedEvents = [];
 
   for (const event of events) {
+    const taskId = taskIdFor(event.service, event.issueIdentifier);
+    const taskStatusBeforeEnrichment = store.getTask(taskId)?.status;
     const enrichment = await enrichEvent(event, config, {
       findPullRequest,
       findPullRequestByUrl,
     });
-    processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
+    processedTaskIds.add(taskId);
     const reviewDecision = decideReviewReaction(
       config,
       store,
@@ -318,18 +320,30 @@ export async function runOnce({
     const enrichedEvent = await enrichCreatorForNotification(
       enrichment.event,
       config,
-      store.getTask(taskIdFor(event.service, event.issueIdentifier))?.status,
+      taskStatusBeforeEnrichment,
       {
         suppress: shouldSuppressReviewMention(reviewDecision),
         forceMention: reviewDecision.deliverDeferredMention,
         slackClient: dryRun ? undefined : slackClient,
       },
     );
-    preparedEvents.push({ source: event, enrichment, event: enrichedEvent, reviewDecision });
+    preparedEvents.push({
+      source: event,
+      enrichment,
+      event: enrichedEvent,
+      reviewDecision,
+      taskStatusBeforeEnrichment,
+    });
   }
 
   for (const prepared of preparedEvents) {
-    const { source, enrichment, event: enrichedEvent, reviewDecision } = prepared;
+    const {
+      source,
+      enrichment,
+      event: enrichedEvent,
+      reviewDecision,
+      taskStatusBeforeEnrichment,
+    } = prepared;
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
@@ -376,6 +390,16 @@ export async function runOnce({
       if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
       const taskId = taskIdFor(source.service, source.issueIdentifier);
       await withTaskReconciliationQueue(taskId, async () => {
+        const currentStatus = store.getTask(taskId)?.status;
+        const preparedStatus = enrichedEvent.resolvedState ?? enrichedEvent.state;
+        if (
+          currentStatus !== taskStatusBeforeEnrichment &&
+          currentStatus &&
+          preparedStatus &&
+          normalizeStatus(currentStatus) !== normalizeStatus(preparedStatus)
+        ) {
+          return;
+        }
         await processWatcherEvent({
           config,
           store,
@@ -459,7 +483,8 @@ async function reconcileLinearStatuses({
     if (
       hasPendingSlackStatus &&
       (!expectedSlackStatus ||
-        normalizeStatus(linearIssue.state) !== normalizeStatus(expectedSlackStatus))
+        (normalizeStatus(linearIssue.state) !== normalizeStatus(expectedSlackStatus) &&
+          !isTerminalLinearStateType(linearIssue.stateType)))
     ) {
       continue;
     }
