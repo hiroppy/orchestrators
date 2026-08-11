@@ -79,7 +79,7 @@ export function buildTaskCard(
   task: Task,
   configuredStatuses: string[],
   event?: WatcherEvent,
-  mentionTarget?: string,
+  assignees: string[] = [],
   options: TaskCardOptions = {},
 ): TaskCard {
   const watcherErrorTask = isWatcherErrorTask(task);
@@ -102,10 +102,11 @@ export function buildTaskCard(
   const selected = selectOptions.find(({ value }) => value === task.status);
   const blockId = taskBlockId(task.id, task.status);
   const showStatusSelect = options.interactive !== false && !watcherErrorTask;
+  const displayedAssignees = assignees.map(formatNonNotifyingAssignee);
   const primaryFields = [
     watcherErrorTask ? `*Status*\n${escapeSlack(capitalize(task.status))}` : null,
     event ? `*Event*\n${escapeSlack(parentEventLabel(event))}` : null,
-    mentionTarget ? `*Creator*\n${mentionTarget}` : null,
+    displayedAssignees.length > 0 ? formatAssignees(displayedAssignees) : null,
   ].filter(isPresent);
   const errorFields = [event?.error ? `*Error*\n${formatError(event.error)}` : null].filter(
     isPresent,
@@ -114,9 +115,10 @@ export function buildTaskCard(
     event?.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
   ].filter(isPresent);
   const overviewBlocks = buildFieldSections(primaryFields, errorFields, pullRequestFields);
-  const fallbackText = mentionTarget
-    ? `${displayTitle}. Created by ${mentionTarget}`
-    : displayTitle;
+  const fallbackText =
+    displayedAssignees.length > 0
+      ? `${displayTitle}. Assigned to ${displayedAssignees.join(" ")}`
+      : displayTitle;
   return {
     text: fallbackText,
     metadata: {
@@ -154,29 +156,61 @@ export function buildTaskCard(
   };
 }
 
+export function replaceTaskCardAssignees(card: TaskCard, assignees: string[]): TaskCard {
+  const field =
+    assignees.length > 0 ? formatAssignees(assignees.map(formatNonNotifyingAssignee)) : undefined;
+  let replaced = false;
+  const blocks = card.blocks.flatMap((block) => {
+    if (block.type !== "section") return [block];
+
+    if (Array.isArray(block.fields)) {
+      const fields = (block.fields as Array<Record<string, unknown>>).flatMap((item) => {
+        if (typeof item.text !== "string" || !item.text.startsWith("*Assignees*\n")) {
+          return [item];
+        }
+        replaced = true;
+        return field ? [{ ...item, text: field }] : [];
+      });
+      return fields.length > 0 ? [{ ...block, fields }] : [];
+    }
+
+    const text = block.text as Record<string, unknown> | undefined;
+    if (typeof text?.text !== "string" || !text.text.startsWith("*Assignees*\n")) {
+      return [block];
+    }
+    replaced = true;
+    return field ? [{ ...block, text: { ...text, text: field } }] : [];
+  });
+
+  if (field && !replaced) {
+    const insertAt = blocks.findLastIndex((block) => block.type === "actions") + 1;
+    blocks.splice(insertAt, 0, buildTextSection(field));
+  }
+
+  return { ...card, blocks };
+}
+
 export interface ThreadMessageContext {
   fromStatus?: string;
   toStatus?: string;
-  mentions?: string[];
+  assignees?: string[];
 }
 
 export function buildThreadMessageBlocks(
   event: WatcherEvent,
-  mentionTarget?: string,
   context: ThreadMessageContext = {},
 ): Array<Record<string, unknown>> {
-  const transition = statusTransitionDetails(event, mentionTarget, context);
+  const transition = statusTransitionDetails(event, context);
   const headline = transition?.headline ?? threadHeadline(event);
   const primaryFields = [
     `*Event*\n${escapeSlack(parentEventLabel(event))}`,
-    mentionTarget ? `*Creator*\n${mentionTarget}` : null,
+    context.assignees?.length ? formatAssignees(context.assignees) : null,
   ].filter(isPresent);
   const errorFields = [event.error ? `*Error*\n${formatError(event.error)}` : null].filter(
     isPresent,
   );
   const notificationFields = [
     event.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
-    context.mentions?.length ? formatMentions(context.mentions) : null,
   ].filter(isPresent);
 
   return [
@@ -187,10 +221,9 @@ export function buildThreadMessageBlocks(
 
 export function buildThreadMessage(
   event: WatcherEvent,
-  mentionTarget?: string,
   context: ThreadMessageContext = {},
 ): string {
-  const transition = statusTransitionDetails(event, mentionTarget, context);
+  const transition = statusTransitionDetails(event, context);
   if (transition) {
     return truncateThreadBody([transition.headline, ...transition.details].join("\n"));
   }
@@ -200,7 +233,7 @@ export function buildThreadMessage(
     : `*${escapeSlack(EVENT_LABELS[event.type])}*`;
   const details = [
     headline,
-    ...notificationLabels(mentionTarget, context.mentions),
+    ...notificationLabels(context.assignees),
     ...[
       event.pullRequest ? formatPullRequest(event.pullRequest) : null,
       event.error ? `Error: ${event.error}` : null,
@@ -216,7 +249,6 @@ export function buildThreadMessage(
 
 function statusTransitionDetails(
   event: WatcherEvent,
-  mentionTarget: string | undefined,
   context: ThreadMessageContext,
 ): { headline: string; details: string[] } | undefined {
   const { fromStatus, toStatus } = context;
@@ -225,10 +257,7 @@ function statusTransitionDetails(
   }
 
   const details = [
-    [
-      `Event: ${escapeSlack(EVENT_LABELS[event.type])}`,
-      ...notificationLabels(mentionTarget, context.mentions),
-    ]
+    [`Event: ${escapeSlack(EVENT_LABELS[event.type])}`, ...notificationLabels(context.assignees)]
       .filter(isPresent)
       .join(" | "),
     compactEventDetails(event, false).join(" | "),
@@ -434,13 +463,13 @@ function formatError(error: string): string {
   return escapeSlack(truncate(error, MAX_ERROR_LENGTH));
 }
 
-function formatMentions(mentions: string[]): string {
-  const label = "*Mentions*\n";
+function formatAssignees(assignees: string[]): string {
+  const label = "*Assignees*\n";
   const availableLength = MAX_FIELD_LENGTH - label.length;
   const targets: string[] = [];
   let length = 0;
 
-  for (const mention of mentions) {
+  for (const mention of assignees) {
     const addedLength = mention.length + (targets.length > 0 ? 1 : 0);
     if (length + addedLength > availableLength) break;
     targets.push(mention);
@@ -448,6 +477,12 @@ function formatMentions(mentions: string[]): string {
   }
 
   return `${label}${targets.join(" ")}`;
+}
+
+function formatNonNotifyingAssignee(mention: string): string {
+  return mention
+    .replace(/^<@([A-Z0-9]+)>$/i, "@$1")
+    .replace(/^<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>$/i, "@$1");
 }
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
@@ -482,15 +517,8 @@ function pullRequestNumberFromUrl(url: string): string | undefined {
   return url.match(/\/pull\/(\d+)(?:$|[/?#])/)?.[1];
 }
 
-function mentionLabel(mention?: string): string | undefined {
-  return mention ? `Creator: ${mention}` : undefined;
-}
-
-function notificationLabels(creator?: string, mentions: string[] = []): string[] {
-  return [
-    mentionLabel(creator),
-    mentions.length > 0 ? `Mentions: ${mentions.join(" ")}` : undefined,
-  ].filter(isPresent);
+function notificationLabels(assignees: string[] = []): string[] {
+  return [assignees.length > 0 ? `Assignees: ${assignees.join(" ")}` : undefined].filter(isPresent);
 }
 
 function isWatcherErrorTask(task: Task): boolean {

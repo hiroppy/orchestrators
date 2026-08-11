@@ -196,7 +196,7 @@ describe("WatcherStore", () => {
     });
   });
 
-  it("stores unique notification mentions per task", async () => {
+  it("stores unique assignees per task", async () => {
     await withStore((store) => {
       store.syncDefinitions(
         [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
@@ -221,14 +221,11 @@ describe("WatcherStore", () => {
         state: "In Progress",
       });
 
-      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U123"), true);
-      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U123"), false);
-      assert.equal(store.assignTaskNotificationMention("service-a:ENG-62", "U456"), true);
-      assert.deepEqual(store.getTaskNotificationMentions("service-a:ENG-62"), [
-        "<@U123>",
-        "<@U456>",
-      ]);
-      assert.deepEqual(store.getTaskNotificationMentions("service-a:ENG-63"), []);
+      assert.equal(store.assignTask("service-a:ENG-62", "U123"), true);
+      assert.equal(store.assignTask("service-a:ENG-62", "U123"), false);
+      assert.equal(store.assignTask("service-a:ENG-62", "U456"), true);
+      assert.deepEqual(store.getTaskAssignees("service-a:ENG-62"), ["<@U123>", "<@U456>"]);
+      assert.deepEqual(store.getTaskAssignees("service-a:ENG-63"), []);
     });
   });
 

@@ -101,7 +101,7 @@ describe("watcher reconciliation and snapshots", () => {
           },
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
-        mention: {
+        notifications: {
           statuses: ["In Review"],
           events: [],
         },
@@ -191,8 +191,8 @@ describe("watcher reconciliation and snapshots", () => {
           },
         ],
         linearTeams: linearTeams(["Backlog", "Done"]),
-        mention: {
-          targets: ["<!subteam^SREVIEWERS>"],
+        defaultAssignees: ["<@UREVIEWERS>"],
+        notifications: {
           statuses: [],
           events: ["retrying", "recovered"],
         },
@@ -214,7 +214,7 @@ describe("watcher reconciliation and snapshots", () => {
         [["retrying", "watcher:service-a"]],
       );
       assert.equal(store.getSnapshots()["service-a"]?.running[0]?.issue_identifier, "ENG-62");
-      assert.match(JSON.stringify(calls), /Mentions: <!subteam\^SREVIEWERS>/);
+      assert.match(JSON.stringify(calls), /Assignees: <@UREVIEWERS>/);
 
       unavailable = false;
       const recovery = await runOnce({

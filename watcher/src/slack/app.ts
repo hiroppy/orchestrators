@@ -18,9 +18,9 @@ import {
 import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
-import type { ResolvedMentionConfig } from "../config/runtime.ts";
-import { withQueue } from "./async-queue.ts";
-import { notificationTargetsForWatcherEvent } from "./notifications.ts";
+import type { ResolvedNotificationConfig } from "../config/runtime.ts";
+import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./notifications.ts";
+import { withTaskCardQueue } from "./task-card-queue.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackDisplayName } from "./users.ts";
@@ -49,7 +49,6 @@ export type StatusTransitionEventFactory = (
   fromStatus: string,
   toStatus: string,
 ) => TaskEventInput | undefined;
-const taskStatusQueues = new Map<string, Promise<void>>();
 
 export interface SlackAppOptions {
   botToken: string;
@@ -58,7 +57,6 @@ export interface SlackAppOptions {
   createLinearWorkpadReply: LinearWorkpadReplier;
   store: WatcherStore;
   botUserId: string;
-  configuredMentionTargets?: string[];
   createStatusTransitionEvent?: StatusTransitionEventFactory;
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
@@ -71,7 +69,6 @@ export function createSlackApp({
   createLinearWorkpadReply,
   store,
   botUserId,
-  configuredMentionTargets = [],
   createStatusTransitionEvent,
   onStatusTransition,
   takePr,
@@ -95,7 +92,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, configuredMentionTargets, botUserId, takePr);
+    await handleAppMention(args, store, botUserId, takePr);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
@@ -142,7 +139,7 @@ export async function handleStatusAction(
     if (!taskId) throw new Error("Slack action did not include a task ID.");
     if (!actor) throw new Error("Slack action did not include a user ID.");
 
-    await withTaskStatusQueue(taskId, async () => {
+    await withTaskCardQueue(taskId, async () => {
       const existingTask = store.getTask(taskId);
       if (!existingTask) throw new Error(`Task not found: ${taskId}`);
       const configuredStatuses = store.getSelectableStatuses(existingTask.serviceName);
@@ -155,8 +152,6 @@ export async function handleStatusAction(
       if (!existingTask.parentChannelId || !existingTask.parentMessageTs) {
         throw new Error(`Task has no Slack parent message: ${taskId}`);
       }
-      const mentionTarget = undefined;
-
       const card = buildTaskCard(
         {
           ...existingTask,
@@ -170,7 +165,7 @@ export async function handleStatusAction(
           issueIdentifier: existingTask.issueIdentifier,
           resolvedState: selectedStatus,
         },
-        mentionTarget,
+        store.getTaskAssignees(taskId),
       );
       await updateLinearStatus(existingTask, selectedStatus);
       await client.chat.update({
@@ -193,11 +188,10 @@ export async function handleStatusAction(
         fromStatus,
         selectedStatus,
       );
-      const historyLine = [statusChangedLine, mentionTarget].filter(Boolean).join(" | ");
       const reply = await client.chat.postMessage({
         channel: existingTask.parentChannelId,
         thread_ts: existingTask.parentMessageTs,
-        text: historyLine,
+        text: statusChangedLine,
         blocks: buildStatusChangedMessageBlocks(actorDisplayName, fromStatus, selectedStatus),
       });
       store.addEvent({
@@ -206,7 +200,7 @@ export async function handleStatusAction(
         actor,
         fromStatus,
         toStatus: selectedStatus,
-        body: historyLine,
+        body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
     });
@@ -215,17 +209,14 @@ export async function handleStatusAction(
   }
 }
 
-async function withTaskStatusQueue<T>(taskId: string, run: () => Promise<T>): Promise<T> {
-  return withQueue(taskStatusQueues, taskId, run);
-}
-
 export async function publishWatcherEvent(
   client: SlackClient,
   store: WatcherStore,
   destinationChannel: string,
   event: WatcherEvent,
-  mention?: ResolvedMentionConfig,
+  notificationConfig?: ResolvedNotificationConfig,
   options: {
+    defaultAssignees?: string[];
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -233,111 +224,125 @@ export async function publishWatcherEvent(
   } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const isNewPullRequest =
-    event.pullRequest !== undefined && !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
-  const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
-    event,
-    (task, previous) =>
-      previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
-        ? options.createStatusTransitionEvent?.(task, previous.status)
-        : undefined,
-  );
-  let task = persistedTask;
-  const statusChanged =
-    previousTask !== undefined &&
-    normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
-  if (statusChanged) {
-    await options.onStatusTransition?.(task, previousTask.status);
-  }
-  const notifications = notificationTargetsForWatcherEvent(
-    mention,
-    previousTask?.status,
-    task.status,
-    event.type,
-    event.creatorMention ?? undefined,
-    options.forceMention,
-    store.getTaskNotificationMentions(taskId),
-  );
-  const card = buildTaskCard(
-    task,
-    store.getSelectableStatuses(task.serviceName),
-    event,
-    notifications?.creator,
-  );
-  const summary = JSON.stringify(card);
-  const announceTerminalParent =
-    Boolean(previousTask?.parentMessageTs) &&
-    enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
-  if (!task.parentChannelId || !task.parentMessageTs) {
-    const parent = await client.chat.postMessage({
-      channel: destinationChannel,
-      ...card,
-    });
-    if (!parent.channel || !parent.ts) {
-      throw new Error(`Slack did not return channel/ts for task ${task.id}.`);
+  await withTaskCardQueue(taskId, async () => {
+    const isNewPullRequest =
+      event.pullRequest !== undefined &&
+      !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
+    const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
+      event,
+      (task, previous) =>
+        previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
+          ? options.createStatusTransitionEvent?.(task, previous.status)
+          : undefined,
+    );
+    if (!persistedTask.parentMessageTs && store.getTaskAssignees(taskId).length === 0) {
+      for (const assignee of initialTaskAssignees(
+        options.defaultAssignees ?? [],
+        event.creatorMention,
+      )) {
+        store.assignTask(taskId, assignee.slice(2, -1));
+      }
     }
-    task = store.setParentMessage(task.id, parent.channel, parent.ts, summary);
-  } else {
-    try {
-      await client.chat.update({
-        channel: task.parentChannelId,
-        ts: task.parentMessageTs,
+    let task = persistedTask;
+    const statusChanged =
+      previousTask !== undefined &&
+      normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
+    if (statusChanged) {
+      await options.onStatusTransition?.(task, previousTask.status);
+    }
+    const assignees = store.getTaskAssignees(taskId);
+    const previousNotificationStatus = previousTask?.parentMessageTs
+      ? previousTask.status
+      : undefined;
+    const notificationAssignees = notificationTargetsForWatcherEvent(
+      notificationConfig,
+      previousNotificationStatus,
+      task.status,
+      event.type,
+      assignees,
+      options.forceMention,
+    );
+    const card = buildTaskCard(
+      task,
+      store.getSelectableStatuses(task.serviceName),
+      event,
+      assignees,
+    );
+    const summary = JSON.stringify(card);
+    const announceTerminalParent =
+      Boolean(previousTask?.parentMessageTs) &&
+      enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
+    if (!task.parentChannelId || !task.parentMessageTs) {
+      const parent = await client.chat.postMessage({
+        channel: destinationChannel,
         ...card,
       });
-      store.setRenderedSummary(task.id, summary);
-      if (announceTerminalParent) {
-        const closedMessage = await postTaskClosedMessage(
-          client,
-          task.parentChannelId,
-          task.parentMessageTs,
-          task.status,
-          task.title,
-        );
-        await postRelatedIssues(
-          client,
-          task.parentChannelId,
-          closedMessage.ts,
-          event.relatedIssues,
-        );
+      if (!parent.channel || !parent.ts) {
+        throw new Error(`Slack did not return channel/ts for task ${task.id}.`);
       }
-    } catch (error) {
-      if (announceTerminalParent) {
-        store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+      task = store.setParentMessage(task.id, parent.channel, parent.ts, summary);
+    } else {
+      try {
+        await client.chat.update({
+          channel: task.parentChannelId,
+          ts: task.parentMessageTs,
+          ...card,
+        });
+        store.setRenderedSummary(task.id, summary);
+        if (announceTerminalParent) {
+          const closedMessage = await postTaskClosedMessage(
+            client,
+            task.parentChannelId,
+            task.parentMessageTs,
+            task.status,
+            task.title,
+          );
+          await postRelatedIssues(
+            client,
+            task.parentChannelId,
+            closedMessage.ts,
+            event.relatedIssues,
+          );
+        }
+      } catch (error) {
+        if (announceTerminalParent) {
+          store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+        }
+        throw error;
       }
-      throw error;
     }
-  }
 
-  const threadEvent =
-    isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
-  const threadContext = {
-    fromStatus: previousTask?.status,
-    toStatus: task.status,
-  };
-  const notificationContext = { ...threadContext, mentions: notifications?.mentions };
-  const threadBody = buildThreadMessage(threadEvent, notifications?.creator, notificationContext);
-  const threadBlocks = buildThreadMessageBlocks(
-    threadEvent,
-    notifications?.creator,
-    notificationContext,
-  );
-  const reply = shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notifications))
-    ? await client.chat.postMessage({
-        channel: task.parentChannelId!,
-        thread_ts: task.parentMessageTs!,
-        text: threadBody,
-        ...(threadBlocks ? { blocks: threadBlocks } : {}),
-      })
-    : undefined;
-  await options.afterPublish?.(task);
-  store.addEvent({
-    taskId: task.id,
-    type: event.type,
-    actor: "watcher",
-    fromStatus: previousTask?.status,
-    toStatus: task.status,
-    body: threadBody,
-    slackThreadTs: reply?.ts,
+    const threadEvent =
+      isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
+    const threadContext = {
+      fromStatus: previousTask?.status,
+      toStatus: task.status,
+    };
+    const notificationContext = { ...threadContext, assignees: notificationAssignees };
+    const threadBody = buildThreadMessage(threadEvent, notificationContext);
+    const threadBlocks = buildThreadMessageBlocks(threadEvent, notificationContext);
+    const reply = shouldPostThreadMessage(
+      statusChanged,
+      isNewPullRequest,
+      Boolean(notificationAssignees),
+    )
+      ? await client.chat.postMessage({
+          channel: task.parentChannelId!,
+          thread_ts: task.parentMessageTs!,
+          text: threadBody,
+          ...(threadBlocks ? { blocks: threadBlocks } : {}),
+        })
+      : undefined;
+    await options.afterPublish?.(task);
+    store.addEvent({
+      taskId: task.id,
+      type: event.type,
+      actor: "watcher",
+      fromStatus: previousTask?.status,
+      toStatus: task.status,
+      body: threadBody,
+      slackThreadTs: reply?.ts,
+    });
   });
 }
 

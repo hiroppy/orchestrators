@@ -1,4 +1,5 @@
 import type { WatcherStore } from "../persistence/store.ts";
+import type { Task } from "../domain/types.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import {
@@ -6,14 +7,18 @@ import {
   buildHelpMessageBlocks,
   buildStatusSummary,
   buildStatusSummaryBlocks,
+  buildTaskCard,
+  replaceTaskCardAssignees,
   STATUS_SUMMARY_STATUSES,
+  type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
 import { resolveSlackDisplayName } from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
+import { withTaskCardQueue } from "./task-card-queue.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
-const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
+const MAX_ASSIGNEES_LENGTH = 2_000 - "*Assignees*\n".length;
 
 type CommandHandler = (context: MentionCommandContext) => Promise<void>;
 const commandHandlers: Record<string, CommandHandler> = {
@@ -27,7 +32,6 @@ const commandHandlers: Record<string, CommandHandler> = {
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
-  configuredMentionTargets: string[] = [],
   botUserId?: string,
   takePrOptions?: TakePrOptions,
 ): Promise<void> {
@@ -43,7 +47,6 @@ export async function handleAppMention(
       logger,
       store,
       args: mention.args,
-      configuredMentionTargets,
       takePrOptions,
     });
   } catch (error) {
@@ -67,7 +70,7 @@ function commandFailureMessage(command: string): string {
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
   if (command === "unassign") {
-    return "Failed to unassign you from task notifications. No assignment was changed.";
+    return "Failed to unassign you from the task. No assignment was changed.";
   }
   return "Failed to load the current task status.";
 }
@@ -136,9 +139,9 @@ function escapeRegExp(value: string): string {
 async function handleAssignCommand({
   event,
   client,
+  logger,
   store,
   args,
-  configuredMentionTargets,
 }: MentionCommandContext): Promise<void> {
   const threadTs = event.threadTs;
   if (!threadTs) return;
@@ -166,27 +169,50 @@ async function handleAssignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You can only assign yourself to task notifications.",
+      "You can only assign yourself to the task.",
     );
     return;
   }
 
-  const assignedMentions = store.getTaskNotificationMentions(task.id);
+  const assignedMentions = store.getTaskAssignees(task.id);
   const slackMention = `<@${slackUserId}>`;
   const alreadyAssigned = assignedMentions.includes(slackMention);
-  const combinedTargets = [
-    ...new Set([...configuredMentionTargets, ...assignedMentions, slackMention]),
-  ];
-  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_MENTIONS_LENGTH) {
+  const combinedTargets = [...new Set([...assignedMentions, slackMention])];
+  if (!alreadyAssigned && combinedTargets.join(" ").length > MAX_ASSIGNEES_LENGTH) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Cannot assign ${slackMention}: configured notification mentions reached Slack's text limit.`,
+      `Cannot assign ${slackMention}: task assignees reached Slack's text limit.`,
     );
     return;
   }
 
-  if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
+  if (!alreadyAssigned) {
+    try {
+      store.assignTask(task.id, slackUserId);
+    } catch (error) {
+      logger.error(error);
+      await postSlackOperationError(
+        client,
+        { channel: event.channel, threadTs },
+        "Failed to assign you to the task. No assignment was changed.",
+        logger,
+      );
+      return;
+    }
+  }
+  try {
+    await refreshTaskAssignees(client, store, task, logger);
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were assigned, but the task card could not be updated.",
+      logger,
+    );
+    return;
+  }
   await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
 }
 
@@ -230,12 +256,24 @@ async function handleUnassignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You can only unassign yourself from task notifications.",
+      "You can only unassign yourself from the task.",
     );
     return;
   }
 
-  store.unassignTaskNotificationMention(task.id, slackUserId);
+  store.unassignTask(task.id, slackUserId);
+  try {
+    await refreshTaskAssignees(client, store, task, logger);
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were unassigned, but the task card could not be updated.",
+      logger,
+    );
+    return;
+  }
   try {
     await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
   } catch (error) {
@@ -247,6 +285,48 @@ async function handleUnassignCommand({
       logger,
     );
   }
+}
+
+async function refreshTaskAssignees(
+  client: Pick<SlackClient, "chat">,
+  store: WatcherStore,
+  task: Task,
+  logger: { error(error: unknown): void },
+): Promise<void> {
+  await withTaskCardQueue(task.id, async () => {
+    const currentTask = store.getTask(task.id) ?? task;
+    if (!currentTask.parentChannelId || !currentTask.parentMessageTs) return;
+
+    const assignees = store.getTaskAssignees(currentTask.id);
+    const baseCard = buildTaskCard(
+      currentTask,
+      store.getSelectableStatuses(currentTask.serviceName),
+      undefined,
+      assignees,
+    );
+    let currentCard = baseCard;
+    try {
+      if (currentTask.lastRenderedSummary) {
+        const parsed = JSON.parse(currentTask.lastRenderedSummary) as unknown;
+        if (isTaskCard(parsed)) currentCard = { ...parsed, text: baseCard.text };
+      }
+    } catch (error) {
+      logger.error(error);
+    }
+    const card = replaceTaskCardAssignees(currentCard, assignees);
+    await client.chat.update({
+      channel: currentTask.parentChannelId,
+      ts: currentTask.parentMessageTs,
+      ...card,
+    });
+    store.setRenderedSummary(currentTask.id, JSON.stringify(card));
+  });
+}
+
+function isTaskCard(value: unknown): value is TaskCard {
+  if (!value || typeof value !== "object") return false;
+  const card = value as Partial<TaskCard>;
+  return typeof card.text === "string" && Array.isArray(card.blocks) && card.metadata !== undefined;
 }
 
 async function handleStatusCommand({
@@ -333,6 +413,5 @@ interface MentionCommandContext {
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];
-  configuredMentionTargets: string[];
   takePrOptions?: TakePrOptions;
 }

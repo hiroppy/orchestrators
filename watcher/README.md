@@ -239,12 +239,12 @@ destination channel. It does not require the root `config.ts` or
   the Linear update and Slack card update succeed.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
-  mentioned. Watcher-originated notifications resolve the Linear issue creator
-  by email and render `Creator: <@user>` when a configured `slack.mentions`
-  status or event is reached. If Slack lookup fails, the Linear creator name is
-  displayed without a mention. Optional `slack.mentions.targets` entries render
-  separately as `Mentions:` for reviewers or Slack user groups. When `targets`
-  is omitted or empty, the `Mentions:` label is not displayed.
+  mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator
+  resolved by email to a Slack user once, before the parent post. Parent cards
+  display those assignees without notifying them. Watcher thread notifications
+  mention the current persisted assignees only when `slack.notifications.statuses`
+  or `slack.notifications.events` matches. The `assign` and `unassign` commands
+  update both persistence and the parent card without reapplying defaults.
 - A user's text and attached images or videos in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
   PNG, JPEG, GIF, WebP, MP4, MOV, and WebM file-only replies are supported. Bot messages,

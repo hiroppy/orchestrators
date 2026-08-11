@@ -50,8 +50,7 @@ describe("watcher polling", () => {
             statuses: ["Triage", "Building", "Shipped"],
           },
         },
-        mention: {
-          targets: [],
+        notifications: {
           statuses: [],
           events: ["started"],
         },
@@ -68,10 +67,12 @@ describe("watcher polling", () => {
         slackClient: fakeSlackClient(slackCalls),
       });
 
-      assert.deepEqual(authorizationHeaders, ["lin_other", "lin_other"]);
+      assert.deepEqual(authorizationHeaders, ["lin_other"]);
       assert.match(output[0], /Use another Linear account/);
       assert.match(output[0], /Private Creator/);
       assert.doesNotMatch(output[0], /private@example\.com/);
+      const preview = JSON.parse(output[0]) as { slack: unknown };
+      assert.doesNotMatch(JSON.stringify(preview.slack), /Private Creator|Assignees/);
       assert.equal(
         slackCalls.some(({ method }) => method === "lookupByEmail"),
         false,
@@ -126,7 +127,7 @@ describe("watcher polling", () => {
     });
   });
 
-  it("includes task notification assignments in dry-run output", async (context) => {
+  it("models persisted task assignees independently from dry-run notifications", async (context) => {
     await withStore(async (store) => {
       const current = {
         running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
@@ -149,7 +150,8 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked"]),
-        mention: { targets: [], statuses: ["Blocked"], events: [] },
+        defaultAssignees: ["<@UDEFAULT>"],
+        notifications: { statuses: [], events: [] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
@@ -158,17 +160,23 @@ describe("watcher polling", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      store.assignTaskNotificationMention("service-a:ENG-62", "U123");
+      store.assignTask("service-a:ENG-62", "U123");
+      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
       const output: string[] = [];
       context.mock.method(console, "log", (line) => output.push(String(line)));
 
       await runOnce({ config, store, dryRun: true });
 
-      assert.match(output.join("\n"), /<@U123>/);
+      const preview = JSON.parse(output[0]) as {
+        slack: { parent: unknown; thread: unknown };
+      };
+      assert.match(JSON.stringify(preview.slack.parent), /@U123/);
+      assert.doesNotMatch(JSON.stringify(preview.slack.parent), /UDEFAULT/);
+      assert.doesNotMatch(JSON.stringify(preview.slack.thread), /U123|UDEFAULT/);
     });
   });
 
-  it("retries creator-only notifications when Linear creator enrichment fails", async (context) => {
+  it("fetches task metadata and creator in one Linear request", async (context) => {
     await withStore(async (store) => {
       const current = {
         running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
@@ -198,7 +206,7 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
-        mention: { targets: [], statuses: [], events: ["started"] },
+        notifications: { statuses: [], events: ["started"] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
 
@@ -210,16 +218,13 @@ describe("watcher polling", () => {
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
       });
-      assert.deepEqual(warnings, ["Could not fetch Linear creator for notification: ENG-62"]);
-      assert.deepEqual(store.getSnapshots()["service-a"], {
-        running: [],
-        retrying: [],
-        blocked: [],
-      });
+      assert.deepEqual(warnings, []);
+      assert.equal(linearRequests, 1);
+      assert.deepEqual(store.getSnapshots()["service-a"], current);
     });
   });
 
-  it("commits permanent creator misses and still sends static mentions", async (context) => {
+  it("commits permanent creator misses and still sends default assignees", async (context) => {
     await withStore(async (store) => {
       const current = {
         running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
@@ -245,8 +250,8 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
-        mention: {
-          targets: ["<!subteam^SREVIEWERS>"],
+        defaultAssignees: ["<@UREVIEWERS>"],
+        notifications: {
           statuses: [],
           events: ["started"],
         },
@@ -262,11 +267,11 @@ describe("watcher polling", () => {
       });
 
       assert.deepEqual(store.getSnapshots()["service-a"], current);
-      assert.match(JSON.stringify(calls), /Mentions: <!subteam\^SREVIEWERS>/);
+      assert.match(JSON.stringify(calls), /Assignees: <@UREVIEWERS>/);
     });
   });
 
-  it("preflights creator enrichment before publishing any event", async (context) => {
+  it("continues publishing other events when one Linear lookup fails", async (context) => {
     await withStore(async (store) => {
       const current = {
         running: [
@@ -299,7 +304,7 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
-        mention: { targets: [], statuses: [], events: ["started"] },
+        notifications: { statuses: [], events: ["started"] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const calls: Array<Record<string, unknown>> = [];
@@ -314,13 +319,9 @@ describe("watcher polling", () => {
 
       assert.equal(
         calls.some(({ method }) => method === "postMessage"),
-        false,
+        true,
       );
-      assert.deepEqual(store.getSnapshots()["service-a"], {
-        running: [],
-        retrying: [],
-        blocked: [],
-      });
+      assert.deepEqual(store.getSnapshots()["service-a"], current);
     });
   });
 });

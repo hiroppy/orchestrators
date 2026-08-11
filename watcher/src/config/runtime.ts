@@ -2,7 +2,7 @@ import type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  MentionsConfig,
+  NotificationsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
   ReviewReactionConfig,
@@ -15,7 +15,7 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
-const MAX_MENTION_TARGETS_LENGTH = 2_000;
+const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
 const EVENT_TYPES: EventType[] = [
   "started",
@@ -32,8 +32,7 @@ interface ResolvedSlackConfig {
   channelId: string;
 }
 
-export interface ResolvedMentionConfig {
-  targets: string[];
+export interface ResolvedNotificationConfig {
   statuses: string[];
   events: EventType[];
 }
@@ -48,7 +47,8 @@ export interface WatcherRuntimeConfig {
   };
   reviewReaction?: ResolvedReviewReactionConfig;
   statusHooks: ResolvedStatusHookConfig[];
-  mention?: ResolvedMentionConfig;
+  defaultAssignees: string[];
+  notifications?: ResolvedNotificationConfig;
   slack?: ResolvedSlackConfig;
 }
 
@@ -108,7 +108,8 @@ export function resolveWatcherConfig(
     endedTaskRetry,
     reviewReaction,
     statusHooks,
-    mention: resolveMentionConfig(config.slack?.mentions),
+    defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
+    notifications: resolveNotificationConfig(config.slack?.notifications),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
 }
@@ -225,39 +226,45 @@ function referencedLinearTeams(
   );
 }
 
-function resolveMentionConfig(
-  mention: MentionsConfig | undefined,
-): ResolvedMentionConfig | undefined {
-  if (!mention) return undefined;
-
-  const targets = mention.targets ?? [];
-  const statuses = mention.statuses ?? [];
-  const events = mention.events ?? [];
+function resolveDefaultAssignees(assignees: string[] | undefined): string[] {
+  if (assignees === undefined) return [];
   if (
-    !Array.isArray(targets) ||
-    targets.some((target) => typeof target !== "string" || !target.trim())
+    !Array.isArray(assignees) ||
+    assignees.some((assignee) => typeof assignee !== "string" || !/^<@[A-Z0-9]+>$/i.test(assignee))
   ) {
-    throw new Error("slack.mentions.targets must be an array of non-empty Slack mentions.");
+    throw new Error("slack.defaultAssignees must contain only Slack user mentions.");
   }
-  if (targets.join(" ").length > MAX_MENTION_TARGETS_LENGTH) {
+  if (assignees.join(" ").length > MAX_ASSIGNEES_LENGTH) {
     throw new Error(
-      `slack.mentions.targets must not exceed ${MAX_MENTION_TARGETS_LENGTH} characters combined.`,
+      `slack.defaultAssignees must not exceed ${MAX_ASSIGNEES_LENGTH} characters combined.`,
     );
   }
+  return [...new Set(assignees)];
+}
+
+function resolveNotificationConfig(
+  notification: NotificationsConfig | undefined,
+): ResolvedNotificationConfig | undefined {
+  if (!notification) return undefined;
+
+  const statuses = notification.statuses ?? [];
+  const events = notification.events ?? [];
   if (!Array.isArray(statuses)) {
-    throw new Error("slack.mentions.statuses must be an array.");
+    throw new Error("slack.notifications.statuses must be an array.");
   }
   if (!Array.isArray(events)) {
-    throw new Error("slack.mentions.events must be an array.");
+    throw new Error("slack.notifications.events must be an array.");
   }
-  validateStatuses("slack.mentions.statuses", statuses);
+  validateStatuses("slack.notifications.statuses", statuses);
 
   const unknownEvents = events.filter((event) => !EVENT_TYPES.includes(event));
   if (unknownEvents.length > 0) {
-    throw new Error(`slack.mentions.events contains unknown events: ${unknownEvents.join(", ")}`);
+    throw new Error(
+      `slack.notifications.events contains unknown events: ${unknownEvents.join(", ")}`,
+    );
   }
 
-  return { targets: targets.map((target) => target.trim()), statuses, events };
+  return { statuses, events };
 }
 
 function resolveSlackConfig(

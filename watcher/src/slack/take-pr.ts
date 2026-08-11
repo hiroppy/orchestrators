@@ -28,6 +28,7 @@ export interface TakePrOptions {
   services: ServiceDefinition[];
   linearTeams: Record<string, ResolvedLinearTeamConfig>;
   symphoniesDirectory: string;
+  defaultAssignees?: string[];
   findPullRequest?: (url: string) => Promise<PullRequest | null>;
   createLinearIssue?: (
     input: CreateLinearTakePrIssueInput,
@@ -240,15 +241,34 @@ export async function handleTakePrAction(
       throw new Error("Could not get the Slack parent message URL.");
     }
 
-    const issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
-      buildLinearIssueInput(
-        issueRequest,
-        linearTeam.teamId,
-        projectSlug,
-        permalinkResponse.permalink,
-      ),
-      { apiKey: linearTeam.apiKey },
+    const linearIssueInput = buildLinearIssueInput(
+      issueRequest,
+      linearTeam.teamId,
+      projectSlug,
+      permalinkResponse.permalink,
     );
+    const issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(linearIssueInput, {
+      apiKey: linearTeam.apiKey,
+    });
+    const initialAssignees = [
+      ...(options.defaultAssignees ?? []),
+      ...(claimed.requesterSlackUserId ? [`<@${claimed.requesterSlackUserId}>`] : []),
+    ];
+    if (initialAssignees.length > 0) {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: service.name,
+        issueIdentifier: issue.identifier,
+        issueUrl: issue.url,
+        issueTitle: linearIssueInput.title,
+        resolvedState: "In Progress",
+        pullRequest: validation.pullRequest,
+      });
+      for (const assignee of new Set(initialAssignees)) {
+        const slackUserId = assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1];
+        if (slackUserId) store.assignTask(task.id, slackUserId);
+      }
+    }
     await client.chat.postMessage({
       channel: claimed.channelId,
       thread_ts: claimed.threadTs,

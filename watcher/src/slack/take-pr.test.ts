@@ -175,7 +175,6 @@ describe("take-pr Slack flow", () => {
           logger: { error: (error) => assert.fail(String(error)) },
         },
         store,
-        [],
         undefined,
         options(),
       );
@@ -291,6 +290,7 @@ describe("take-pr Slack flow", () => {
           url: "https://linear.app/example/issue/ENG-100/take-pr",
         }),
       });
+      store.syncDefinitions(takePrOptions.services, takePrOptions.linearTeams);
       await createPending(store, calls, takePrOptions);
       calls.length = 0;
 
@@ -392,7 +392,6 @@ describe("take-pr Slack flow", () => {
           logger: { error: () => {} },
         },
         store,
-        [],
         undefined,
         options(),
       );
@@ -556,6 +555,7 @@ describe("take-pr Slack flow", () => {
       const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
       let pullRequestLookups = 0;
       const takePrOptions = options({
+        defaultAssignees: ["<@UDEFAULT>"],
         findPullRequest: async () => ({
           ...pullRequest,
           url: ++pullRequestLookups === 1 ? pullRequest.url : canonicalPullRequestUrl,
@@ -607,6 +607,10 @@ describe("take-pr Slack flow", () => {
 
       assert.equal(acknowledged, true);
       assert.equal(store.getPendingTakePrRequest("request123"), undefined);
+      assert.deepEqual(store.getTaskAssignees("service-a:ENG-100").sort(), [
+        "<@U123>",
+        "<@UDEFAULT>",
+      ]);
       assert.deepEqual(calls[0], {
         method: "getPermalink",
         args: { channel: "C123", message_ts: "10.000" },

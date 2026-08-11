@@ -250,16 +250,16 @@ describe("Slack rendering", () => {
         attempt: 1,
         dueAt: "2026-07-29T05:14:49Z",
       },
-      "<@UHIROPPY>",
       {
         fromStatus: "In Progress",
         toStatus: "In Review",
+        assignees: ["<@UHIROPPY>"],
       },
     );
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4>$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Assignees: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4>$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -275,9 +275,9 @@ describe("Slack rendering", () => {
           },
           turnCount: 1,
         },
-        "<@UHIROPPY>",
         {
           fromStatus: "In Progress",
+          assignees: ["<@UHIROPPY>"],
           toStatus: "In Review",
         },
       )?.map(({ type }) => type),
@@ -298,8 +298,7 @@ describe("Slack rendering", () => {
         turnCount: 1,
         tokens: { total: 1_400_000 },
       },
-      creator,
-      { mentions },
+      [creator, ...mentions],
     );
     const thread = buildThreadMessage(
       {
@@ -308,23 +307,25 @@ describe("Slack rendering", () => {
         issueIdentifier: "ENG-62",
         resolvedState: "In Review",
       },
-      creator,
-      { mentions },
+      { assignees: [creator, ...mentions] },
     );
 
-    assert.equal(card.text, "[service-a] Build the Slack control plane. Created by <@UCREATOR>");
+    assert.equal(
+      card.text,
+      "[service-a] Build the Slack control plane. Assigned to @UCREATOR @SXXXXXXXX",
+    );
     assert.deepEqual(card.blocks.slice(2), [
       {
         type: "section",
         fields: [
           { type: "mrkdwn", text: "*Event*\nEnded" },
-          { type: "mrkdwn", text: "*Creator*\n<@UCREATOR>" },
+          { type: "mrkdwn", text: "*Assignees*\n@UCREATOR @SXXXXXXXX" },
         ],
       },
     ]);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Mentions/);
     assert.doesNotMatch(JSON.stringify(card.blocks), /Turns:|Tokens:/);
-    assert.match(thread, /\*Updated\* \| Creator: <@UCREATOR> \| Mentions: <!subteam\^SXXXXXXXX>/);
+    assert.match(thread, /\*Updated\* \| Assignees: <@UCREATOR> <!subteam\^SXXXXXXXX>/);
 
     assert.match(
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
@@ -346,7 +347,7 @@ describe("Slack rendering", () => {
     );
   });
 
-  it("keeps the mentions field within Slack's text limit", () => {
+  it("keeps the assignees field within Slack's text limit", () => {
     const mentions = Array.from(
       { length: 300 },
       (_, index) => `<@U${String(index).padStart(8, "0")}>`,
@@ -357,18 +358,28 @@ describe("Slack rendering", () => {
         service: "service-a",
         issueIdentifier: "ENG-62",
       },
-      undefined,
-      { mentions },
+      { assignees: mentions },
     );
-    const mentionsField = blocks
+    const assigneesField = blocks
       .flatMap((block) => {
         if ("fields" in block) return block.fields as Array<{ text: string }>;
         return "text" in block ? [block.text as { text: string }] : [];
       })
-      .find(({ text }) => text.startsWith("*Mentions*\n"));
+      .find(({ text }) => text.startsWith("*Assignees*\n"));
 
-    assert.ok(mentionsField);
-    assert.ok(mentionsField.text.length <= 2_000);
-    assert.match(mentionsField.text, />$/);
+    assert.ok(assigneesField);
+    assert.ok(assigneesField.text.length <= 2_000);
+    assert.match(assigneesField.text, />$/);
+
+    const card = buildTaskCard(task, ["In Progress"], undefined, mentions);
+    const cardAssigneesField = card.blocks
+      .flatMap((block) => {
+        if ("fields" in block) return block.fields as Array<{ text: string }>;
+        return "text" in block ? [block.text as { text: string }] : [];
+      })
+      .find(({ text }) => text.startsWith("*Assignees*\n"));
+    assert.ok(cardAssigneesField);
+    assert.ok(cardAssigneesField.text.length <= 2_000);
+    assert.doesNotMatch(JSON.stringify(card), /<@U/);
   });
 });

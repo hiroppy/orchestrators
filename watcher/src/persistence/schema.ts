@@ -98,8 +98,8 @@ export const taskEvents = sqliteTable(
   ],
 );
 
-export const taskNotificationMentions = sqliteTable(
-  "task_notification_mentions",
+export const taskAssignees = sqliteTable(
+  "task_assignees",
   {
     taskId: text("task_id")
       .notNull()
@@ -163,7 +163,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   }),
   observation: one(taskObservations),
   events: many(taskEvents),
-  notificationMentions: many(taskNotificationMentions),
+  assignees: many(taskAssignees),
 }));
 
 export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
@@ -183,9 +183,9 @@ export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
   }),
 }));
 
-export const taskNotificationMentionsRelations = relations(taskNotificationMentions, ({ one }) => ({
+export const taskAssigneesRelations = relations(taskAssignees, ({ one }) => ({
   task: one(tasks, {
-    fields: [taskNotificationMentions.taskId],
+    fields: [taskAssignees.taskId],
     references: [tasks.id],
   }),
 }));

@@ -19,10 +19,10 @@ efficiently keep many tasks moving, even while away from your desk.
 - Mention the configured bot with `status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
 - Mention the configured bot with `assign @user` in a tracked task thread to include that
-  user in configured notification mentions for only that task. The mentioned
+  user in task assignees for only that task. The mentioned
   user must be the person running the command.
 - Mention the configured bot with `unassign @user` in a tracked task thread to remove that
-  user from the task's notification mentions. The mentioned user must be the person running
+  user from the task assignees. The mentioned user must be the person running
   the command.
 - Attach an existing pull request to Linear so the watcher can monitor it
 - Reply to a Linear workpad from its Slack task thread, so you can keep
@@ -96,7 +96,7 @@ used by the watcher:
 Preview the status-command response with:
 
 ```sh
-pnpm --filter orchestrator-slack-watcher slack:preview mentions status
+pnpm --filter orchestrator-slack-watcher slack:preview assignees status
 ```
 
 The preview uses `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` when set, otherwise it
@@ -183,7 +183,7 @@ the `symphony_template/` Git subtree identical to upstream.
 The watcher example configuration uses `In Review`, matching the default
 `customize` profile. The `official` profile uses Symphony's upstream
 `Human Review` status; when selecting it, set `watcher.reviewReaction.inReviewStatus`
-and any matching `slack.mentions.statuses` entries to `Human Review`.
+and any matching `slack.notifications.statuses` entries to `Human Review`.
 
 Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
 workflow and can customize it independently. Since `symphonies/` is gitignored,

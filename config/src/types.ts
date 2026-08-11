@@ -14,8 +14,7 @@ export interface InstanceConfig {
   enabled?: boolean;
 }
 
-export interface MentionsConfig {
-  targets?: string[];
+export interface NotificationsConfig {
   statuses?: string[];
   events?: EventType[];
 }
@@ -24,7 +23,8 @@ export interface SlackConfig {
   botToken?: string;
   appToken?: string;
   channelId?: string;
-  mentions?: MentionsConfig;
+  defaultAssignees?: string[];
+  notifications?: NotificationsConfig;
 }
 
 export interface ReviewReactionConfig {

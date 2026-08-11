@@ -2,6 +2,7 @@ import type { WebClient } from "@slack/web-api";
 
 import type { WatcherStore } from "../persistence/store.ts";
 import { buildReviewRequeueLimitMessageBlocks, buildTaskCard } from "../slack/views.ts";
+import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   hasPendingEvent,
   parseReviewRequeuePendingPayload,
@@ -100,18 +101,25 @@ async function deliverPendingReviewLimitNotification(
     });
   }
 
-  const updatedTask = store.getTask(task.id)!;
-  const card = buildTaskCard(updatedTask, store.getSelectableStatuses(task.serviceName), {
-    ...payload.event,
-    state: pending.fromStatus,
-    resolvedState: updatedTask.status,
+  await withTaskCardQueue(task.id, async () => {
+    const updatedTask = store.getTask(task.id)!;
+    const card = buildTaskCard(
+      updatedTask,
+      store.getSelectableStatuses(task.serviceName),
+      {
+        ...payload.event,
+        state: pending.fromStatus,
+        resolvedState: updatedTask.status,
+      },
+      store.getTaskAssignees(updatedTask.id),
+    );
+    await slackClient.chat.update({
+      channel: task.parentChannelId!,
+      ts: task.parentMessageTs!,
+      ...card,
+    });
+    store.setRenderedSummary(task.id, JSON.stringify(card));
   });
-  await slackClient.chat.update({
-    channel: task.parentChannelId,
-    ts: task.parentMessageTs,
-    ...card,
-  });
-  store.setRenderedSummary(task.id, JSON.stringify(card));
   store.addEvents([
     {
       taskId: task.id,

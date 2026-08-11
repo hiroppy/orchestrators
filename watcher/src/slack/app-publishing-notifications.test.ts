@@ -77,8 +77,7 @@ describe("Slack event notifications", () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
-      const mention = {
-        targets: ["<!subteam^SREVIEWERS>"],
+      const notification = {
         statuses: ["In Review"],
         events: ["blocked"] as const,
       };
@@ -92,8 +91,10 @@ describe("Slack event notifications", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           state: "In Progress",
+          creatorMention: "<@UCREATOR>",
         },
-        mention,
+        notification,
+        { defaultAssignees: ["<@UREVIEWERS>"] },
       );
       await publishWatcherEvent(
         client,
@@ -106,7 +107,7 @@ describe("Slack event notifications", () => {
           state: "In Review",
           creatorMention: "<@UCREATOR>",
         },
-        mention,
+        notification,
       );
       await publishWatcherEvent(
         client,
@@ -119,7 +120,7 @@ describe("Slack event notifications", () => {
           state: "In Review",
           creatorMention: "<@UCREATOR>",
         },
-        mention,
+        notification,
       );
       await publishWatcherEvent(
         client,
@@ -132,18 +133,49 @@ describe("Slack event notifications", () => {
           state: "In Review",
           creatorMention: "<@UCREATOR>",
         },
-        mention,
+        notification,
       );
 
       const threadTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 2);
-      assert.match(threadTexts[0], /\| Creator: <@UCREATOR>/);
       for (const text of threadTexts) {
-        assert.match(text, /Creator: <@UCREATOR>/);
-        assert.match(text, /Mentions: <!subteam\^SREVIEWERS>/);
+        assert.match(text, /Assignees: <@UCREATOR> <@UREVIEWERS>/);
       }
+    });
+  });
+
+  it("treats the first publication of a pre-seeded take-pr task as a status entry", async () => {
+    await withStore(async (store) => {
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.assignTask("service-a:ENG-62", "UREQUESTER");
+      store.assignTask("service-a:ENG-62", "UDEFAULT");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await publishWatcherEvent(
+        fakeClient(calls),
+        store,
+        "C123",
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+        },
+        { statuses: ["In Progress"], events: [] },
+      );
+
+      const notification = calls.find(
+        ({ method, args }) => method === "postMessage" && args.thread_ts,
+      );
+      assert.match(String(notification?.args.text), /<@UREQUESTER>/);
+      assert.match(String(notification?.args.text), /<@UDEFAULT>/);
     });
   });
 
@@ -226,7 +258,7 @@ describe("Slack event notifications", () => {
       );
       assert.match(
         threadTexts[2],
-        /^\*In Progress\* → \*In Review\*\nEvent: Updated \| Creator: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^\*In Progress\* → \*In Review\*\nEvent: Updated\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
       );
       const statusTransitionBlocks = calls.filter(
         ({ method, args }) => method === "postMessage" && args.thread_ts,
@@ -240,7 +272,6 @@ describe("Slack event notifications", () => {
         "*In Progress* → *In Review*",
       );
       assert.match(JSON.stringify(statusTransitionBlocks), /\*Event\*\\nUpdated/);
-      assert.match(JSON.stringify(statusTransitionBlocks), /\*Creator\*\\n<@UHIROPPY>/);
       assert.match(JSON.stringify(statusTransitionBlocks), /PR#42/);
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,
