@@ -161,6 +161,7 @@ describe("take-pr Slack flow", () => {
         requesterSlackUserId: "U123",
         status: "pending",
         selectedService: undefined,
+        linearIssueIdentifier: undefined,
         linearIssueUrl: undefined,
         createdAt: pending?.createdAt,
         updatedAt: pending?.updatedAt,
@@ -373,7 +374,8 @@ describe("take-pr Slack flow", () => {
         ),
         /Slack unavailable/,
       );
-      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "created");
+      assert.equal(store.getPendingTakePrRequest("request123")?.linearIssueIdentifier, "ENG-100");
 
       calls.length = 0;
       await handleTakePrAction(
@@ -388,7 +390,7 @@ describe("take-pr Slack flow", () => {
         takePrOptions,
       );
 
-      assert.equal(creations, 2);
+      assert.equal(creations, 1);
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "completed");
       assert.match(String(calls[0].args.text), /ENG-100/);
     });

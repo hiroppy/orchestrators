@@ -122,10 +122,11 @@ export const pendingTakePrRequests = sqliteTable(
     channelId: text("channel_id").notNull(),
     threadTs: text("thread_ts").notNull(),
     requesterSlackUserId: text("requester_slack_user_id"),
-    status: text("status", { enum: ["pending", "processing", "completed"] })
+    status: text("status", { enum: ["pending", "processing", "created", "completed"] })
       .notNull()
       .default("pending"),
     selectedService: text("selected_service"),
+    linearIssueIdentifier: text("linear_issue_identifier"),
     linearIssueUrl: text("linear_issue_url"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

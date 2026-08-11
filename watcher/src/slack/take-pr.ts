@@ -158,7 +158,10 @@ export async function handleTakePrAction(
     );
     return;
   }
-  if (request.status === "processing" && request.selectedService !== service.name) {
+  if (
+    (request.status === "processing" || request.status === "created") &&
+    request.selectedService !== service.name
+  ) {
     await postTakePrError(
       client,
       request.channelId,
@@ -172,23 +175,30 @@ export async function handleTakePrAction(
   if (!claimed) return;
 
   try {
-    const linearTeam = options.linearTeams[service.linearTeam];
-    if (!linearTeam?.apiKey || !linearTeam.teamId) {
-      throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
-    }
-    const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
-    const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
-    const projectSlug = projectSlugFromWorkflow(workflow);
-    if (!projectSlug) {
-      throw new Error(
-        `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
-      );
-    }
+    let issue =
+      claimed.linearIssueIdentifier && claimed.linearIssueUrl
+        ? { identifier: claimed.linearIssueIdentifier, url: claimed.linearIssueUrl }
+        : undefined;
+    if (!issue) {
+      const linearTeam = options.linearTeams[service.linearTeam];
+      if (!linearTeam?.apiKey || !linearTeam.teamId) {
+        throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
+      }
+      const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
+      const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
+      const projectSlug = projectSlugFromWorkflow(workflow);
+      if (!projectSlug) {
+        throw new Error(
+          `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
+        );
+      }
 
-    const issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
-      buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug),
-      { apiKey: linearTeam.apiKey },
-    );
+      issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
+        buildLinearIssueInput(claimed, linearTeam.teamId, projectSlug),
+        { apiKey: linearTeam.apiKey },
+      );
+      store.markPendingTakePrIssueCreated(claimed.id, issue.identifier, issue.url);
+    }
     await client.chat.postMessage({
       channel: claimed.channelId,
       thread_ts: claimed.threadTs,
@@ -201,7 +211,9 @@ export async function handleTakePrAction(
     });
     store.completePendingTakePrRequest(claimed.id, issue.url);
   } catch (error) {
-    if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
+    if (claimed.linearIssueIdentifier && claimed.linearIssueUrl) {
+      store.restorePendingTakePrIssueCreated(claimed.id);
+    } else if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
       store.releasePendingTakePrRequest(claimed.id);
     }
     logger.error(error);

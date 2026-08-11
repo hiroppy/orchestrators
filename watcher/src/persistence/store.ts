@@ -61,8 +61,9 @@ export interface PendingTakePrRequest {
   channelId: string;
   threadTs: string;
   requesterSlackUserId?: string;
-  status: "pending" | "processing" | "completed";
+  status: "pending" | "processing" | "created" | "completed";
   selectedService?: string;
+  linearIssueIdentifier?: string;
   linearIssueUrl?: string;
   createdAt: string;
   updatedAt: string;
@@ -70,7 +71,12 @@ export interface PendingTakePrRequest {
 
 type NewPendingTakePrRequest = Omit<
   PendingTakePrRequest,
-  "status" | "selectedService" | "linearIssueUrl" | "createdAt" | "updatedAt"
+  | "status"
+  | "selectedService"
+  | "linearIssueIdentifier"
+  | "linearIssueUrl"
+  | "createdAt"
+  | "updatedAt"
 >;
 
 export class WatcherStore {
@@ -466,6 +472,10 @@ export class WatcherStore {
             or(
               eq(pendingTakePrRequests.status, "pending"),
               and(
+                eq(pendingTakePrRequests.status, "created"),
+                eq(pendingTakePrRequests.selectedService, selectedService),
+              ),
+              and(
                 eq(pendingTakePrRequests.status, "processing"),
                 eq(pendingTakePrRequests.selectedService, selectedService),
                 lte(pendingTakePrRequests.updatedAt, staleBefore),
@@ -491,6 +501,32 @@ export class WatcherStore {
       .run();
   }
 
+  markPendingTakePrIssueCreated(
+    id: string,
+    linearIssueIdentifier: string,
+    linearIssueUrl: string,
+    now = new Date(),
+  ): void {
+    this.db
+      .update(pendingTakePrRequests)
+      .set({
+        status: "created",
+        linearIssueIdentifier,
+        linearIssueUrl,
+        updatedAt: now.toISOString(),
+      })
+      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .run();
+  }
+
+  restorePendingTakePrIssueCreated(id: string, now = new Date()): void {
+    this.db
+      .update(pendingTakePrRequests)
+      .set({ status: "created", updatedAt: now.toISOString() })
+      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .run();
+  }
+
   completePendingTakePrRequest(id: string, linearIssueUrl: string, now = new Date()): void {
     this.db
       .update(pendingTakePrRequests)
@@ -499,7 +535,15 @@ export class WatcherStore {
         linearIssueUrl,
         updatedAt: now.toISOString(),
       })
-      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .where(
+        and(
+          eq(pendingTakePrRequests.id, id),
+          or(
+            eq(pendingTakePrRequests.status, "created"),
+            eq(pendingTakePrRequests.status, "processing"),
+          ),
+        ),
+      )
       .run();
   }
 
@@ -615,6 +659,7 @@ function pendingTakePrRequestFromRow(
     ...row,
     requesterSlackUserId: row.requesterSlackUserId ?? undefined,
     selectedService: row.selectedService ?? undefined,
+    linearIssueIdentifier: row.linearIssueIdentifier ?? undefined,
     linearIssueUrl: row.linearIssueUrl ?? undefined,
   };
 }
@@ -625,6 +670,7 @@ function takePrRequestCanBeClaimed(
   now: Date,
 ): boolean {
   if (request.status === "pending") return true;
+  if (request.status === "created") return request.selectedService === selectedService;
   if (request.status !== "processing") return false;
   return (
     request.selectedService === selectedService &&

@@ -43,6 +43,13 @@
       "when": 1786423750146,
       "tag": "0005_faithful_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786425417497,
+      "tag": "0006_watery_taskmaster",
+      "breakpoints": true
     }
   ]
 }
