@@ -24,6 +24,10 @@ interface FindPullRequestOptions {
   reaction?: string;
 }
 
+interface LinkPullRequestOptions {
+  execFile?: typeof execFileDefault;
+}
+
 interface GhPullRequest {
   url?: string;
   number?: number;
@@ -75,6 +79,42 @@ export async function findPullRequestByUrl(
   options: FindPullRequestOptions = {},
 ): Promise<PullRequest | null> {
   return viewPullRequest(url, options);
+}
+
+export async function linkPullRequestToLinearIssue(
+  url: string,
+  body: string,
+  issueIdentifier: string,
+  options: LinkPullRequestOptions = {},
+): Promise<void> {
+  const repository = repositoryFromPullRequestUrl(url);
+  const pullRequestNumber = new URL(url).pathname.match(/\/pull\/(\d+)\/?$/)?.[1];
+  if (!repository || !pullRequestNumber) {
+    throw new Error(`Invalid GitHub pull request URL: ${url}`);
+  }
+
+  const link = `Fixes ${issueIdentifier}`;
+  if (body.split("\n").some((line) => line.trim().toLowerCase() === link.toLowerCase())) return;
+
+  const currentBody = body.trimEnd();
+  const updatedBody = currentBody ? `${currentBody}\n\n${link}` : link;
+  const execFile = options.execFile ?? execFileDefault;
+  try {
+    await execFile(
+      "gh",
+      [
+        "api",
+        "--method",
+        "PATCH",
+        `repos/${repository}/pulls/${pullRequestNumber}`,
+        "-f",
+        `body=${updatedBody}`,
+      ],
+      { timeout: 10_000, maxBuffer: 1024 * 1024 },
+    );
+  } catch {
+    throw new Error(`Could not link GitHub pull request to Linear issue ${issueIdentifier}.`);
+  }
 }
 
 async function viewPullRequest(

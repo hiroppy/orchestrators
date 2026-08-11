@@ -10,7 +10,7 @@ import {
   type CreateLinearTakePrIssueInput,
   type CreatedLinearIssue,
 } from "../integrations/linear.ts";
-import { findPullRequestByUrl } from "../integrations/github.ts";
+import { findPullRequestByUrl, linkPullRequestToLinearIssue } from "../integrations/github.ts";
 import type { PullRequest, ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
@@ -33,6 +33,7 @@ export interface TakePrOptions {
     input: CreateLinearTakePrIssueInput,
     options: { apiKey: string },
   ) => Promise<CreatedLinearIssue>;
+  linkPullRequest?: (url: string, body: string, issueIdentifier: string) => Promise<void>;
   createRequestId?: (event: Pick<TakePrMentionEvent, "channel" | "ts">) => string;
   readWorkflow?: (path: string) => Promise<string>;
 }
@@ -248,6 +249,11 @@ export async function handleTakePrAction(
         permalinkResponse.permalink,
       ),
       { apiKey: linearTeam.apiKey },
+    );
+    await (options.linkPullRequest ?? linkPullRequestToLinearIssue)(
+      issueRequest.pullRequestUrl,
+      issueRequest.pullRequestBody,
+      issue.identifier,
     );
     await client.chat.postMessage({
       channel: claimed.channelId,

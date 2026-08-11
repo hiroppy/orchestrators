@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { findPullRequest, findPullRequestByUrl, requireGitHubCli } from "./github.ts";
+import {
+  findPullRequest,
+  findPullRequestByUrl,
+  linkPullRequestToLinearIssue,
+  requireGitHubCli,
+} from "./github.ts";
 
 describe("requireGitHubCli", () => {
   it("accepts an installed and authenticated GitHub CLI", async () => {
@@ -19,6 +24,60 @@ describe("requireGitHubCli", () => {
         throw new Error("not authenticated");
       }),
       /GitHub CLI is required.*gh auth login/,
+    );
+  });
+});
+
+describe("linkPullRequestToLinearIssue", () => {
+  it("appends a Linear magic-word link to the pull request body", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+
+    await linkPullRequestToLinearIssue(
+      "https://github.com/example/widget/pull/42",
+      "## Summary\n\nFix the widget.",
+      "ENG-100",
+      {
+        execFile: async (command, args) => {
+          calls.push({ command, args });
+          return { stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        command: "gh",
+        args: [
+          "api",
+          "--method",
+          "PATCH",
+          "repos/example/widget/pulls/42",
+          "-f",
+          "body=## Summary\n\nFix the widget.\n\nFixes ENG-100",
+        ],
+      },
+    ]);
+  });
+
+  it("does not update a pull request that already has the same link", async () => {
+    await linkPullRequestToLinearIssue(
+      "https://github.com/example/widget/pull/42",
+      "## Summary\n\nFixes ENG-100",
+      "ENG-100",
+      {
+        execFile: async () => assert.fail("GitHub should not be called"),
+      },
+    );
+  });
+
+  it("reports GitHub update failures", async () => {
+    await assert.rejects(
+      linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "", "ENG-100", {
+        execFile: async () => {
+          throw new Error("GitHub unavailable");
+        },
+      }),
+      /Could not link GitHub pull request to Linear issue ENG-100/,
     );
   });
 });
