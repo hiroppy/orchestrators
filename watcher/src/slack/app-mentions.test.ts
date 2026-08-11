@@ -34,6 +34,8 @@ describe("Slack mention commands", () => {
           "  Show tracked Todo, In Progress, and In Review tasks.",
           "• `@Project Bot assign @user`",
           "  Add yourself to notifications for a tracked task. Run this in the task thread.",
+          "• `@Project Bot take-pr <GitHub PR URL>`",
+          "  Create a Linear issue for an existing open pull request.",
           "• `@Project Bot help`",
           "  Show this help message.",
         ].join("\n"),
