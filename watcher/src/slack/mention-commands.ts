@@ -3,6 +3,7 @@ import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import { buildStatusSummary, buildStatusSummaryBlocks, STATUS_SUMMARY_STATUSES } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
+import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
@@ -11,12 +12,14 @@ type CommandHandler = (context: MentionCommandContext) => Promise<void>;
 const commandHandlers: Record<string, CommandHandler> = {
   assign: handleAssignCommand,
   status: handleStatusCommand,
+  "take-pr": handleTakePrCommand,
 };
 
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
   configuredMentionTargets: string[] = [],
+  takePrOptions?: TakePrOptions,
 ): Promise<void> {
   const mention = parseMentionCommand(event);
   if (!mention) return;
@@ -31,6 +34,7 @@ export async function handleAppMention(
       store,
       args: mention.args,
       configuredMentionTargets,
+      takePrOptions,
     });
   } catch (error) {
     logger.error(error);
@@ -41,6 +45,25 @@ export async function handleAppMention(
       logger,
     );
   }
+}
+
+async function handleTakePrCommand({
+  event,
+  client,
+  logger,
+  store,
+  args,
+  takePrOptions,
+}: MentionCommandContext): Promise<void> {
+  if (!takePrOptions) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs: event.threadTs ?? event.ts },
+      "The take-pr command is not configured.",
+    );
+    return;
+  }
+  await handleTakePrMention(event, args, client, logger, store, takePrOptions);
 }
 
 function parseMentionCommand(
@@ -199,4 +222,5 @@ interface MentionCommandContext {
   store: WatcherStore;
   args: string[];
   configuredMentionTargets: string[];
+  takePrOptions?: TakePrOptions;
 }

@@ -25,6 +25,7 @@ import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackDisplayName } from "./users.ts";
 import type { SlackClient } from "./client-types.ts";
+import { handleTakePrAction, TAKE_PR_SERVICE_ACTION_ID, type TakePrOptions } from "./take-pr.ts";
 
 export * from "./client-types.ts";
 export * from "./notifications.ts";
@@ -55,6 +56,7 @@ export interface SlackAppOptions {
   configuredMentionTargets?: string[];
   createStatusTransitionEvent?: StatusTransitionEventFactory;
   onStatusTransition?: StatusTransitionHandler;
+  takePr: TakePrOptions;
 }
 
 export function createSlackApp({
@@ -67,6 +69,7 @@ export function createSlackApp({
   configuredMentionTargets = [],
   createStatusTransitionEvent,
   onStatusTransition,
+  takePr,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -80,8 +83,11 @@ export function createSlackApp({
     createStatusTransitionEvent,
     onStatusTransition,
   );
+  app.action(TAKE_PR_SERVICE_ACTION_ID, async (args) => {
+    await handleTakePrAction(args, store, takePr);
+  });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, configuredMentionTargets);
+    await handleAppMention(args, store, configuredMentionTargets, takePr);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);

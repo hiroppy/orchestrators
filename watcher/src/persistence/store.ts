@@ -1,7 +1,14 @@
 import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskNotificationMentions, taskObservations, tasks } from "./schema.ts";
+import {
+  pendingTakePrRequests,
+  services,
+  statuses,
+  taskNotificationMentions,
+  taskObservations,
+  tasks,
+} from "./schema.ts";
 import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   ResolvedLinearTeamConfig,
@@ -42,6 +49,28 @@ const DEFAULT_STATUS_BY_BUCKET = {
   retrying: "Retrying",
   blocked: "Blocked",
 } as const;
+
+export interface PendingTakePrRequest {
+  id: string;
+  pullRequestUrl: string;
+  repository: string;
+  pullRequestTitle: string;
+  headBranch: string;
+  baseBranch: string;
+  channelId: string;
+  threadTs: string;
+  requesterSlackUserId?: string;
+  status: "pending" | "processing" | "completed";
+  selectedService?: string;
+  linearIssueUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type NewPendingTakePrRequest = Omit<
+  PendingTakePrRequest,
+  "status" | "selectedService" | "linearIssueUrl" | "createdAt" | "updatedAt"
+>;
 
 export class WatcherStore {
   private readonly db: WatcherDatabase;
@@ -386,6 +415,78 @@ export class WatcherStore {
       .map(({ slackUserId }) => `<@${slackUserId}>`);
   }
 
+  createPendingTakePrRequest(
+    request: NewPendingTakePrRequest,
+    now = new Date(),
+  ): PendingTakePrRequest {
+    const timestamp = now.toISOString();
+    this.db
+      .insert(pendingTakePrRequests)
+      .values({
+        ...request,
+        requesterSlackUserId: request.requesterSlackUserId ?? null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
+      .run();
+    return this.requirePendingTakePrRequest(request.id);
+  }
+
+  getPendingTakePrRequest(id: string): PendingTakePrRequest | undefined {
+    const row = this.db
+      .select()
+      .from(pendingTakePrRequests)
+      .where(eq(pendingTakePrRequests.id, id))
+      .get();
+    return row ? pendingTakePrRequestFromRow(row) : undefined;
+  }
+
+  claimPendingTakePrRequest(
+    id: string,
+    selectedService: string,
+    now = new Date(),
+  ): PendingTakePrRequest | undefined {
+    return this.db.transaction(() => {
+      const request = this.getPendingTakePrRequest(id);
+      if (!request || request.status !== "pending") return undefined;
+
+      this.db
+        .update(pendingTakePrRequests)
+        .set({
+          status: "processing",
+          selectedService,
+          updatedAt: now.toISOString(),
+        })
+        .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "pending")))
+        .run();
+      return this.requirePendingTakePrRequest(id);
+    });
+  }
+
+  releasePendingTakePrRequest(id: string, now = new Date()): void {
+    this.db
+      .update(pendingTakePrRequests)
+      .set({
+        status: "pending",
+        selectedService: null,
+        updatedAt: now.toISOString(),
+      })
+      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .run();
+  }
+
+  completePendingTakePrRequest(id: string, linearIssueUrl: string, now = new Date()): void {
+    this.db
+      .update(pendingTakePrRequests)
+      .set({
+        status: "completed",
+        linearIssueUrl,
+        updatedAt: now.toISOString(),
+      })
+      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .run();
+  }
+
   updateTaskStatus(
     taskId: string,
     statusName: string,
@@ -483,6 +584,23 @@ export class WatcherStore {
     if (!task) throw new Error(`Task not found: ${taskId}`);
     return task;
   }
+
+  private requirePendingTakePrRequest(id: string): PendingTakePrRequest {
+    const request = this.getPendingTakePrRequest(id);
+    if (!request) throw new Error(`Pending take-pr request not found: ${id}`);
+    return request;
+  }
+}
+
+function pendingTakePrRequestFromRow(
+  row: typeof pendingTakePrRequests.$inferSelect,
+): PendingTakePrRequest {
+  return {
+    ...row,
+    requesterSlackUserId: row.requesterSlackUserId ?? undefined,
+    selectedService: row.selectedService ?? undefined,
+    linearIssueUrl: row.linearIssueUrl ?? undefined,
+  };
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {

@@ -120,6 +120,11 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           store,
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
+          takePr: {
+            services: runtimeConfig.services,
+            linearTeams: runtimeConfig.linearTeams,
+            symphoniesDirectory: resolve(rootDirectory, "symphonies"),
+          },
           createStatusTransitionEvent: (task, fromStatus, toStatus) =>
             createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
           onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {

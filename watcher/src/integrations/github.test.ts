@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid",
+            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -81,6 +81,8 @@ describe("findPullRequest", () => {
       reviewDecision: "REVIEW_REQUIRED",
       headRefName: "eng-65-contact-form",
       headRefOid: "abc123",
+      baseRefName: null,
+      repository: "example/example-service",
     });
   });
 
@@ -94,7 +96,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,reactionGroups",
+            "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
           ]);
           return {
             stdout: JSON.stringify({
@@ -175,7 +177,7 @@ describe("findPullRequestByUrl", () => {
           "view",
           url,
           "--json",
-          "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,reactionGroups",
+          "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
         ]);
         assert.equal(options.cwd, undefined);
         return {

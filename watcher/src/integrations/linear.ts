@@ -18,6 +18,8 @@ import {
   ISSUE_STATUS_UPDATE_MUTATION,
   ISSUE_WORKPAD_QUERY,
   TEAM_WORKFLOW_STATES_QUERY,
+  TAKE_PR_ISSUE_CREATE_MUTATION,
+  TAKE_PR_TARGET_QUERY,
 } from "./linear-queries.ts";
 import {
   isTransientLinearError,
@@ -29,6 +31,18 @@ import {
 interface LinearRequestOptions {
   apiKey?: string;
   timeoutMs?: number;
+}
+
+export interface CreateLinearTakePrIssueInput {
+  teamId: string;
+  projectSlug: string;
+  title: string;
+  description: string;
+}
+
+export interface CreatedLinearIssue {
+  identifier: string;
+  url: string;
 }
 
 interface FetchLinearOptions extends LinearRequestOptions {
@@ -167,6 +181,80 @@ export async function updateLinearIssueStatus(
   if (!updated.issueUpdate?.success) {
     throw new Error(`Linear rejected status update for ${issueIdentifier}.`);
   }
+}
+
+export async function createLinearTakePrIssue(
+  input: CreateLinearTakePrIssueInput,
+  { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
+): Promise<CreatedLinearIssue> {
+  if (!apiKey) throw new Error("Linear API key is not configured.");
+
+  const target = await linearRequest<{
+    team?: {
+      id: string;
+      states?: { nodes?: Array<{ id: string; name: string }> };
+    };
+    projects?: {
+      nodes?: Array<{
+        id: string;
+        name: string;
+        slugId: string;
+        teams?: { nodes?: Array<{ id: string }> };
+      }>;
+    };
+  }>(
+    apiKey,
+    TAKE_PR_TARGET_QUERY,
+    { teamId: input.teamId, projectSlug: input.projectSlug },
+    timeoutMs,
+  );
+  const team = target.team;
+  if (!team) throw new Error(`Linear team not found: ${input.teamId}`);
+
+  const project = target.projects?.nodes?.find(({ slugId }) => slugId === input.projectSlug);
+  if (!project) throw new Error(`Linear project not found: ${input.projectSlug}`);
+  if (!project.teams?.nodes?.some(({ id }) => id === team.id)) {
+    throw new Error(
+      `Linear project ${input.projectSlug} is not associated with team ${input.teamId}.`,
+    );
+  }
+
+  const inProgress = team.states?.nodes?.find(
+    ({ name }) => name.trim().toLowerCase() === "in progress",
+  );
+  if (!inProgress) throw new Error(`Linear team has no In Progress state: ${input.teamId}`);
+
+  const created = await linearRequest<{
+    issueCreate?: {
+      success?: boolean;
+      issue?: {
+        identifier?: string;
+        url?: string;
+        state?: { name?: string };
+      };
+    };
+  }>(
+    apiKey,
+    TAKE_PR_ISSUE_CREATE_MUTATION,
+    {
+      teamId: team.id,
+      projectId: project.id,
+      stateId: inProgress.id,
+      title: input.title,
+      description: input.description,
+    },
+    timeoutMs,
+  );
+  const issue = created.issueCreate?.issue;
+  if (
+    !created.issueCreate?.success ||
+    !issue?.identifier ||
+    !issue.url ||
+    issue.state?.name?.trim().toLowerCase() !== "in progress"
+  ) {
+    throw new Error("Linear rejected take-pr issue creation in In Progress.");
+  }
+  return { identifier: issue.identifier, url: issue.url };
 }
 
 export async function createLinearWorkpadReply(

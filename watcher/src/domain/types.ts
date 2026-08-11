@@ -72,6 +72,8 @@ export interface PullRequest {
   reviewDecision?: string | null;
   headRefName?: string | null;
   headRefOid?: string | null;
+  baseRefName?: string | null;
+  repository?: string | null;
   hasConfiguredReaction?: boolean;
 }
 

@@ -139,3 +139,58 @@ export const TEAM_WORKFLOW_STATES_QUERY = `
     }
   }
 `;
+
+export const TAKE_PR_TARGET_QUERY = `
+  query OrchestratorWatcherTakePrTarget($teamId: String!, $projectSlug: String!) {
+    team(id: $teamId) {
+      id
+      states {
+        nodes {
+          id
+          name
+        }
+      }
+    }
+    projects(first: 2, filter: { slugId: { eq: $projectSlug } }) {
+      nodes {
+        id
+        name
+        slugId
+        teams {
+          nodes {
+            id
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const TAKE_PR_ISSUE_CREATE_MUTATION = `
+  mutation OrchestratorWatcherTakePrIssueCreate(
+    $teamId: String!
+    $projectId: String!
+    $stateId: String!
+    $title: String!
+    $description: String!
+  ) {
+    issueCreate(
+      input: {
+        teamId: $teamId
+        projectId: $projectId
+        stateId: $stateId
+        title: $title
+        description: $description
+      }
+    ) {
+      success
+      issue {
+        identifier
+        url
+        state {
+          name
+        }
+      }
+    }
+  }
+`;
