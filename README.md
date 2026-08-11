@@ -14,9 +14,11 @@ efficiently keep many tasks moving, even while away from your desk.
 - Get notified when tasks change state, open pull requests, become blocked, or
   finish
 - Update Linear issue statuses directly from Slack
-- Ask `@Orchestrators status` for tracked Todo, In Progress, and In Review tasks,
+- Mention the configured bot with `help` to see the available Slack commands
+  and where to run them
+- Mention the configured bot with `status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
-- Run `@Orchestrators assign @user` in a tracked task thread to include that
+- Mention the configured bot with `assign @user` in a tracked task thread to include that
   user in configured notification mentions for only that task. The mentioned
   user must be the person running the command.
 - Reply to a Linear workpad from its Slack task thread, so you can keep
@@ -77,8 +79,8 @@ manifest enables Socket Mode and interactivity. It grants only the bot scopes
 used by the watcher:
 
 - `chat:write` — post and update task messages
-- `app_mentions:read` — respond to the `@Orchestrators status` and task-thread
-  `@Orchestrators assign @user` commands
+- `app_mentions:read` — respond to the bot mention commands `help`, `status`,
+  and task-thread `assign @user`
 - `channels:history` / `groups:history` — receive user replies in public or
   private task threads
 - `files:read` — download images attached to task thread replies for copying to

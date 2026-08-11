@@ -9,6 +9,42 @@ import {
 import { fakeClient, withStore } from "./app.test-support.ts";
 
 describe("Slack mention commands", () => {
+  it("replies to an exact help mention with the available commands", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "20.000", text: "<@U123> help" },
+          client: fakeClient(calls, { U123: "Project Bot" }),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+
+      assert.deepEqual(calls[0], { method: "usersInfo", args: { user: "U123" } });
+      assert.equal(calls.length, 2);
+      assert.equal(calls[1].method, "postMessage");
+      assert.equal(calls[1].args.channel, "C999");
+      assert.equal(
+        calls[1].args.text,
+        [
+          "*Available commands*",
+          "• `@Project Bot status`",
+          "  Show tracked Todo, In Progress, and In Review tasks.",
+          "• `@Project Bot assign @user`",
+          "  Add yourself to notifications for a tracked task. Run this in the task thread.",
+          "• `@Project Bot help`",
+          "  Show this help message.",
+        ].join("\n"),
+      );
+      assert.match(
+        JSON.stringify(calls[1].args.blocks),
+        /Available commands.*Project Bot.*assign/s,
+      );
+    });
+  });
+
   it("replies to an exact status mention with tracked tasks grouped by status", async () => {
     await withStore(async (store) => {
       const todo = store.upsertTaskFromEvent({
@@ -81,13 +117,21 @@ describe("Slack mention commands", () => {
     });
   });
 
-  it("ignores unknown commands and arguments unsupported by status", async () => {
+  it("ignores unknown commands and arguments unsupported by status or help", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
 
       await handleAppMention(
         {
           event: { channel: "C999", ts: "20.000", text: "<@U123> status please" },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+      );
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "20.500", text: "<@U123> help please" },
           client: fakeClient(calls),
           logger: { error: (error: unknown) => assert.fail(String(error)) },
         },
@@ -264,7 +308,7 @@ describe("Slack mention commands", () => {
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       for (const call of calls.slice(1, -1)) {
-        assert.equal(call.args.text, "[error] Usage: `@Orchestrators assign @user`");
+        assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
       assert.equal(

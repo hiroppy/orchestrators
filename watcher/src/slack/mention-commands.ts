@@ -1,8 +1,15 @@
 import type { WatcherStore } from "../persistence/store.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
-import { buildStatusSummary, buildStatusSummaryBlocks, STATUS_SUMMARY_STATUSES } from "./views.ts";
+import {
+  buildHelpMessage,
+  buildHelpMessageBlocks,
+  buildStatusSummary,
+  buildStatusSummaryBlocks,
+  STATUS_SUMMARY_STATUSES,
+} from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
+import { resolveSlackDisplayName } from "./users.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
@@ -10,6 +17,7 @@ const MAX_MENTIONS_LENGTH = 2_000 - "*Mentions*\n".length;
 type CommandHandler = (context: MentionCommandContext) => Promise<void>;
 const commandHandlers: Record<string, CommandHandler> = {
   assign: handleAssignCommand,
+  help: handleHelpCommand,
   status: handleStatusCommand,
 };
 
@@ -57,16 +65,18 @@ function parseMentionCommand(
     return undefined;
   }
 
-  const [command, ...args] = value.text
-    .replace(/<@[A-Z0-9]+>/i, " ")
-    .trim()
-    .split(/\s+/);
+  const botMentionMatch = value.text.match(/<@([A-Z0-9]+)>/i);
+  if (!botMentionMatch) return undefined;
+  const [botMention, botUserId] = botMentionMatch;
+  const [command, ...args] = value.text.replace(botMention, " ").trim().split(/\s+/);
   if (!command) return undefined;
   return {
     event: {
       channel: value.channel,
       ts: value.ts,
       text: value.text,
+      botMention,
+      botUserId,
       ...(typeof value.user === "string" ? { user: value.user } : {}),
       ...(typeof value.thread_ts === "string" ? { threadTs: value.thread_ts } : {}),
     },
@@ -100,7 +110,7 @@ async function handleAssignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "Usage: `@Orchestrators assign @user`",
+      `Usage: ${event.botMention} \`assign @user\``,
     );
     return;
   }
@@ -170,6 +180,22 @@ async function handleStatusCommand({
   });
 }
 
+async function handleHelpCommand({
+  event,
+  client,
+  logger,
+  args,
+}: MentionCommandContext): Promise<void> {
+  if (args.length > 0) return;
+  const botName = await resolveSlackDisplayName(client, { id: event.botUserId }, logger);
+
+  await client.chat.postMessage({
+    channel: event.channel,
+    text: buildHelpMessage(botName),
+    blocks: buildHelpMessageBlocks(botName),
+  });
+}
+
 function slackUserIdFromMention(value: string | undefined): string | undefined {
   return value?.match(/^<@([A-Z0-9]+)>$/i)?.[1];
 }
@@ -182,19 +208,21 @@ interface AppMentionEvent {
   channel: string;
   ts: string;
   text: string;
+  botMention: string;
+  botUserId: string;
   user?: string;
   threadTs?: string;
 }
 
 interface AppMentionArguments {
   event: unknown;
-  client: Pick<SlackClient, "chat"> & ReactionClient;
+  client: Pick<SlackClient, "chat" | "users"> & ReactionClient;
   logger: { error(error: unknown): void };
 }
 
 interface MentionCommandContext {
   event: AppMentionEvent;
-  client: Pick<SlackClient, "chat"> & ReactionClient;
+  client: Pick<SlackClient, "chat" | "users"> & ReactionClient;
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];

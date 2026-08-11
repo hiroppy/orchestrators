@@ -25,6 +25,28 @@ interface SectionBlock extends Record<string, unknown> {
   fields?: MrkdwnText[];
 }
 
+export function buildHelpMessage(botName: string): string {
+  const commandPrefix = `@${botName.replaceAll("`", "'").replace(/\s+/g, " ")}`;
+  return [
+    "*Available commands*",
+    `• \`${commandPrefix} status\`\n  Show tracked Todo, In Progress, and In Review tasks.`,
+    `• \`${commandPrefix} assign @user\`\n  Add yourself to notifications for a tracked task. Run this in the task thread.`,
+    `• \`${commandPrefix} help\`\n  Show this help message.`,
+  ].join("\n");
+}
+
+export function buildHelpMessageBlocks(botName: string) {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: buildHelpMessage(botName),
+      },
+    },
+  ];
+}
+
 const EVENT_LABELS: Record<EventType, string> = {
   started: "Started",
   updated: "Updated",
