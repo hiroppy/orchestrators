@@ -115,12 +115,10 @@ export class WatcherStore {
       .select({ id: tasks.id })
       .from(tasks)
       .innerJoin(services, eq(tasks.serviceId, services.id))
-      .where(eq(services.active, true))
-      .all()
-      .map(({ id }) => id);
+      .where(eq(services.active, true));
 
     this.db.transaction((tx) => {
-      const observedTaskIds: string[] = [];
+      tx.delete(taskObservations).where(inArray(taskObservations.taskId, activeTaskIds)).run();
 
       for (const [serviceName, snapshot] of Object.entries(snapshots)) {
         const service = servicesByName.get(serviceName);
@@ -191,22 +189,8 @@ export class WatcherStore {
                 },
               })
               .run();
-            observedTaskIds.push(taskId);
           }
         }
-      }
-
-      if (observedTaskIds.length === 0 && activeTaskIds.length > 0) {
-        tx.delete(taskObservations).where(inArray(taskObservations.taskId, activeTaskIds)).run();
-      } else if (activeTaskIds.length > 0) {
-        tx.delete(taskObservations)
-          .where(
-            and(
-              inArray(taskObservations.taskId, activeTaskIds),
-              notInArray(taskObservations.taskId, observedTaskIds),
-            ),
-          )
-          .run();
       }
     });
   }
@@ -269,7 +253,7 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(activeOrIncluded)
+      .where(and(eq(services.active, true), activeOrIncluded))
       .all()
       .map((row) =>
         taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),

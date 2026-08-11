@@ -78,6 +78,7 @@ describe("WatcherStore", () => {
 
       assert.equal(store.getSnapshots()["service-a"], undefined);
       assert.deepEqual(store.getSelectableStatuses("service-a"), []);
+      assert.deepEqual(store.getTasksForLinearSync(), []);
       assert.equal(store.getTask("service-a:ENG-62")?.issueIdentifier, "ENG-62");
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
 
@@ -90,6 +91,7 @@ describe("WatcherStore", () => {
         { issue_identifier: "ENG-62", state: "Todo" },
       ]);
       assert.deepEqual(store.getSelectableStatuses("service-a"), ["Todo", "Done"]);
+      assert.equal(store.getTasksForLinearSync()[0]?.id, "service-a:ENG-62");
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
     });
   });
