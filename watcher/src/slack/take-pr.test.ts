@@ -215,6 +215,49 @@ describe("take-pr Slack flow", () => {
         JSON.stringify(blocks),
         /"initial_option":\{"text":\{"type":"plain_text","text":"Widget"\},"value":"request123:Widget"\}/,
       );
+      assert.match(JSON.stringify(blocks), /"action_id":"take_pr_confirm"/);
+    });
+  });
+
+  it("confirms the inferred service with the OK button", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const takePrOptions = options({
+        services: [
+          { name: "widget", url: "https://widget.test/state", linearTeam: "workspace-a-eng" },
+        ],
+        createLinearIssue: async () => ({
+          identifier: "ENG-100",
+          url: "https://linear.app/example/issue/ENG-100/take-pr",
+        }),
+      });
+      await createPending(store, calls, takePrOptions);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { value: "request123" },
+          body: {
+            user: { id: "U123" },
+            state: {
+              values: {
+                "take-pr:request123": {
+                  take_pr_service_select: {
+                    selected_option: { value: "request123:widget" },
+                  },
+                },
+              },
+            },
+          },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "completed");
     });
   });
 

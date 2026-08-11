@@ -119,6 +119,35 @@ describe("createLinearTakePrIssue", () => {
     assert.equal(requests[2].variables.projectId, "project-id");
   });
 
+  it("creates the issue when Linear reports that the idempotency issue does not exist", async (context) => {
+    let requests = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requests += 1;
+      if (requests === 1) return takePrTargetResponse();
+      if (requests === 2) {
+        return Response.json({ errors: [{ message: "Entity not found: Issue" }] });
+      }
+      return Response.json({
+        data: {
+          issueCreate: {
+            success: true,
+            issue: {
+              identifier: "ENG-100",
+              url: "https://linear.app/example/issue/ENG-100/take-pr",
+              state: { name: "In Progress" },
+            },
+          },
+        },
+      });
+    });
+
+    assert.deepEqual(await createLinearTakePrIssue(input, { apiKey: "lin_test" }), {
+      identifier: "ENG-100",
+      url: "https://linear.app/example/issue/ENG-100/take-pr",
+    });
+    assert.equal(requests, 3);
+  });
+
   it("reconciles an ambiguously successful create mutation by its stable issue ID", async (context) => {
     let requests = 0;
     let issueId: string | undefined;

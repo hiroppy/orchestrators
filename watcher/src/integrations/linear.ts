@@ -280,13 +280,23 @@ async function findLinearTakePrIssue(
   issueId: string,
   timeoutMs: number,
 ): Promise<CreatedLinearIssue | null> {
-  const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
-    apiKey,
-    TAKE_PR_ISSUE_QUERY,
-    { issueId },
-    timeoutMs,
-  );
-  return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+  try {
+    const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
+      apiKey,
+      TAKE_PR_ISSUE_QUERY,
+      { issueId },
+      timeoutMs,
+    );
+    return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Linear GraphQL error: Entity not found: Issue"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function requireNewLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {

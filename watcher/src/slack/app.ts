@@ -25,7 +25,12 @@ import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackDisplayName } from "./users.ts";
 import type { SlackClient } from "./client-types.ts";
-import { handleTakePrAction, TAKE_PR_SERVICE_ACTION_ID, type TakePrOptions } from "./take-pr.ts";
+import {
+  handleTakePrAction,
+  TAKE_PR_CONFIRM_ACTION_ID,
+  TAKE_PR_SERVICE_ACTION_ID,
+  type TakePrOptions,
+} from "./take-pr.ts";
 
 export * from "./client-types.ts";
 export * from "./notifications.ts";
@@ -83,7 +88,10 @@ export function createSlackApp({
     createStatusTransitionEvent,
     onStatusTransition,
   );
-  app.action(TAKE_PR_SERVICE_ACTION_ID, async (args) => {
+  app.action(TAKE_PR_SERVICE_ACTION_ID, async ({ ack }) => {
+    await ack();
+  });
+  app.action(TAKE_PR_CONFIRM_ACTION_ID, async (args) => {
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {

@@ -18,6 +18,7 @@ import { postSlackOperationError } from "./errors.ts";
 import { escapeSlack, escapeSlackLinkLabel } from "./view-formatting.ts";
 
 export const TAKE_PR_SERVICE_ACTION_ID = "take_pr_service_select";
+export const TAKE_PR_CONFIRM_ACTION_ID = "take_pr_confirm";
 const MAX_STATIC_SELECT_OPTIONS = 100;
 const MAX_OPTION_TEXT_LENGTH = 75;
 const MAX_LINEAR_ISSUE_TITLE_LENGTH = 255;
@@ -137,7 +138,7 @@ export async function handleTakePrAction(
 ): Promise<void> {
   await ack();
 
-  const selection = takePrSelectionFromAction(action);
+  const selection = takePrSelectionFromAction(action, body);
   if (!selection) {
     logger.error(new Error("take-pr action did not include a valid pending request ID."));
     return;
@@ -334,10 +335,10 @@ function buildTakePrServiceSelectionBlocks(
     value: `${requestId}:${encodeURIComponent(name)}`,
   }));
   const repositoryName = pullRequest.repository.split("/").at(-1)?.toLowerCase();
-  const inferredOptions = options.filter(
-    (_, index) => services[index].name.toLowerCase() === repositoryName,
+  const inferredServiceIndex = services.findIndex(
+    ({ name }) => name.toLowerCase() === repositoryName,
   );
-  const initialOption = inferredOptions.length === 1 ? inferredOptions[0] : undefined;
+  const initialOption = options[inferredServiceIndex];
 
   return [
     {
@@ -357,6 +358,13 @@ function buildTakePrServiceSelectionBlocks(
           placeholder: { type: "plain_text", text: "Service" },
           options,
           ...(initialOption ? { initial_option: initialOption } : {}),
+        },
+        {
+          type: "button",
+          action_id: TAKE_PR_CONFIRM_ACTION_ID,
+          text: { type: "plain_text", text: "OK" },
+          style: "primary",
+          value: requestId,
         },
       ],
     },
@@ -378,9 +386,16 @@ function hasCompletePullRequestMetadata(
 
 function takePrSelectionFromAction(
   action: unknown,
+  body: unknown,
 ): { requestId: string; serviceName: string } | undefined {
   if (!action || typeof action !== "object") return undefined;
-  const value = (action as { selected_option?: { value?: unknown } }).selected_option?.value;
+  const actionValue = (action as { value?: unknown }).value;
+  const selectedValue = (action as { selected_option?: { value?: unknown } }).selected_option
+    ?.value;
+  let value = typeof selectedValue === "string" ? selectedValue : undefined;
+  if (!value && typeof actionValue === "string") {
+    value = selectedValueFromActionBody(body, actionValue);
+  }
   if (typeof value !== "string") return undefined;
   const separator = value.indexOf(":");
   if (separator < 1) return undefined;
@@ -393,6 +408,18 @@ function takePrSelectionFromAction(
   } catch {
     return undefined;
   }
+}
+
+function selectedValueFromActionBody(body: unknown, requestId: string): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const values = (body as { state?: { values?: unknown } }).state?.values;
+  if (!values || typeof values !== "object") return undefined;
+  const block = (values as Record<string, unknown>)[`take-pr:${requestId}`];
+  if (!block || typeof block !== "object") return undefined;
+  const select = (block as Record<string, unknown>)[TAKE_PR_SERVICE_ACTION_ID];
+  if (!select || typeof select !== "object") return undefined;
+  const value = (select as { selected_option?: { value?: unknown } }).selected_option?.value;
+  return typeof value === "string" && value.startsWith(`${requestId}:`) ? value : undefined;
 }
 
 function workflowPathFor(symphoniesDirectory: string, serviceName: string): string {
