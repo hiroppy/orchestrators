@@ -23,6 +23,7 @@ import {
   notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
+  type SlackClient,
 } from "../slack/app.ts";
 import {
   buildReviewRequeueLimitMessage,
@@ -32,7 +33,12 @@ import {
   buildThreadMessage,
 } from "../slack/views.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
-import type { OrchestratorConfig, SnapshotsByService, WatcherEvent } from "../domain/types.ts";
+import type {
+  OrchestratorConfig,
+  SnapshotsByService,
+  Task,
+  WatcherEvent,
+} from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
@@ -127,6 +133,13 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           createStatusTransitionEvent: (task, fromStatus, toStatus) =>
             createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
           onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+            await reconcileSlackStatusTransition({
+              config: runtimeConfig,
+              store,
+              slackClient,
+              slackChannelId: slackConfig.channelId,
+              task,
+            });
             await deliverPendingStatusHooksSafely({
               hooks: runtimeConfig.statusHooks,
               store,
@@ -168,6 +181,39 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
     if (app) await app.stop();
     database.close();
   }
+}
+
+export async function reconcileSlackStatusTransition({
+  config,
+  store,
+  slackClient,
+  slackChannelId,
+  task,
+}: {
+  config: ResolvedWatcherRuntimeConfig;
+  store: WatcherStore;
+  slackClient: SlackClient;
+  slackChannelId: string;
+  task: Task;
+}): Promise<void> {
+  const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
+    apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
+    includeCreator: false,
+    maxAttempts: 1,
+  });
+  if (!linearIssue?.state || !linearIssue.stateType) return;
+
+  await publishWatcherEvent(slackClient, store, slackChannelId, {
+    type: "updated",
+    service: task.serviceName,
+    issueIdentifier: task.issueIdentifier,
+    issueTitle: linearIssue.title,
+    issueUrl: linearIssue.url ?? task.linkUrl,
+    resolvedState: linearIssue.state,
+    resolvedStateType: normalizeStatus(linearIssue.stateType),
+    pullRequest: linearIssue.pullRequest,
+    relatedIssues: linearIssue.relatedIssues,
+  });
 }
 
 export async function runPoll(options: RunOnceOptions): Promise<void> {
