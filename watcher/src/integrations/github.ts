@@ -83,11 +83,15 @@ export async function findPullRequestByUrl(
 
 export async function linkPullRequestToLinearIssue(
   url: string,
-  body: string,
   issueIdentifier: string,
   options: LinkPullRequestOptions = {},
 ): Promise<void> {
-  const parsedUrl = new URL(url);
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error(`Invalid GitHub pull request URL: ${url}`);
+  }
   const repository = repositoryFromPullRequestUrl(url);
   const pullRequestNumber = parsedUrl.pathname.match(/\/pull\/(\d+)\/?$/)?.[1];
   if (!repository || !pullRequestNumber) {
@@ -95,12 +99,26 @@ export async function linkPullRequestToLinearIssue(
   }
 
   const link = `Fixes ${issueIdentifier}`;
-  if (body.split("\n").some((line) => line.trim().toLowerCase() === link.toLowerCase())) return;
-
-  const currentBody = body.trimEnd();
-  const updatedBody = currentBody ? `${currentBody}\n\n${link}` : link;
   const execFile = options.execFile ?? execFileDefault;
   try {
+    const { stdout } = await execFile(
+      "gh",
+      [
+        "api",
+        "--hostname",
+        parsedUrl.hostname,
+        `repos/${repository}/pulls/${pullRequestNumber}`,
+        "--jq",
+        ".body",
+      ],
+      { timeout: 10_000, maxBuffer: 1024 * 1024 },
+    );
+    if (stdout.split("\n").some((line) => line.trim().toLowerCase() === link.toLowerCase())) {
+      return;
+    }
+
+    const currentBody = stdout.trimEnd();
+    const updatedBody = currentBody ? `${currentBody}\n\n${link}` : link;
     await execFile(
       "gh",
       [

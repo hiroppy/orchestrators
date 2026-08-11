@@ -32,19 +32,18 @@ describe("linkPullRequestToLinearIssue", () => {
   it("appends a Linear magic-word link to the pull request body", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];
 
-    await linkPullRequestToLinearIssue(
-      "https://github.com/example/widget/pull/42",
-      "## Summary\n\nFix the widget.",
-      "ENG-100",
-      {
-        execFile: async (command, args) => {
-          calls.push({ command, args });
-          return { stdout: "", stderr: "" };
-        },
+    await linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+      execFile: async (command, args) => {
+        calls.push({ command, args });
+        return { stdout: "## Summary\n\nFix the widget.\n", stderr: "" };
       },
-    );
+    });
 
     assert.deepEqual(calls, [
+      {
+        command: "gh",
+        args: ["api", "--hostname", "github.com", "repos/example/widget/pulls/42", "--jq", ".body"],
+      },
       {
         command: "gh",
         args: [
@@ -62,24 +61,31 @@ describe("linkPullRequestToLinearIssue", () => {
   });
 
   it("does not update a pull request that already has the same link", async () => {
-    await linkPullRequestToLinearIssue(
-      "https://github.com/example/widget/pull/42",
-      "## Summary\n\nFixes ENG-100",
-      "ENG-100",
-      {
-        execFile: async () => assert.fail("GitHub should not be called"),
+    const calls: string[][] = [];
+    await linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+      execFile: async (_command, args) => {
+        calls.push(args);
+        return { stdout: "## Summary\n\nFixes ENG-100\n", stderr: "" };
       },
-    );
+    });
+    assert.equal(calls.length, 1);
   });
 
   it("reports GitHub update failures", async () => {
     await assert.rejects(
-      linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "", "ENG-100", {
+      linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
         execFile: async () => {
           throw new Error("GitHub unavailable");
         },
       }),
       /Could not link GitHub pull request to Linear issue ENG-100/,
+    );
+  });
+
+  it("reports invalid pull request URLs consistently", async () => {
+    await assert.rejects(
+      linkPullRequestToLinearIssue("not-a-url", "ENG-100"),
+      /Invalid GitHub pull request URL: not-a-url/,
     );
   });
 });

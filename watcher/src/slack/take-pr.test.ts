@@ -555,7 +555,7 @@ describe("take-pr Slack flow", () => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
       let pullRequestLookups = 0;
-      const links: Array<{ url: string; body: string; issueIdentifier: string }> = [];
+      const links: Array<{ url: string; issueIdentifier: string }> = [];
       const takePrOptions = options({
         findPullRequest: async () => ({
           ...pullRequest,
@@ -579,8 +579,8 @@ describe("take-pr Slack flow", () => {
             url: "https://linear.app/example/issue/ENG-100/take-pr",
           };
         },
-        linkPullRequest: async (url, body, issueIdentifier) => {
-          links.push({ url, body, issueIdentifier });
+        linkPullRequest: async (url, issueIdentifier) => {
+          links.push({ url, issueIdentifier });
         },
       });
       await createPending(store, calls, takePrOptions);
@@ -606,7 +606,6 @@ describe("take-pr Slack flow", () => {
       assert.deepEqual(links, [
         {
           url: canonicalPullRequestUrl,
-          body: pullRequest.body,
           issueIdentifier: "ENG-100",
         },
       ]);

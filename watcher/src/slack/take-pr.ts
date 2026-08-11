@@ -33,7 +33,7 @@ export interface TakePrOptions {
     input: CreateLinearTakePrIssueInput,
     options: { apiKey: string },
   ) => Promise<CreatedLinearIssue>;
-  linkPullRequest?: (url: string, body: string, issueIdentifier: string) => Promise<void>;
+  linkPullRequest?: (url: string, issueIdentifier: string) => Promise<void>;
   createRequestId?: (event: Pick<TakePrMentionEvent, "channel" | "ts">) => string;
   readWorkflow?: (path: string) => Promise<string>;
 }
@@ -252,7 +252,6 @@ export async function handleTakePrAction(
     );
     await (options.linkPullRequest ?? linkPullRequestToLinearIssue)(
       issueRequest.pullRequestUrl,
-      issueRequest.pullRequestBody,
       issue.identifier,
     );
     await client.chat.postMessage({
