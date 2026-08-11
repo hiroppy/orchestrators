@@ -226,6 +226,37 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("revalidates that the PR is still open before claiming a delayed selection", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await createPending(store, calls, options());
+      calls.length = 0;
+      let creations = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        options({
+          findPullRequest: async () => ({ ...pullRequest, state: "MERGED" }),
+          createLinearIssue: async () => {
+            creations += 1;
+            throw new Error("should not create");
+          },
+        }),
+      );
+
+      assert.equal(creations, 0);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+      assert.match(String(calls[0].args.text), /no longer open.*No Linear issue was created/s);
+    });
+  });
+
   it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

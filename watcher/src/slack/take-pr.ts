@@ -170,6 +170,35 @@ export async function handleTakePrAction(
     );
     return;
   }
+  if (request.status === "pending") {
+    let currentPullRequest: PullRequest | null;
+    try {
+      currentPullRequest = await (options.findPullRequest ?? findPullRequestByUrl)(
+        request.pullRequestUrl,
+      );
+    } catch (error) {
+      logger.error(error);
+      currentPullRequest = null;
+    }
+    if (!hasCompletePullRequestMetadata(currentPullRequest)) {
+      await postTakePrError(
+        client,
+        request.channelId,
+        request.threadTs,
+        "Could not revalidate the GitHub pull request. No Linear issue was created.",
+      );
+      return;
+    }
+    if (currentPullRequest.state.toUpperCase() !== "OPEN") {
+      await postTakePrError(
+        client,
+        request.channelId,
+        request.threadTs,
+        "The GitHub pull request is no longer open. No Linear issue was created.",
+      );
+      return;
+    }
+  }
 
   const claimed = store.claimPendingTakePrRequest(request.id, service.name);
   if (!claimed) return;
