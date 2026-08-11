@@ -272,7 +272,7 @@ export async function publishWatcherEvent(
       });
       store.setRenderedSummary(task.id, summary);
       if (announceTerminalParent) {
-        const closedMessage = await postParentPermalink(
+        const closedMessage = await postTaskClosedMessage(
           client,
           task.parentChannelId,
           task.parentMessageTs,
@@ -327,7 +327,7 @@ export async function publishWatcherEvent(
   });
 }
 
-async function postParentPermalink(
+async function postTaskClosedMessage(
   client: SlackClient,
   channel: string,
   messageTs: string,

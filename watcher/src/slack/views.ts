@@ -279,18 +279,18 @@ export function buildReviewRequeueLimitMessageBlocks(
   ]);
 }
 
-export function buildTaskClosedMessage(status: string, parentPermalink: string): string {
-  return `Task closed | *${escapeSlack(status)}*\n${parentPermalink}`;
+export function buildTaskClosedMessage(status: string, taskThreadPermalink: string): string {
+  return `Task closed | *${escapeSlack(status)}*\n${taskThreadPermalink}`;
 }
 
 export function buildTaskClosedMessageBlocks(
   status: string,
-  parentPermalink: string,
-  title: string,
+  taskThreadPermalink: string,
+  taskTitle: string,
 ): SectionBlock[] {
   return buildNotificationBlocks("*Task closed*", [
     `*Status*\n${escapeSlack(status)}`,
-    `*Task*\n<${parentPermalink}|${escapeSlack(title)}>`,
+    `*Task*\n<${taskThreadPermalink}|${escapeSlack(taskTitle)}>`,
   ]);
 }
 
