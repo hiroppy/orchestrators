@@ -10,7 +10,7 @@ import {
   type CreateLinearTakePrIssueInput,
   type CreatedLinearIssue,
 } from "../integrations/linear.ts";
-import { findPullRequestByUrl, linkPullRequestToLinearIssue } from "../integrations/github.ts";
+import { findPullRequestByUrl } from "../integrations/github.ts";
 import type { PullRequest, ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
@@ -33,7 +33,6 @@ export interface TakePrOptions {
     input: CreateLinearTakePrIssueInput,
     options: { apiKey: string },
   ) => Promise<CreatedLinearIssue>;
-  linkPullRequest?: (url: string, issueIdentifier: string) => Promise<void>;
   createRequestId?: (event: Pick<TakePrMentionEvent, "channel" | "ts">) => string;
   readWorkflow?: (path: string) => Promise<string>;
 }
@@ -250,10 +249,6 @@ export async function handleTakePrAction(
       ),
       { apiKey: linearTeam.apiKey },
     );
-    await (options.linkPullRequest ?? linkPullRequestToLinearIssue)(
-      issueRequest.pullRequestUrl,
-      issue.identifier,
-    );
     await client.chat.postMessage({
       channel: claimed.channelId,
       thread_ts: claimed.threadTs,
@@ -462,6 +457,12 @@ function buildLinearIssueInput(
     "## PR Description",
     "",
     pullRequestDescription,
+    "",
+    "## Required action",
+    "",
+    "Update the existing pull request description so Linear's GitHub integration recognizes the pull request as linked to this issue and makes its diff available from Linear.",
+    "Follow the repository's pull request template and conventions when deciding how and where in the description to record the link. Preserve the existing content, make no unrelated changes, and do not add a duplicate link.",
+    "Do not change the PR title or branch name.",
     "",
     "## Requested from",
     "",
