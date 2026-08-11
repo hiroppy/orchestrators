@@ -63,7 +63,7 @@ export function parseUserThreadReply(
 
 function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
   if (!botUserId) return false;
-  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|status)(?:\s|$)/i);
+  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|help|status)(?:\s|$)/i);
   return match?.[1]?.toLowerCase() === botUserId.toLowerCase();
 }
 
