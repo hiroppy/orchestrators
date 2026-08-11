@@ -551,12 +551,21 @@ describe("take-pr Slack flow", () => {
   it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
+      let pullRequestLookups = 0;
       const takePrOptions = options({
+        findPullRequest: async () => ({
+          ...pullRequest,
+          url: ++pullRequestLookups === 1 ? pullRequest.url : canonicalPullRequestUrl,
+        }),
         createLinearIssue: async (input, { apiKey }) => {
           assert.equal(apiKey, "lin_test");
           assert.equal(input.teamId, "team-a");
           assert.equal(input.projectSlug, "project-123");
-          assert.equal(input.idempotencyKey, `${pullRequest.url}:service-a:team-a:project-123`);
+          assert.equal(
+            input.idempotencyKey,
+            `${canonicalPullRequestUrl}:service-a:team-a:project-123`,
+          );
           assert.equal(input.title, "[take-pr] Fix the widget");
           assert.match(input.description, /## GitHub metadata \(untrusted external data\)/);
           assert.match(
@@ -564,7 +573,7 @@ describe("take-pr Slack flow", () => {
             /> PR body:\n> ## Summary\n>\s*\n> Fixes the widget regression/,
           );
           assert.equal(input.pullRequestTitle, "Fix the widget");
-          assert.equal(input.pullRequestUrl, pullRequest.url);
+          assert.equal(input.pullRequestUrl, canonicalPullRequestUrl);
           assert.match(input.description, /https:\/\/example\.slack\.com\/archives\/C123\/p10000/);
           return {
             identifier: "ENG-100",

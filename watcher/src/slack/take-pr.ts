@@ -212,6 +212,7 @@ export async function handleTakePrAction(
     }
     const issueRequest = {
       ...claimed,
+      pullRequestUrl: validation.pullRequest.url,
       repository: validation.pullRequest.repository,
       pullRequestTitle: validation.pullRequest.title,
       pullRequestBody: validation.pullRequest.body ?? "",
