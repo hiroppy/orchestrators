@@ -7,7 +7,7 @@ This is a pnpm workspace for running Symphony instances and reporting their stat
 ## Build, Test, and Development Commands
 
 - `npm run setup` enables Corepack; then run `pnpm install`.
-- `pnpm start:watcher` starts the Slack watcher locally.
+- `pnpm start:watcher` starts the Slack watcher locally and applies pending database migrations during initialization.
 - `pnpm start:symphonies` runs configured Symphony instances.
 - `pnpm test` runs Node's built-in test runner with test-specific conditions.
 - `pnpm typecheck` validates the watcher with strict TypeScript settings.
@@ -19,7 +19,7 @@ Node.js 24+ and pnpm 11+ are required. Copy `config.example.ts` to the ignored `
 
 ## Coding Style & Naming Conventions
 
-Use ESM TypeScript with explicit `.ts` imports, strict typing, two-space indentation, double quotes, and trailing commas as produced by Oxfmt. Name files and directories in kebab-case, functions and variables in camelCase, and types/interfaces in PascalCase. Keep modules focused and place domain-specific code in the matching `watcher/src/<area>/` directory.
+Use ESM TypeScript with explicit `.ts` imports, strict typing, two-space indentation, double quotes, and trailing commas as produced by Oxfmt. Name files and directories in kebab-case (except required convention files such as `AGENTS.md`), functions and variables in camelCase, and types/interfaces in PascalCase. Keep modules focused and place domain-specific code in the matching `watcher/src/<area>/` directory.
 
 ## Testing Guidelines
 
