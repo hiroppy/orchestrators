@@ -4,7 +4,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import type { PullRequest, WatcherEvent } from "../domain/types.ts";
 
 const execFileDefault = promisify(execFileCallback);
-const GH_PR_FIELDS = "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid";
+const GH_PR_FIELDS =
+  "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName";
 const GH_PR_FIELDS_WITH_REACTIONS = `${GH_PR_FIELDS},reactionGroups`;
 const GITHUB_REACTION_BY_EMOJI: Record<string, string> = {
   "👍": "THUMBS_UP",
@@ -27,11 +28,13 @@ interface GhPullRequest {
   url?: string;
   number?: number;
   title?: string;
+  body?: string;
   state?: string;
   isDraft?: boolean;
   reviewDecision?: string;
   headRefName?: string;
   headRefOid?: string;
+  baseRefName?: string;
   reactionGroups?: Array<{
     content?: string;
     users?: { totalCount?: number };
@@ -101,11 +104,14 @@ function toPullRequest(parsed: GhPullRequest, reaction?: string): PullRequest {
     url: parsed.url!,
     number: parsed.number ?? null,
     title: parsed.title ?? null,
+    body: parsed.body ?? null,
     state: parsed.state ?? null,
     isDraft: parsed.isDraft ?? null,
     reviewDecision: parsed.reviewDecision ?? null,
     headRefName: parsed.headRefName ?? null,
     headRefOid: parsed.headRefOid ?? null,
+    baseRefName: parsed.baseRefName ?? null,
+    repository: repositoryFromPullRequestUrl(parsed.url!),
     ...(reaction
       ? {
           hasConfiguredReaction: Boolean(
@@ -117,6 +123,16 @@ function toPullRequest(parsed: GhPullRequest, reaction?: string): PullRequest {
         }
       : {}),
   };
+}
+
+function repositoryFromPullRequestUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/);
+    return match ? `${match[1]}/${match[2]}` : null;
+  } catch {
+    return null;
+  }
 }
 
 function githubReactionContent(reaction: string): string {

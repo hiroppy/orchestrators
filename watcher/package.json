@@ -18,7 +18,8 @@
     "@slack/web-api": "^8.0.0",
     "better-sqlite3": "^13.0.1",
     "drizzle-orm": "^0.45.2",
-    "orchestrator-config": "workspace:*"
+    "orchestrator-config": "workspace:*",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
