@@ -69,7 +69,7 @@ function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
     const commandText = text.slice((mention.index ?? 0) + mention[0].length);
     const [command, ...args] = commandText.trim().toLowerCase().split(/\s+/);
     if (command === "help" || command === "status") return args.length === 0;
-    return command === "assign" || command === "take-pr";
+    return command === "assign" || command === "unassign" || command === "take-pr";
   }
   return false;
 }

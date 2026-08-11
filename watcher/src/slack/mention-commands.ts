@@ -21,6 +21,7 @@ const commandHandlers: Record<string, CommandHandler> = {
   help: handleHelpCommand,
   status: handleStatusCommand,
   "take-pr": handleTakePrCommand,
+  unassign: handleUnassignCommand,
 };
 
 export async function handleAppMention(
@@ -65,6 +66,9 @@ export async function handleAppMention(
 function commandFailureMessage(command: string): string {
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
+  if (command === "unassign") {
+    return "Failed to unassign you from task notifications. No assignment was changed.";
+  }
   return "Failed to load the current task status.";
 }
 
@@ -184,6 +188,65 @@ async function handleAssignCommand({
 
   if (!alreadyAssigned) store.assignTaskNotificationMention(task.id, slackUserId);
   await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+}
+
+async function handleUnassignCommand({
+  event,
+  client,
+  logger,
+  store,
+  args,
+}: MentionCommandContext): Promise<void> {
+  const threadTs = event.threadTs;
+  if (!threadTs) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel },
+      "Run `unassign` from a tracked task thread.",
+    );
+    return;
+  }
+
+  const task = store.getTaskBySlackThread(event.channel, threadTs);
+  if (!task) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "Run `unassign` from a tracked task thread.",
+    );
+    return;
+  }
+
+  const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
+  if (!slackUserId) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      `Usage: ${event.botMention} \`unassign @user\``,
+    );
+    return;
+  }
+  if (event.user !== slackUserId) {
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You can only unassign yourself from task notifications.",
+    );
+    return;
+  }
+
+  store.unassignTaskNotificationMention(task.id, slackUserId);
+  try {
+    await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were unassigned, but the confirmation reaction could not be added.",
+      logger,
+    );
+  }
 }
 
 async function handleStatusCommand({
