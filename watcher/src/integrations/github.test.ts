@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { findPullRequest, findPullRequestByUrl, requireGitHubCli } from "./github.ts";
+import {
+  findPullRequest,
+  findPullRequestByUrl,
+  linkPullRequestToLinearIssue,
+  requireGitHubCli,
+} from "./github.ts";
 
 describe("requireGitHubCli", () => {
   it("accepts an installed and authenticated GitHub CLI", async () => {
@@ -20,6 +25,94 @@ describe("requireGitHubCli", () => {
       }),
       /GitHub CLI is required.*gh auth login/,
     );
+  });
+});
+
+describe("linkPullRequestToLinearIssue", () => {
+  it("appends a Linear magic-word link to the current pull request body", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+
+    await linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+      execFile: async (command, args) => {
+        calls.push({ command, args });
+        return { stdout: "## Summary\n\nFix the widget.\n", stderr: "" };
+      },
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: "gh",
+        args: [
+          "api",
+          "--hostname",
+          "github.com",
+          "repos/example/widget/pulls/42",
+          "--jq",
+          '.body // ""',
+        ],
+      },
+      {
+        command: "gh",
+        args: [
+          "api",
+          "--hostname",
+          "github.com",
+          "--method",
+          "PATCH",
+          "repos/example/widget/pulls/42",
+          "-f",
+          "body=## Summary\n\nFix the widget.\n\nFixes ENG-100",
+        ],
+      },
+    ]);
+  });
+
+  it("links a pull request with no description without adding null text", async () => {
+    const calls: string[][] = [];
+
+    await linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+      execFile: async (_command, args) => {
+        calls.push(args);
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(calls[1]?.at(-1), "body=Fixes ENG-100");
+  });
+
+  it("does not update a pull request that already has the same link", async () => {
+    const calls: string[][] = [];
+    await linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+      execFile: async (_command, args) => {
+        calls.push(args);
+        return { stdout: "## Summary\n\nFixes ENG-100\n", stderr: "" };
+      },
+    });
+    assert.equal(calls.length, 1);
+  });
+
+  it("reports GitHub update failures", async () => {
+    await assert.rejects(
+      linkPullRequestToLinearIssue("https://github.com/example/widget/pull/42", "ENG-100", {
+        execFile: async () => {
+          throw new Error("GitHub unavailable");
+        },
+      }),
+      /Could not link GitHub pull request to Linear issue ENG-100/,
+    );
+  });
+
+  it("reports invalid pull request URLs consistently", async () => {
+    for (const url of [
+      "not-a-url",
+      "https://example.com/example/widget/pull/42",
+      "https://github.com/example/widget/pull/42?diff=split",
+    ]) {
+      await assert.rejects(
+        linkPullRequestToLinearIssue(url, "ENG-100"),
+        /Invalid GitHub pull request URL/,
+      );
+    }
   });
 });
 

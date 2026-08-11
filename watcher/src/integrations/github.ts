@@ -24,6 +24,10 @@ interface FindPullRequestOptions {
   reaction?: string;
 }
 
+interface LinkPullRequestOptions {
+  execFile?: typeof execFileDefault;
+}
+
 interface GhPullRequest {
   url?: string;
   number?: number;
@@ -75,6 +79,73 @@ export async function findPullRequestByUrl(
   options: FindPullRequestOptions = {},
 ): Promise<PullRequest | null> {
   return viewPullRequest(url, options);
+}
+
+export async function linkPullRequestToLinearIssue(
+  url: string,
+  issueIdentifier: string,
+  options: LinkPullRequestOptions = {},
+): Promise<void> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error(`Invalid GitHub pull request URL: ${url}`);
+  }
+  const path = parsedUrl.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/);
+  if (
+    parsedUrl.protocol !== "https:" ||
+    parsedUrl.hostname !== "github.com" ||
+    parsedUrl.port ||
+    parsedUrl.username ||
+    parsedUrl.password ||
+    parsedUrl.search ||
+    parsedUrl.hash ||
+    !path
+  ) {
+    throw new Error(`Invalid GitHub pull request URL: ${url}`);
+  }
+  const [, owner, repositoryName, pullRequestNumber] = path;
+  const repository = `${owner}/${repositoryName}`;
+
+  const link = `Fixes ${issueIdentifier}`;
+  const execFile = options.execFile ?? execFileDefault;
+  try {
+    const { stdout } = await execFile(
+      "gh",
+      [
+        "api",
+        "--hostname",
+        "github.com",
+        `repos/${repository}/pulls/${pullRequestNumber}`,
+        "--jq",
+        '.body // ""',
+      ],
+      { timeout: 10_000, maxBuffer: 1024 * 1024 },
+    );
+    if (stdout.split("\n").some((line) => line.trim().toLowerCase() === link.toLowerCase())) {
+      return;
+    }
+
+    const currentBody = stdout.trimEnd();
+    const updatedBody = currentBody ? `${currentBody}\n\n${link}` : link;
+    await execFile(
+      "gh",
+      [
+        "api",
+        "--hostname",
+        "github.com",
+        "--method",
+        "PATCH",
+        `repos/${repository}/pulls/${pullRequestNumber}`,
+        "-f",
+        `body=${updatedBody}`,
+      ],
+      { timeout: 10_000, maxBuffer: 1024 * 1024 },
+    );
+  } catch {
+    throw new Error(`Could not link GitHub pull request to Linear issue ${issueIdentifier}.`);
+  }
 }
 
 async function viewPullRequest(
