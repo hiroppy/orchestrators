@@ -4,6 +4,7 @@ import {
   capitalize,
   escapeExceptLinks,
   escapeSlack,
+  escapeSlackLinkLabel,
   formatCompactNumber,
   formatNumber,
   isPresent,
@@ -290,7 +291,7 @@ export function buildTaskClosedMessageBlocks(
 ): SectionBlock[] {
   return buildNotificationBlocks("*Task closed*", [
     `*Status*\n${escapeSlack(status)}`,
-    `*Task*\n<${taskThreadPermalink}|${escapeSlack(taskTitle)}>`,
+    `*Task*\n<${taskThreadPermalink}|${escapeSlackLinkLabel(taskTitle)}>`,
   ]);
 }
 
