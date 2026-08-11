@@ -270,16 +270,20 @@ describe("Slack mention commands", () => {
       assert.match(JSON.stringify(calls[0].args.blocks), /Event.*Started/s);
       assert.doesNotMatch(JSON.stringify(calls[0].args), /<@UHIROPPY>/);
       assert.match(String(calls[0].args.text), /Assigned to @UHIROPPY/);
-      assert.deepEqual(calls.slice(1), [
-        {
-          method: "addReaction",
-          args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
-        },
-        {
-          method: "addReaction",
-          args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
-        },
-      ]);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.deepEqual(
+        calls.filter(({ method }) => method === "addReaction"),
+        [
+          {
+            method: "addReaction",
+            args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
+          },
+          {
+            method: "addReaction",
+            args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
+          },
+        ],
+      );
 
       const notification = {
         statuses: ["In Review"],
@@ -328,6 +332,70 @@ describe("Slack mention commands", () => {
         ),
         ["<@UHIROPPY>"],
       );
+    });
+  });
+
+  it("serializes assignment refreshes behind watcher card updates", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(
+        task.id,
+        "C123",
+        "10.000",
+        JSON.stringify(buildTaskCard(task, ["In Progress", "In Review"])),
+      );
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const firstUpdateStarted = Promise.withResolvers<void>();
+      const releaseFirstUpdate = Promise.withResolvers<void>();
+      const update = client.chat.update;
+      let updateCount = 0;
+      client.chat.update = async (args) => {
+        updateCount += 1;
+        if (updateCount === 1) {
+          firstUpdateStarted.resolve();
+          await releaseFirstUpdate.promise;
+        }
+        return update(args);
+      };
+
+      const publish = publishWatcherEvent(client, store, "C123", {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      await firstUpdateStarted.promise;
+      const assign = handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> assign <@U123>",
+          },
+          client,
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        "UBOT",
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(updateCount, 1);
+
+      releaseFirstUpdate.resolve();
+      await Promise.all([publish, assign]);
+
+      assert.equal(updateCount, 2);
+      const lastUpdate = calls.filter(({ method }) => method === "update").at(-1);
+      assert.match(JSON.stringify(lastUpdate?.args), /In Review/);
+      assert.match(JSON.stringify(lastUpdate?.args), /@U123/);
     });
   });
 
@@ -514,16 +582,20 @@ describe("Slack mention commands", () => {
       assert.equal(calls[0].args.ts, "10.000");
       assert.match(JSON.stringify(calls[0].args.blocks), /Assignees.*@U456/s);
       assert.doesNotMatch(JSON.stringify(calls[0].args), /<@U456>/);
-      assert.deepEqual(calls.slice(1), [
-        {
-          method: "addReaction",
-          args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
-        },
-        {
-          method: "addReaction",
-          args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
-        },
-      ]);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.deepEqual(
+        calls.filter(({ method }) => method === "addReaction"),
+        [
+          {
+            method: "addReaction",
+            args: { channel: "C123", name: "white_check_mark", timestamp: "20.000" },
+          },
+          {
+            method: "addReaction",
+            args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
+          },
+        ],
+      );
     });
   });
 

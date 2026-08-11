@@ -146,6 +146,39 @@ describe("Slack event notifications", () => {
     });
   });
 
+  it("treats the first publication of a pre-seeded take-pr task as a status entry", async () => {
+    await withStore(async (store) => {
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.assignTask("service-a:ENG-62", "UREQUESTER");
+      store.assignTask("service-a:ENG-62", "UDEFAULT");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await publishWatcherEvent(
+        fakeClient(calls),
+        store,
+        "C123",
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+        },
+        { statuses: ["In Progress"], events: [] },
+      );
+
+      const notification = calls.find(
+        ({ method, args }) => method === "postMessage" && args.thread_ts,
+      );
+      assert.match(String(notification?.args.text), /<@UREQUESTER>/);
+      assert.match(String(notification?.args.text), /<@UDEFAULT>/);
+    });
+  });
+
   it("posts only status transitions and pull request links to the thread", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

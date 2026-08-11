@@ -15,6 +15,7 @@ import {
 import type { SlackClient } from "./client-types.ts";
 import { resolveSlackDisplayName } from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
+import { withTaskCardQueue } from "./task-card-queue.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_ASSIGNEES_LENGTH = 2_000 - "*Assignees*\n".length;
@@ -199,18 +200,18 @@ async function handleAssignCommand({
       );
       return;
     }
-    try {
-      await refreshTaskAssignees(client, store, task, logger);
-    } catch (error) {
-      logger.error(error);
-      await postSlackOperationError(
-        client,
-        { channel: event.channel, threadTs },
-        "You were assigned, but the task card could not be updated.",
-        logger,
-      );
-      return;
-    }
+  }
+  try {
+    await refreshTaskAssignees(client, store, task, logger);
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were assigned, but the task card could not be updated.",
+      logger,
+    );
+    return;
   }
   await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
 }
@@ -260,21 +261,18 @@ async function handleUnassignCommand({
     return;
   }
 
-  const wasAssigned = store.getTaskAssignees(task.id).includes(`<@${slackUserId}>`);
   store.unassignTask(task.id, slackUserId);
-  if (wasAssigned) {
-    try {
-      await refreshTaskAssignees(client, store, task, logger);
-    } catch (error) {
-      logger.error(error);
-      await postSlackOperationError(
-        client,
-        { channel: event.channel, threadTs },
-        "You were unassigned, but the task card could not be updated.",
-        logger,
-      );
-      return;
-    }
+  try {
+    await refreshTaskAssignees(client, store, task, logger);
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "You were unassigned, but the task card could not be updated.",
+      logger,
+    );
+    return;
   }
   try {
     await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
@@ -295,31 +293,34 @@ async function refreshTaskAssignees(
   task: Task,
   logger: { error(error: unknown): void },
 ): Promise<void> {
-  if (!task.parentChannelId || !task.parentMessageTs) return;
+  await withTaskCardQueue(task.id, async () => {
+    const currentTask = store.getTask(task.id) ?? task;
+    if (!currentTask.parentChannelId || !currentTask.parentMessageTs) return;
 
-  const assignees = store.getTaskAssignees(task.id);
-  const baseCard = buildTaskCard(
-    task,
-    store.getSelectableStatuses(task.serviceName),
-    undefined,
-    assignees,
-  );
-  let currentCard = baseCard;
-  try {
-    if (task.lastRenderedSummary) {
-      const parsed = JSON.parse(task.lastRenderedSummary) as unknown;
-      if (isTaskCard(parsed)) currentCard = { ...parsed, text: baseCard.text };
+    const assignees = store.getTaskAssignees(currentTask.id);
+    const baseCard = buildTaskCard(
+      currentTask,
+      store.getSelectableStatuses(currentTask.serviceName),
+      undefined,
+      assignees,
+    );
+    let currentCard = baseCard;
+    try {
+      if (currentTask.lastRenderedSummary) {
+        const parsed = JSON.parse(currentTask.lastRenderedSummary) as unknown;
+        if (isTaskCard(parsed)) currentCard = { ...parsed, text: baseCard.text };
+      }
+    } catch (error) {
+      logger.error(error);
     }
-  } catch (error) {
-    logger.error(error);
-  }
-  const card = replaceTaskCardAssignees(currentCard, assignees);
-  await client.chat.update({
-    channel: task.parentChannelId,
-    ts: task.parentMessageTs,
-    ...card,
+    const card = replaceTaskCardAssignees(currentCard, assignees);
+    await client.chat.update({
+      channel: currentTask.parentChannelId,
+      ts: currentTask.parentMessageTs,
+      ...card,
+    });
+    store.setRenderedSummary(currentTask.id, JSON.stringify(card));
   });
-  store.setRenderedSummary(task.id, JSON.stringify(card));
 }
 
 function isTaskCard(value: unknown): value is TaskCard {

@@ -38,6 +38,7 @@ import { createPendingStatusHookEvent, deliverPendingStatusHooks } from "./statu
 import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
+import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   decideReviewReaction,
   pendingReviewPullRequest,
@@ -252,7 +253,7 @@ export async function runOnce({
         ? undefined
         : notificationTargetsForWatcherEvent(
             config.notifications,
-            persistedTask?.status,
+            persistedTask?.parentMessageTs ? persistedTask.status : undefined,
             status,
             enrichedEvent.type,
             parentAssignees,
@@ -554,22 +555,25 @@ async function processWatcherEvent({
   }
 
   store.addEvent(requeueEvent);
-  const card = buildTaskCard(
-    requeuedTask,
-    store.getSelectableStatuses(requeuedTask.serviceName),
-    {
-      ...event,
-      state: fromStatus,
-      resolvedState: requeuedTask.status,
-    },
-    store.getTaskAssignees(requeuedTask.id),
-  );
-  await slackClient.chat.update({
-    channel: requeuedTask.parentChannelId!,
-    ts: requeuedTask.parentMessageTs!,
-    ...card,
+  await withTaskCardQueue(requeuedTask.id, async () => {
+    const currentTask = store.getTask(requeuedTask.id) ?? requeuedTask;
+    const card = buildTaskCard(
+      currentTask,
+      store.getSelectableStatuses(currentTask.serviceName),
+      {
+        ...event,
+        state: fromStatus,
+        resolvedState: currentTask.status,
+      },
+      store.getTaskAssignees(currentTask.id),
+    );
+    await slackClient.chat.update({
+      channel: currentTask.parentChannelId!,
+      ts: currentTask.parentMessageTs!,
+      ...card,
+    });
+    store.setRenderedSummary(currentTask.id, JSON.stringify(card));
   });
-  store.setRenderedSummary(requeuedTask.id, JSON.stringify(card));
 }
 
 function taskIdsInSnapshots(snapshots: SnapshotsByService): string[] {
