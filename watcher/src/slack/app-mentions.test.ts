@@ -587,6 +587,49 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("reports an unassign-specific error when persistence fails", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTaskNotificationMention(task.id, "U123");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const errors: unknown[] = [];
+      const originalUnassign = store.unassignTaskNotificationMention.bind(store);
+      store.unassignTaskNotificationMention = () => {
+        throw new Error("database unavailable");
+      };
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> unassign <@U123>",
+          },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+      );
+
+      store.unassignTaskNotificationMention = originalUnassign;
+      assert.deepEqual(store.getTaskNotificationMentions(task.id), ["<@U123>"]);
+      assert.equal(errors.length, 1);
+      assert.equal(calls.length, 1);
+      assert.equal(
+        calls[0].args.text,
+        "[error] Failed to unassign you from task notifications. No assignment was changed.",
+      );
+    });
+  });
+
   it("keeps persisted task mentions visible after configured targets expand", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
