@@ -38,7 +38,7 @@ describe("Slack thread reply errors", () => {
         "UBOT",
       );
       await handleThreadReply(
-        args("2.500", "<@UBOT> help"),
+        args("2.500", "<@UCOLLEAGUE> hello <@UBOT> help"),
         store,
         async (_task, reply) => {
           replies.push(reply.text);

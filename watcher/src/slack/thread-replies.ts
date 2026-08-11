@@ -63,8 +63,13 @@ export function parseUserThreadReply(
 
 function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
   if (!botUserId) return false;
-  const match = text.match(/^\s*<@([A-Z0-9]+)>\s+(?:assign|help|status)(?:\s|$)/i);
-  return match?.[1]?.toLowerCase() === botUserId.toLowerCase();
+  const mentions = text.matchAll(/<@([A-Z0-9]+)>/gi);
+  for (const mention of mentions) {
+    if (mention[1]?.toLowerCase() !== botUserId.toLowerCase()) continue;
+    const commandText = text.slice((mention.index ?? 0) + mention[0].length);
+    return /^\s+(?:assign|help|status)(?:\s|$)/i.test(commandText);
+  }
+  return false;
 }
 
 function isSupportedSlackFile(file: unknown): file is SlackFile {
