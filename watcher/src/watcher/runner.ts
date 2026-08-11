@@ -204,13 +204,12 @@ export async function reconcileSlackStatusTransition({
   task: Task;
   expectedStatus: string;
 }): Promise<void> {
-  if (!hasPendingSlackStatusReconciliation(store, task.id)) {
-    store.addEvent({
-      taskId: task.id,
-      type: SLACK_STATUS_RECONCILE_PENDING_EVENT,
-      actor: "watcher",
-    });
-  }
+  store.addEvent({
+    taskId: task.id,
+    type: SLACK_STATUS_RECONCILE_PENDING_EVENT,
+    actor: "watcher",
+    toStatus: expectedStatus,
+  });
 
   try {
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
@@ -448,6 +447,17 @@ async function reconcileLinearStatuses({
       maxAttempts: 1,
     });
     if (!linearIssue?.state) continue;
+    const hasPendingSlackStatus = hasPendingSlackStatusReconciliation(store, task.id);
+    const expectedSlackStatus = hasPendingSlackStatus
+      ? store.getLatestEvent(task.id, SLACK_STATUS_RECONCILE_PENDING_EVENT)?.toStatus
+      : undefined;
+    if (
+      hasPendingSlackStatus &&
+      (!expectedSlackStatus ||
+        normalizeStatus(linearIssue.state) !== normalizeStatus(expectedSlackStatus))
+    ) {
+      continue;
+    }
     const sameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
     const enteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,

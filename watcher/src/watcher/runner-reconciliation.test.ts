@@ -145,6 +145,17 @@ describe("watcher reconciliation and snapshots", () => {
           blocked: [],
         },
       });
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.getTask(task.id)?.linearStateType, previousLinearStateType);
+      assert.deepEqual(calls, []);
+
       linearState = "Done";
       await runOnce({
         config,
