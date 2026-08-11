@@ -49,6 +49,8 @@ describe("linkPullRequestToLinearIssue", () => {
         command: "gh",
         args: [
           "api",
+          "--hostname",
+          "github.com",
           "--method",
           "PATCH",
           "repos/example/widget/pulls/42",

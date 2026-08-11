@@ -87,8 +87,9 @@ export async function linkPullRequestToLinearIssue(
   issueIdentifier: string,
   options: LinkPullRequestOptions = {},
 ): Promise<void> {
+  const parsedUrl = new URL(url);
   const repository = repositoryFromPullRequestUrl(url);
-  const pullRequestNumber = new URL(url).pathname.match(/\/pull\/(\d+)\/?$/)?.[1];
+  const pullRequestNumber = parsedUrl.pathname.match(/\/pull\/(\d+)\/?$/)?.[1];
   if (!repository || !pullRequestNumber) {
     throw new Error(`Invalid GitHub pull request URL: ${url}`);
   }
@@ -104,6 +105,8 @@ export async function linkPullRequestToLinearIssue(
       "gh",
       [
         "api",
+        "--hostname",
+        parsedUrl.hostname,
         "--method",
         "PATCH",
         `repos/${repository}/pulls/${pullRequestNumber}`,
