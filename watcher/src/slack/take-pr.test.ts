@@ -210,7 +210,7 @@ describe("take-pr Slack flow", () => {
 
       assert.equal(calls[0].args.client_msg_id, calls[1].args.client_msg_id);
       const actionValue = JSON.stringify(calls[0].args.blocks).match(
-        /"value":"(takepr_[a-f0-9]{20}:0)"/,
+        /"value":"(takepr_[a-f0-9]{20}:[a-f0-9]{20})"/,
       )?.[1];
       assert.ok(actionValue);
       calls.length = 0;
@@ -251,8 +251,62 @@ describe("take-pr Slack flow", () => {
           elements?: Array<{ options?: Array<{ value?: string }> }>;
         }>
       )[1]?.elements?.[0]?.options?.[0]?.value;
-      assert.equal(optionValue, "request123:0");
+      assert.match(optionValue ?? "", /^request123:[a-f0-9]{20}$/);
       assert.ok(optionValue.length <= 150);
+    });
+  });
+
+  it("keeps a rendered service selection stable when services are reordered", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const serviceA = {
+        name: "service-a",
+        url: "https://service-a.test/state",
+        linearTeam: "team-a",
+      };
+      const serviceB = {
+        name: "service-b",
+        url: "https://service-b.test/state",
+        linearTeam: "team-b",
+      };
+      let selectedTeamId = "";
+      const takePrOptions = options({
+        services: [serviceA, serviceB],
+        linearTeams: {
+          "team-a": { apiKey: "key-a", teamId: "team-id-a" },
+          "team-b": { apiKey: "key-b", teamId: "team-id-b" },
+        },
+        createLinearIssue: async (input) => {
+          selectedTeamId = input.teamId;
+          return {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+          };
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+      const optionValue = (
+        calls[0].args.blocks as Array<{
+          elements?: Array<{ options?: Array<{ value: string }> }>;
+        }>
+      )[1]?.elements?.[0]?.options?.[1]?.value;
+      assert.ok(optionValue);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: optionValue } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        { ...takePrOptions, services: [serviceB, serviceA] },
+      );
+
+      assert.equal(selectedTeamId, "team-id-b");
+      assert.equal(store.getPendingTakePrRequest("request123")?.selectedService, "service-b");
     });
   });
 

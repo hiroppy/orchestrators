@@ -159,13 +159,10 @@ export async function handleTakePrAction(
     return;
   }
 
-  const serviceIndex = /^\d+$/.test(selection.serviceToken)
-    ? Number(selection.serviceToken)
-    : undefined;
-  const service =
-    serviceIndex !== undefined && Number.isSafeInteger(serviceIndex)
-      ? options.services[serviceIndex]
-      : options.services.find(({ name }) => name === selection.serviceToken);
+  const service = options.services.find(
+    ({ name }) =>
+      stableTakePrServiceToken(name) === selection.serviceToken || name === selection.serviceToken,
+  );
   if (!service) {
     await postTakePrError(
       client,
@@ -362,9 +359,9 @@ function buildTakePrServiceSelectionBlocks(
           type: "static_select",
           action_id: TAKE_PR_SERVICE_ACTION_ID,
           placeholder: { type: "plain_text", text: "Choose a service" },
-          options: services.map(({ name }, index) => ({
+          options: services.map(({ name }) => ({
             text: { type: "plain_text", text: name.slice(0, MAX_OPTION_TEXT_LENGTH) },
-            value: `${requestId}:${index}`,
+            value: `${requestId}:${stableTakePrServiceToken(name)}`,
           })),
         },
       ],
@@ -540,6 +537,10 @@ function indentation(line: string): number {
 
 function stableTakePrRequestId(event: Pick<TakePrMentionEvent, "channel" | "ts">): string {
   return `takepr_${createHash("sha256").update(`${event.channel}:${event.ts}`).digest("hex").slice(0, 20)}`;
+}
+
+function stableTakePrServiceToken(serviceName: string): string {
+  return createHash("sha256").update(serviceName).digest("hex").slice(0, 20);
 }
 
 async function postTakePrError(
