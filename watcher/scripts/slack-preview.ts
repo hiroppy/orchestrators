@@ -302,7 +302,7 @@ export function buildSlackPreviewMessage(
     task,
     options.configuredStatuses ?? PREVIEW_STATUSES,
     event,
-    assignee ? [assignee] : [],
+    [...new Set([assignee, ...assignees].filter((value): value is string => Boolean(value)))],
     {
       interactive: options.interactive ?? false,
       titlePrefix: "🔥 Preview",

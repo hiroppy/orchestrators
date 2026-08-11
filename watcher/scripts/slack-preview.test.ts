@@ -213,7 +213,7 @@ describe("Slack preview", () => {
   it("previews the configured attention target in parent and thread messages", () => {
     const options = {
       assignee: "<@UCREATOR>",
-      mentions: ["<!subteam^SREVIEWERS>"],
+      assignees: ["<!subteam^SREVIEWERS>"],
     };
     const parent = buildSlackPreviewMessage(
       { category: "post", type: "attention" },
@@ -227,12 +227,13 @@ describe("Slack preview", () => {
     );
 
     assert.match(JSON.stringify(parent.blocks), /\*Assignees\*\\n@UCREATOR/);
+    assert.match(JSON.stringify(parent.blocks), /@SREVIEWERS/);
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Mentions/);
     assert.match(JSON.stringify(parent.blocks), /PR#123/);
     assert.match(JSON.stringify(parent.blocks), /Improve the watcher Slack preview/);
     assert.equal(
       thread.text,
-      "*PR created* | Assignees: <@UCREATOR> @reviewer-one @reviewer-two | <https://github.com/example/preview/pull/123|PR#123>",
+      "*PR created* | Assignees: <@UCREATOR> <!subteam^SREVIEWERS> | <https://github.com/example/preview/pull/123|PR#123>",
     );
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Waiting for required credentials/);
     assert.doesNotMatch(thread.text, /Waiting for required credentials/);
@@ -243,6 +244,7 @@ describe("Slack preview", () => {
       options,
     );
     assert.match(JSON.stringify(blocked.blocks), /\*Assignees\*\\n@UCREATOR/);
+    assert.match(JSON.stringify(blocked.blocks), /@SREVIEWERS/);
     assert.doesNotMatch(JSON.stringify(blocked.blocks), /Mentions/);
 
     const defaults = buildSlackPreviewMessage(
