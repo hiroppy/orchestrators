@@ -109,10 +109,9 @@ describe("take-pr Slack flow", () => {
         startedAt,
       );
 
-      assert.equal(
-        store.claimPendingTakePrRequest("request123", "service-a", startedAt)?.status,
-        "processing",
-      );
+      const firstClaim = store.claimPendingTakePrRequest("request123", "service-a", startedAt);
+      assert.equal(firstClaim?.status, "processing");
+      assert.ok(firstClaim?.claimToken);
       assert.equal(
         store.claimPendingTakePrRequest(
           "request123",
@@ -129,13 +128,18 @@ describe("take-pr Slack flow", () => {
         ),
         undefined,
       );
-      assert.equal(
-        store.claimPendingTakePrRequest(
-          "request123",
-          "service-a",
-          new Date(startedAt.getTime() + 5 * 60 * 1_000),
-        )?.selectedService,
+      const recoveredClaim = store.claimPendingTakePrRequest(
+        "request123",
         "service-a",
+        new Date(startedAt.getTime() + 5 * 60 * 1_000),
+      );
+      assert.equal(recoveredClaim?.selectedService, "service-a");
+      assert.ok(recoveredClaim?.claimToken);
+      assert.notEqual(recoveredClaim?.claimToken, firstClaim.claimToken);
+      assert.equal(store.releasePendingTakePrRequest("request123", firstClaim.claimToken), false);
+      assert.equal(
+        store.getPendingTakePrRequest("request123")?.claimToken,
+        recoveredClaim.claimToken,
       );
     });
   });
@@ -172,6 +176,7 @@ describe("take-pr Slack flow", () => {
         requesterSlackUserId: "U123",
         status: "pending",
         selectedService: undefined,
+        claimToken: undefined,
         linearIssueIdentifier: undefined,
         linearIssueUrl: undefined,
         createdAt: pending?.createdAt,
@@ -182,6 +187,68 @@ describe("take-pr Slack flow", () => {
       assert.equal(reply?.thread_ts, "10.000");
       assert.match(JSON.stringify(reply?.blocks), /static_select.*service-a.*request123/s);
       assert.doesNotMatch(JSON.stringify(reply?.blocks), /fix\/widget/);
+    });
+  });
+
+  it("deduplicates Slack redelivery of the same app mention", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
+      const takePrOptions = options({
+        createLinearIssue: async () => {
+          creations += 1;
+          return {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+          };
+        },
+      });
+      delete takePrOptions.createRequestId;
+
+      await createPending(store, calls, takePrOptions);
+      await createPending(store, calls, takePrOptions);
+
+      assert.equal(calls[0].args.client_msg_id, calls[1].args.client_msg_id);
+      const actionValue = JSON.stringify(calls[0].args.blocks).match(
+        /"value":"(takepr_[a-f0-9]{20}:service-a)"/,
+      )?.[1];
+      assert.ok(actionValue);
+      calls.length = 0;
+
+      const action = {
+        ack: async () => {},
+        action: { selected_option: { value: actionValue } },
+        body: { user: { id: "U123" } },
+        client: fakeClient(calls),
+        logger: { error: (error: unknown) => assert.fail(String(error)) },
+      };
+      await handleTakePrAction(action, store, takePrOptions);
+      await handleTakePrAction(action, store, takePrOptions);
+
+      assert.equal(creations, 1);
+    });
+  });
+
+  it("rejects take-pr outside the configured watcher channel", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let lookups = 0;
+      await handleTakePrMention(
+        { channel: "CUNTRUSTED", ts: "10.000", user: "U123" },
+        [pullRequest.url],
+        fakeClient(calls),
+        { error: (error) => assert.fail(String(error)) },
+        store,
+        options({
+          findPullRequest: async () => {
+            lookups += 1;
+            return pullRequest;
+          },
+        }),
+      );
+
+      assert.equal(lookups, 0);
+      assert.match(String(calls[0].args.text), /only allowed in the configured watcher channel/);
     });
   });
 
@@ -665,6 +732,7 @@ describe("take-pr Slack flow", () => {
 
 function options(overrides: Partial<TakePrOptions> = {}): TakePrOptions {
   return {
+    authorizedChannelId: "C123",
     services: [
       { name: "service-a", url: "https://service.test/state", linearTeam: "workspace-a-eng" },
     ],

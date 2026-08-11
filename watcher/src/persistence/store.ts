@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { asc, and, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
@@ -63,6 +65,7 @@ export interface PendingTakePrRequest {
   requesterSlackUserId?: string;
   status: "pending" | "processing" | "created" | "completed";
   selectedService?: string;
+  claimToken?: string;
   linearIssueIdentifier?: string;
   linearIssueUrl?: string;
   createdAt: string;
@@ -73,6 +76,7 @@ type NewPendingTakePrRequest = Omit<
   PendingTakePrRequest,
   | "status"
   | "selectedService"
+  | "claimToken"
   | "linearIssueIdentifier"
   | "linearIssueUrl"
   | "createdAt"
@@ -435,6 +439,7 @@ export class WatcherStore {
         createdAt: timestamp,
         updatedAt: timestamp,
       })
+      .onConflictDoNothing({ target: pendingTakePrRequests.id })
       .run();
     return this.requirePendingTakePrRequest(request.id);
   }
@@ -458,12 +463,14 @@ export class WatcherStore {
       if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
 
       const staleBefore = new Date(now.getTime() - TAKE_PR_PROCESSING_LEASE_MS).toISOString();
+      const claimToken = randomBytes(12).toString("base64url");
 
       const result = this.db
         .update(pendingTakePrRequests)
         .set({
           status: "processing",
           selectedService,
+          claimToken,
           updatedAt: now.toISOString(),
         })
         .where(
@@ -489,25 +496,34 @@ export class WatcherStore {
     });
   }
 
-  releasePendingTakePrRequest(id: string, now = new Date()): void {
-    this.db
+  releasePendingTakePrRequest(id: string, claimToken: string, now = new Date()): boolean {
+    const result = this.db
       .update(pendingTakePrRequests)
       .set({
         status: "pending",
         selectedService: null,
+        claimToken: null,
         updatedAt: now.toISOString(),
       })
-      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .where(
+        and(
+          eq(pendingTakePrRequests.id, id),
+          eq(pendingTakePrRequests.status, "processing"),
+          eq(pendingTakePrRequests.claimToken, claimToken),
+        ),
+      )
       .run();
+    return result.changes > 0;
   }
 
   markPendingTakePrIssueCreated(
     id: string,
+    claimToken: string,
     linearIssueIdentifier: string,
     linearIssueUrl: string,
     now = new Date(),
-  ): void {
-    this.db
+  ): boolean {
+    const result = this.db
       .update(pendingTakePrRequests)
       .set({
         status: "created",
@@ -515,44 +531,73 @@ export class WatcherStore {
         linearIssueUrl,
         updatedAt: now.toISOString(),
       })
-      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .where(
+        and(
+          eq(pendingTakePrRequests.id, id),
+          eq(pendingTakePrRequests.status, "processing"),
+          eq(pendingTakePrRequests.claimToken, claimToken),
+        ),
+      )
       .run();
+    return result.changes > 0;
   }
 
   refreshPendingTakePrPullRequest(
     id: string,
+    claimToken: string,
     pullRequest: Pick<
       PendingTakePrRequest,
       "repository" | "pullRequestTitle" | "headBranch" | "baseBranch"
     >,
     now = new Date(),
-  ): void {
-    this.db
+  ): boolean {
+    const result = this.db
       .update(pendingTakePrRequests)
       .set({ ...pullRequest, updatedAt: now.toISOString() })
-      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .where(
+        and(
+          eq(pendingTakePrRequests.id, id),
+          eq(pendingTakePrRequests.status, "processing"),
+          eq(pendingTakePrRequests.claimToken, claimToken),
+        ),
+      )
       .run();
+    return result.changes > 0;
   }
 
-  restorePendingTakePrIssueCreated(id: string, now = new Date()): void {
-    this.db
+  restorePendingTakePrIssueCreated(id: string, claimToken: string, now = new Date()): boolean {
+    const result = this.db
       .update(pendingTakePrRequests)
       .set({ status: "created", updatedAt: now.toISOString() })
-      .where(and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.status, "processing")))
+      .where(
+        and(
+          eq(pendingTakePrRequests.id, id),
+          eq(pendingTakePrRequests.status, "processing"),
+          eq(pendingTakePrRequests.claimToken, claimToken),
+        ),
+      )
       .run();
+    return result.changes > 0;
   }
 
-  completePendingTakePrRequest(id: string, linearIssueUrl: string, now = new Date()): void {
-    this.db
+  completePendingTakePrRequest(
+    id: string,
+    claimToken: string,
+    linearIssueUrl: string,
+    now = new Date(),
+  ): boolean {
+    const result = this.db
       .update(pendingTakePrRequests)
       .set({
         status: "completed",
+        claimToken: null,
         linearIssueUrl,
         updatedAt: now.toISOString(),
       })
       .where(
         and(
           eq(pendingTakePrRequests.id, id),
+          eq(pendingTakePrRequests.claimToken, claimToken),
           or(
             eq(pendingTakePrRequests.status, "created"),
             eq(pendingTakePrRequests.status, "processing"),
@@ -560,6 +605,19 @@ export class WatcherStore {
         ),
       )
       .run();
+    return result.changes > 0;
+  }
+
+  pendingTakePrClaimIsCurrent(id: string, claimToken: string): boolean {
+    return Boolean(
+      this.db
+        .select({ id: pendingTakePrRequests.id })
+        .from(pendingTakePrRequests)
+        .where(
+          and(eq(pendingTakePrRequests.id, id), eq(pendingTakePrRequests.claimToken, claimToken)),
+        )
+        .get(),
+    );
   }
 
   updateTaskStatus(
@@ -674,6 +732,7 @@ function pendingTakePrRequestFromRow(
     ...row,
     requesterSlackUserId: row.requesterSlackUserId ?? undefined,
     selectedService: row.selectedService ?? undefined,
+    claimToken: row.claimToken ?? undefined,
     linearIssueIdentifier: row.linearIssueIdentifier ?? undefined,
     linearIssueUrl: row.linearIssueUrl ?? undefined,
   };

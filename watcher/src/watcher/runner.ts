@@ -121,6 +121,7 @@ export async function startWatcher(config: OrchestratorConfig, args: string[] = 
           botUserId: botUserId!,
           configuredMentionTargets: runtimeConfig.mention?.targets,
           takePr: {
+            authorizedChannelId: slackConfig.channelId,
             services: runtimeConfig.services,
             linearTeams: runtimeConfig.linearTeams,
             symphoniesDirectory: resolve(rootDirectory, "symphonies"),

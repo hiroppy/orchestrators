@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -23,6 +23,7 @@ const MAX_OPTION_TEXT_LENGTH = 75;
 const MAX_LINEAR_ISSUE_TITLE_LENGTH = 255;
 
 export interface TakePrOptions {
+  authorizedChannelId: string;
   services: ServiceDefinition[];
   linearTeams: Record<string, ResolvedLinearTeamConfig>;
   symphoniesDirectory: string;
@@ -31,7 +32,7 @@ export interface TakePrOptions {
     input: CreateLinearTakePrIssueInput,
     options: { apiKey: string },
   ) => Promise<CreatedLinearIssue>;
-  createRequestId?: () => string;
+  createRequestId?: (event: Pick<TakePrMentionEvent, "channel" | "ts">) => string;
   readWorkflow?: (path: string) => Promise<string>;
 }
 
@@ -51,6 +52,15 @@ export async function handleTakePrMention(
   options: TakePrOptions,
 ): Promise<void> {
   const threadTs = event.threadTs ?? event.ts;
+  if (event.channel !== options.authorizedChannelId) {
+    await postTakePrError(
+      client,
+      event.channel,
+      threadTs,
+      "The take-pr command is only allowed in the configured watcher channel.",
+    );
+    return;
+  }
   const pullRequestUrl = args.length === 1 ? parseGitHubPullRequestUrl(args[0]) : undefined;
   if (!pullRequestUrl) {
     await postTakePrError(
@@ -95,7 +105,7 @@ export async function handleTakePrMention(
     await postTakePrError(client, event.channel, threadTs, "The GitHub pull request must be open.");
     return;
   }
-  const requestId = (options.createRequestId ?? createRequestId)();
+  const requestId = (options.createRequestId ?? stableTakePrRequestId)(event);
   store.createPendingTakePrRequest({
     id: requestId,
     pullRequestUrl,
@@ -113,6 +123,7 @@ export async function handleTakePrMention(
     thread_ts: threadTs,
     text: `Choose a service for ${escapeSlack(pullRequest.repository)}#${pullRequest.number ?? "?"}: ${escapeSlack(singleLine(pullRequest.title))}`,
     blocks: buildTakePrServiceSelectionBlocks(requestId, pullRequest, options.services),
+    client_msg_id: stableSlackClientMessageId("selection", requestId),
     unfurl_links: false,
     unfurl_media: false,
   });
@@ -171,7 +182,8 @@ export async function handleTakePrAction(
     return;
   }
   const claimed = store.claimPendingTakePrRequest(request.id, service.name);
-  if (!claimed) return;
+  if (!claimed?.claimToken) return;
+  const claimToken = claimed.claimToken;
 
   try {
     let issueRequest = claimed;
@@ -182,7 +194,7 @@ export async function handleTakePrAction(
     if (!issue) {
       const validation = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
       if ("error" in validation) {
-        store.releasePendingTakePrRequest(claimed.id);
+        if (!store.releasePendingTakePrRequest(claimed.id, claimToken)) return;
         await postTakePrError(client, claimed.channelId, claimed.threadTs, validation.error);
         return;
       }
@@ -192,7 +204,8 @@ export async function handleTakePrAction(
         headBranch: validation.pullRequest.headRefName,
         baseBranch: validation.pullRequest.baseRefName,
       };
-      store.refreshPendingTakePrPullRequest(claimed.id, refreshedPullRequest);
+      if (!store.refreshPendingTakePrPullRequest(claimed.id, claimToken, refreshedPullRequest))
+        return;
       issueRequest = { ...claimed, ...refreshedPullRequest };
       const linearTeam = options.linearTeams[service.linearTeam];
       if (!linearTeam?.apiKey || !linearTeam.teamId) {
@@ -224,7 +237,11 @@ export async function handleTakePrAction(
         ),
         { apiKey: linearTeam.apiKey },
       );
-      store.markPendingTakePrIssueCreated(claimed.id, issue.identifier, issue.url);
+      if (
+        !store.markPendingTakePrIssueCreated(claimed.id, claimToken, issue.identifier, issue.url)
+      ) {
+        return;
+      }
     }
     await client.chat.postMessage({
       channel: claimed.channelId,
@@ -233,16 +250,17 @@ export async function handleTakePrAction(
         `Created <${issue.url}|${issue.identifier}> for service \`${service.name}\`.`,
         `Existing PR: <${issueRequest.pullRequestUrl}|${escapeSlackLinkLabel(`${issueRequest.repository}: ${singleLine(issueRequest.pullRequestTitle)}`)}>`,
       ].join("\n"),
-      client_msg_id: stableSlackClientMessageId(claimed.id),
+      client_msg_id: stableSlackClientMessageId("success", claimed.id),
       unfurl_links: false,
       unfurl_media: false,
     });
-    store.completePendingTakePrRequest(claimed.id, issue.url);
+    store.completePendingTakePrRequest(claimed.id, claimToken, issue.url);
   } catch (error) {
+    if (!store.pendingTakePrClaimIsCurrent(claimed.id, claimToken)) return;
     if (claimed.linearIssueIdentifier && claimed.linearIssueUrl) {
-      store.restorePendingTakePrIssueCreated(claimed.id);
+      store.restorePendingTakePrIssueCreated(claimed.id, claimToken);
     } else if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
-      store.releasePendingTakePrRequest(claimed.id);
+      store.releasePendingTakePrRequest(claimed.id, claimToken);
     }
     logger.error(error);
     const deliveryPending = store.getPendingTakePrRequest(claimed.id)?.status === "created";
@@ -470,8 +488,8 @@ async function revalidatePullRequest(
   return { pullRequest };
 }
 
-function stableSlackClientMessageId(requestId: string): string {
-  const hex = createHash("sha256").update(`take-pr:${requestId}`).digest("hex");
+function stableSlackClientMessageId(kind: "selection" | "success", requestId: string): string {
+  const hex = createHash("sha256").update(`take-pr:${kind}:${requestId}`).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
@@ -505,8 +523,8 @@ function indentation(line: string): number {
   return line.length - line.trimStart().length;
 }
 
-function createRequestId(): string {
-  return randomBytes(9).toString("base64url");
+function stableTakePrRequestId(event: Pick<TakePrMentionEvent, "channel" | "ts">): string {
+  return `takepr_${createHash("sha256").update(`${event.channel}:${event.ts}`).digest("hex").slice(0, 20)}`;
 }
 
 async function postTakePrError(

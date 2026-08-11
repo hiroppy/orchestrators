@@ -126,6 +126,7 @@ export const pendingTakePrRequests = sqliteTable(
       .notNull()
       .default("pending"),
     selectedService: text("selected_service"),
+    claimToken: text("claim_token"),
     linearIssueIdentifier: text("linear_issue_identifier"),
     linearIssueUrl: text("linear_issue_url"),
     createdAt: text("created_at").notNull(),
