@@ -610,7 +610,7 @@ describe("take-pr Slack flow", () => {
       );
 
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "processing");
-      assert.match(String(calls[1].args.text), /mutation outcome unknown/);
+      assert.match(String(calls[1].args.text), /could not be verified.*retry safely/);
     });
   });
 
@@ -732,9 +732,45 @@ describe("take-pr Slack flow", () => {
       assert.equal(creations, 0);
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
       assert.match(String(calls[0].args.text), /Service is not enabled/);
-      assert.match(String(calls[1].args.text), /Linear configuration is incomplete/);
+      assert.match(String(calls[1].args.text), /complete Linear configuration/);
       assert.match(String(calls[2].args.text), /tracker\.provider\.project_slug/);
       assert.equal(errors.length, 2);
+    });
+  });
+
+  it("logs integration details without exposing them in Slack errors", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const internalError =
+        "Linear project secret-project is not associated with team secret-team: token=secret";
+      const logged: unknown[] = [];
+      const takePrOptions = options({
+        createLinearIssue: async () => {
+          throw new Error(internalError);
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => logged.push(error) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(logged.length, 1);
+      assert.match(String(logged[0]), /secret-project.*secret-team.*token=secret/);
+      const slackError = calls.find(({ method }) => method === "postMessage");
+      assert.ok(slackError);
+      assert.doesNotMatch(String(slackError.args.text), /secret-project|secret-team|token=secret/);
+      assert.match(String(slackError.args.text), /No Linear issue was created.*watcher logs/);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
     });
   });
 

@@ -215,14 +215,27 @@ export async function handleTakePrAction(
       issueRequest = { ...claimed, ...refreshedPullRequest };
       const linearTeam = options.linearTeams[service.linearTeam];
       if (!linearTeam?.apiKey || !linearTeam.teamId) {
-        throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
+        throw new TakePrUserError(
+          `Linear configuration is incomplete for service ${service.name}.`,
+          "The selected service does not have complete Linear configuration. No Linear issue was created.",
+        );
       }
       const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
-      const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
+      let workflow: string;
+      try {
+        workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
+      } catch (cause) {
+        throw new TakePrUserError(
+          `WORKFLOW.md could not be read for service ${service.name}.`,
+          "The selected service's WORKFLOW.md could not be read. No Linear issue was created.",
+          { cause },
+        );
+      }
       const projectSlug = projectSlugFromWorkflow(workflow);
       if (!projectSlug) {
-        throw new Error(
+        throw new TakePrUserError(
           `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
+          "The selected service's WORKFLOW.md does not define tracker.provider.project_slug. No Linear issue was created.",
         );
       }
 
@@ -539,7 +552,20 @@ async function postTakePrError(
 }
 
 function takePrErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Failed to create a Linear issue for the PR.";
+  if (error instanceof TakePrUserError) return error.userMessage;
+  if (error instanceof AmbiguousLinearTakePrIssueError) {
+    return "Linear issue creation could not be verified. Select the same service to retry safely. Check the watcher logs for details.";
+  }
+  return "Failed to create a Linear issue for the PR. No Linear issue was created. Check the watcher logs for details.";
+}
+
+class TakePrUserError extends Error {
+  readonly userMessage: string;
+
+  constructor(message: string, userMessage: string, options?: ErrorOptions) {
+    super(message, options);
+    this.userMessage = userMessage;
+  }
 }
 
 type CompletePullRequest = PullRequest & {
