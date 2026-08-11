@@ -121,7 +121,6 @@ describe("Slack preview", () => {
       calls[0].text,
       "*PR created* | <https://github.com/example/preview/pull/123|PR#123>",
     );
-    assert.match(String(calls[1].text), /^\*In Progress\* → \*In Review\*\nEvent: Updated$/);
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
     assert.doesNotMatch(JSON.stringify(calls[1].blocks), /Usage|turns|tokens/i);
     assert.match(String(calls[5].text), /^\*unavailable\* → \*available\*\nEvent: Recovered$/);

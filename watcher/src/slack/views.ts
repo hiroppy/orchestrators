@@ -454,7 +454,7 @@ function compactEventDetails(event: WatcherEvent, includeAttempt = true): string
   return [
     event.pullRequest ? formatPullRequest(event.pullRequest) : null,
     includeAttempt && event.attempt ? `Attempt: ${event.attempt}` : null,
-    event.error ? `Error: ${escapeSlack(truncate(event.error, 180))}` : null,
+    event.error ? `Error: ${escapeSlack(truncate(event.error, MAX_ERROR_LENGTH))}` : null,
   ].filter(isPresent);
 }
 
