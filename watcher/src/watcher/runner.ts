@@ -49,6 +49,7 @@ import {
 } from "./event-enrichment.ts";
 import {
   decideReviewReaction,
+  hasPendingEvent,
   pendingReviewPullRequest,
   REVIEW_REQUEUE_EVENT,
   REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
@@ -76,6 +77,8 @@ async function deliverPendingStatusHooksSafely(
   }
 }
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const SLACK_STATUS_RECONCILE_PENDING_EVENT = "slack_status_reconcile_pending";
+const SLACK_STATUS_RECONCILED_EVENT = "slack_status_reconciled";
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -201,6 +204,14 @@ export async function reconcileSlackStatusTransition({
   task: Task;
   expectedStatus: string;
 }): Promise<void> {
+  if (!hasPendingSlackStatusReconciliation(store, task.id)) {
+    store.addEvent({
+      taskId: task.id,
+      type: SLACK_STATUS_RECONCILE_PENDING_EVENT,
+      actor: "watcher",
+    });
+  }
+
   try {
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
@@ -222,6 +233,7 @@ export async function reconcileSlackStatusTransition({
       pullRequest: linearIssue.pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     });
+    markSlackStatusReconciled(store, task.id);
   } catch (error) {
     console.error("Failed to reconcile Slack status transition:", error);
   }
@@ -258,6 +270,7 @@ export async function runOnce({
   updateLinearStatus = updateLinearIssueStatus,
 }: RunOnceOptions) {
   let reviewReconciliationTaskIds = new Set<string>();
+  let slackStatusReconciliationTaskIds = new Set<string>();
   if (!dryRun) {
     if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
     await deliverPendingStatusHooksSafely({
@@ -271,6 +284,12 @@ export async function runOnce({
       store.getTaskIdsWithIncompleteEvent(
         REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
         REVIEW_REQUEUE_RECONCILED_EVENT,
+      ),
+    );
+    slackStatusReconciliationTaskIds = new Set(
+      store.getTaskIdsWithIncompleteEvent(
+        SLACK_STATUS_RECONCILE_PENDING_EVENT,
+        SLACK_STATUS_RECONCILED_EVENT,
       ),
     );
   }
@@ -371,6 +390,10 @@ export async function runOnce({
   if (!dryRun) {
     if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
     store.replaceSnapshots(current);
+    const reconciliationTaskIds = new Set([
+      ...reviewReconciliationTaskIds,
+      ...slackStatusReconciliationTaskIds,
+    ]);
     await reconcileLinearStatuses({
       config,
       store,
@@ -378,11 +401,12 @@ export async function runOnce({
       slackChannelId,
       skipTaskIds: new Set([
         ...processedTaskIds,
-        ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
+        ...taskIdsInSnapshots(current).filter((taskId) => !reconciliationTaskIds.has(taskId)),
       ]),
       findPullRequestByUrl,
       updateLinearStatus,
       reviewReconciliationTaskIds,
+      reconciliationTaskIds,
     });
   }
   return { events, current };
@@ -397,6 +421,7 @@ async function reconcileLinearStatuses({
   findPullRequestByUrl,
   updateLinearStatus,
   reviewReconciliationTaskIds,
+  reconciliationTaskIds,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -406,8 +431,9 @@ async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
   reviewReconciliationTaskIds: ReadonlySet<string>;
+  reconciliationTaskIds: ReadonlySet<string>;
 }): Promise<void> {
-  for (const task of store.getTasksForLinearSync(reviewReconciliationTaskIds)) {
+  for (const task of store.getTasksForLinearSync(reconciliationTaskIds)) {
     if (
       skipTaskIds.has(task.id) ||
       task.issueIdentifier.startsWith("watcher:") ||
@@ -427,7 +453,8 @@ async function reconcileLinearStatuses({
       task.linearStateType,
       linearIssue.stateType,
     );
-    const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
+    const hasPendingReviewReconciliation = reviewReconciliationTaskIds.has(task.id);
+    const hasPendingReconciliation = reconciliationTaskIds.has(task.id);
     const reaction = reviewReactionForStatus(config, linearIssue.state);
     if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
       if (linearIssue.stateType) {
@@ -438,15 +465,15 @@ async function reconcileLinearStatuses({
     }
     let pullRequest =
       linearIssue.pullRequest ??
-      (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
-    if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
+      (hasPendingReviewReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
+    if (reaction && hasPendingReviewReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction }).catch(
         () => null,
       );
       if (
         reaction &&
-        hasPendingReconciliation &&
+        hasPendingReviewReconciliation &&
         enrichedPullRequest?.hasConfiguredReaction === undefined
       )
         continue;
@@ -496,7 +523,22 @@ async function reconcileLinearStatuses({
       updateLinearStatus,
     });
     markReviewRequeueReconciled(store, task.id);
+    markSlackStatusReconciled(store, task.id);
   }
+}
+
+function markSlackStatusReconciled(store: WatcherStore, taskId: string): void {
+  if (!hasPendingSlackStatusReconciliation(store, taskId)) return;
+  store.addEvent({ taskId, type: SLACK_STATUS_RECONCILED_EVENT, actor: "watcher" });
+}
+
+function hasPendingSlackStatusReconciliation(store: WatcherStore, taskId: string): boolean {
+  return hasPendingEvent(
+    store,
+    taskId,
+    SLACK_STATUS_RECONCILE_PENDING_EVENT,
+    SLACK_STATUS_RECONCILED_EVENT,
+  );
 }
 
 async function processWatcherEvent({

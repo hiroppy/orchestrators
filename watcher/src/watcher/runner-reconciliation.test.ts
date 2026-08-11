@@ -73,25 +73,35 @@ describe("watcher reconciliation and snapshots", () => {
 
   it("ignores a stale Linear state after a Slack status change", async (context) => {
     await withStore(async (store) => {
-      context.mock.method(globalThis, "fetch", async () =>
-        Response.json({
+      const nativeFetch = globalThis.fetch;
+      let linearState = "In Review";
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
           data: {
             issue: {
               identifier: "ENG-62",
               title: "Merge the pull request",
-              state: { name: "In Review", type: "started" },
+              state: {
+                name: linearState,
+                type: linearState === "Done" ? "completed" : "started",
+              },
               url: "https://linear.app/example/issue/ENG-62/example",
               attachments: { nodes: [] },
               relations: { nodes: [] },
             },
           },
-        }),
-      );
+        });
+      });
       const config = runtimeConfig({
         services: [
           {
             name: "service-a",
-            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            url: dataUrl({
+              running: [{ issue_identifier: "ENG-62", state: "Done" }],
+              retrying: [],
+              blocked: [],
+            }),
             linearTeam: "workspace-a-eng",
           },
         ],
@@ -127,6 +137,27 @@ describe("watcher reconciliation and snapshots", () => {
       assert.equal(store.getTask(task.id)?.status, "Done");
       assert.equal(store.getTask(task.id)?.linearStateType, previousLinearStateType);
       assert.deepEqual(calls, []);
+
+      store.replaceSnapshots({
+        "service-a": {
+          running: [{ issue_identifier: "ENG-62", state: "Done" }],
+          retrying: [],
+          blocked: [],
+        },
+      });
+      linearState = "Done";
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      assert.equal(
+        calls.filter(({ method, thread_ts }) => method === "postMessage" && !thread_ts).length,
+        1,
+      );
     });
   });
 
