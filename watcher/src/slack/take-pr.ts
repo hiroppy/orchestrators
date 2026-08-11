@@ -242,6 +242,7 @@ export async function handleTakePrAction(
     const issue = await (options.createLinearIssue ?? createLinearTakePrIssue)(
       buildLinearIssueInput(
         issueRequest,
+        service.name,
         linearTeam.teamId,
         projectSlug,
         permalinkResponse.permalink,
@@ -439,6 +440,7 @@ function buildLinearIssueInput(
     headBranch: string;
     baseBranch: string;
   },
+  serviceName: string,
   teamId: string,
   projectSlug: string,
   slackMessageUrl: string,
@@ -465,7 +467,12 @@ function buildLinearIssueInput(
   descriptionSections.push("", "## Requested from", "", slackMessageUrl);
   const description = descriptionSections.join("\n");
   return {
-    idempotencyKey: request.id,
+    idempotencyKey: [
+      request.pullRequestUrl.replace(/\/$/, ""),
+      serviceName,
+      teamId,
+      projectSlug,
+    ].join(":"),
     teamId,
     projectSlug,
     title,
