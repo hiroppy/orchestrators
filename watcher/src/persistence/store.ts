@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
@@ -37,14 +39,47 @@ import { syncDefinitions } from "./definitions.ts";
 export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
+const TAKE_PR_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
   retrying: "Retrying",
   blocked: "Blocked",
 } as const;
 
+export interface PendingTakePrRequest {
+  id: string;
+  pullRequestUrl: string;
+  repository: string;
+  pullRequestTitle: string;
+  pullRequestBody: string;
+  headBranch: string;
+  baseBranch: string;
+  channelId: string;
+  threadTs: string;
+  requesterSlackUserId?: string;
+  status: "pending" | "processing" | "created" | "completed";
+  selectedService?: string;
+  claimToken?: string;
+  linearIssueIdentifier?: string;
+  linearIssueUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type NewPendingTakePrRequest = Omit<
+  PendingTakePrRequest,
+  | "status"
+  | "selectedService"
+  | "claimToken"
+  | "linearIssueIdentifier"
+  | "linearIssueUrl"
+  | "createdAt"
+  | "updatedAt"
+>;
+
 export class WatcherStore {
   private readonly db: WatcherDatabase;
+  private readonly pendingTakePrRequests = new Map<string, PendingTakePrRequest>();
 
   constructor(db: WatcherDatabase) {
     this.db = db;
@@ -386,6 +421,137 @@ export class WatcherStore {
       .map(({ slackUserId }) => `<@${slackUserId}>`);
   }
 
+  createPendingTakePrRequest(
+    request: NewPendingTakePrRequest,
+    now = new Date(),
+  ): PendingTakePrRequest {
+    const timestamp = now.toISOString();
+    const existing = this.pendingTakePrRequests.get(request.id);
+    if (existing) return existing;
+    const pending: PendingTakePrRequest = {
+      ...request,
+      status: "pending",
+      selectedService: undefined,
+      claimToken: undefined,
+      linearIssueIdentifier: undefined,
+      linearIssueUrl: undefined,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.pendingTakePrRequests.set(request.id, pending);
+    return pending;
+  }
+
+  getPendingTakePrRequest(id: string): PendingTakePrRequest | undefined {
+    return this.pendingTakePrRequests.get(id);
+  }
+
+  claimPendingTakePrRequest(
+    id: string,
+    selectedService: string,
+    now = new Date(),
+  ): PendingTakePrRequest | undefined {
+    const request = this.getPendingTakePrRequest(id);
+    if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
+    const claimed: PendingTakePrRequest = {
+      ...request,
+      status: "processing",
+      selectedService,
+      claimToken: randomBytes(12).toString("base64url"),
+      updatedAt: now.toISOString(),
+    };
+    this.pendingTakePrRequests.set(id, claimed);
+    return claimed;
+  }
+
+  releasePendingTakePrRequest(id: string, claimToken: string, now = new Date()): boolean {
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "pending",
+      selectedService: undefined,
+      claimToken: undefined,
+      updatedAt: now.toISOString(),
+    });
+    return true;
+  }
+
+  markPendingTakePrIssueCreated(
+    id: string,
+    claimToken: string,
+    linearIssueIdentifier: string,
+    linearIssueUrl: string,
+    now = new Date(),
+  ): boolean {
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "created",
+      linearIssueIdentifier,
+      linearIssueUrl,
+      updatedAt: now.toISOString(),
+    });
+    return true;
+  }
+
+  refreshPendingTakePrPullRequest(
+    id: string,
+    claimToken: string,
+    pullRequest: Pick<
+      PendingTakePrRequest,
+      "repository" | "pullRequestTitle" | "pullRequestBody" | "headBranch" | "baseBranch"
+    >,
+    now = new Date(),
+  ): boolean {
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      ...pullRequest,
+      updatedAt: now.toISOString(),
+    });
+    return true;
+  }
+
+  restorePendingTakePrIssueCreated(id: string, claimToken: string, now = new Date()): boolean {
+    const request = this.currentTakePrClaim(id, claimToken, "processing");
+    if (!request) return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "created",
+      updatedAt: now.toISOString(),
+    });
+    return true;
+  }
+
+  completePendingTakePrRequest(
+    id: string,
+    claimToken: string,
+    linearIssueUrl: string,
+    now = new Date(),
+  ): boolean {
+    const request = this.pendingTakePrRequests.get(id);
+    if (
+      request?.claimToken !== claimToken ||
+      (request.status !== "created" && request.status !== "processing")
+    )
+      return false;
+    this.pendingTakePrRequests.set(id, {
+      ...request,
+      status: "completed",
+      claimToken: undefined,
+      linearIssueUrl,
+      updatedAt: now.toISOString(),
+    });
+    return true;
+  }
+
+  pendingTakePrClaimIsCurrent(id: string, claimToken: string): boolean {
+    return this.pendingTakePrRequests.get(id)?.claimToken === claimToken;
+  }
+
   updateTaskStatus(
     taskId: string,
     statusName: string,
@@ -483,6 +649,29 @@ export class WatcherStore {
     if (!task) throw new Error(`Task not found: ${taskId}`);
     return task;
   }
+
+  private currentTakePrClaim(
+    id: string,
+    claimToken: string,
+    status: PendingTakePrRequest["status"],
+  ): PendingTakePrRequest | undefined {
+    const request = this.pendingTakePrRequests.get(id);
+    return request?.claimToken === claimToken && request.status === status ? request : undefined;
+  }
+}
+
+function takePrRequestCanBeClaimed(
+  request: PendingTakePrRequest,
+  selectedService: string,
+  now: Date,
+): boolean {
+  if (request.status === "pending") return true;
+  if (request.status === "created") return request.selectedService === selectedService;
+  if (request.status !== "processing") return false;
+  return (
+    request.selectedService === selectedService &&
+    Date.parse(request.updatedAt) <= now.getTime() - TAKE_PR_PROCESSING_LEASE_MS
+  );
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {

@@ -12,7 +12,9 @@ import type {
 export interface SlackClient {
   chat: {
     getPermalink(args: ChatGetPermalinkArguments): Promise<ChatGetPermalinkResponse>;
-    postMessage(args: ChatPostMessageArguments): Promise<ChatPostMessageResponse>;
+    postMessage(
+      args: ChatPostMessageArguments & { client_msg_id?: string },
+    ): Promise<ChatPostMessageResponse>;
     update(args: ChatUpdateArguments): Promise<ChatUpdateResponse>;
   };
   users?: {

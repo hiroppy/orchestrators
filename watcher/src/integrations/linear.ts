@@ -18,6 +18,9 @@ import {
   ISSUE_STATUS_UPDATE_MUTATION,
   ISSUE_WORKPAD_QUERY,
   TEAM_WORKFLOW_STATES_QUERY,
+  TAKE_PR_ISSUE_CREATE_MUTATION,
+  TAKE_PR_ISSUE_QUERY,
+  TAKE_PR_TARGET_QUERY,
 } from "./linear-queries.ts";
 import {
   isTransientLinearError,
@@ -30,6 +33,21 @@ interface LinearRequestOptions {
   apiKey?: string;
   timeoutMs?: number;
 }
+
+export interface CreateLinearTakePrIssueInput {
+  idempotencyKey: string;
+  teamId: string;
+  projectSlug: string;
+  title: string;
+  description: string;
+}
+
+export interface CreatedLinearIssue {
+  identifier: string;
+  url: string;
+}
+
+export class AmbiguousLinearTakePrIssueError extends Error {}
 
 interface FetchLinearOptions extends LinearRequestOptions {
   includeCreator?: boolean;
@@ -167,6 +185,132 @@ export async function updateLinearIssueStatus(
   if (!updated.issueUpdate?.success) {
     throw new Error(`Linear rejected status update for ${issueIdentifier}.`);
   }
+}
+
+export async function createLinearTakePrIssue(
+  input: CreateLinearTakePrIssueInput,
+  { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS }: LinearRequestOptions,
+): Promise<CreatedLinearIssue> {
+  if (!apiKey) throw new Error("Linear API key is not configured.");
+  const issueId = stableUuid(`take-pr:${input.idempotencyKey}`);
+
+  const target = await linearRequest<{
+    team?: {
+      id: string;
+      states?: { nodes?: Array<{ id: string; name: string }> };
+    };
+    projects?: {
+      nodes?: Array<{
+        id: string;
+        name: string;
+        slugId: string;
+        teams?: { nodes?: Array<{ id: string }> };
+      }>;
+    };
+  }>(
+    apiKey,
+    TAKE_PR_TARGET_QUERY,
+    { teamId: input.teamId, projectSlug: input.projectSlug },
+    timeoutMs,
+  );
+  const team = target.team;
+  if (!team) throw new Error(`Linear team not found: ${input.teamId}`);
+
+  const project = target.projects?.nodes?.find(({ slugId }) => slugId === input.projectSlug);
+  if (!project) throw new Error(`Linear project not found: ${input.projectSlug}`);
+  if (!project.teams?.nodes?.some(({ id }) => id === team.id)) {
+    throw new Error(
+      `Linear project ${input.projectSlug} is not associated with team ${input.teamId}.`,
+    );
+  }
+
+  const inProgress = team.states?.nodes?.find(
+    ({ name }) => name.trim().toLowerCase() === "in progress",
+  );
+  if (!inProgress) throw new Error(`Linear team has no In Progress state: ${input.teamId}`);
+
+  const existingIssue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
+  if (existingIssue) return existingIssue;
+
+  try {
+    const created = await linearRequest<{
+      issueCreate?: {
+        success?: boolean;
+        issue?: LinearTakePrIssue;
+      };
+    }>(
+      apiKey,
+      TAKE_PR_ISSUE_CREATE_MUTATION,
+      {
+        issueId,
+        teamId: team.id,
+        projectId: project.id,
+        stateId: inProgress.id,
+        title: input.title,
+        description: input.description,
+      },
+      timeoutMs,
+    );
+    if (!created.issueCreate?.success) {
+      throw new Error("Linear rejected take-pr issue creation in In Progress.");
+    }
+    return requireNewLinearTakePrIssue(created.issueCreate.issue);
+  } catch (error) {
+    try {
+      const reconciled = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
+      if (reconciled) return reconciled;
+    } catch (reconciliationError) {
+      throw new AmbiguousLinearTakePrIssueError(
+        `Linear issue creation could not be reconciled: ${errorMessage(reconciliationError)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+interface LinearTakePrIssue {
+  identifier?: string;
+  url?: string;
+  state?: { name?: string };
+}
+
+async function findLinearTakePrIssue(
+  apiKey: string,
+  issueId: string,
+  timeoutMs: number,
+): Promise<CreatedLinearIssue | null> {
+  const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
+    apiKey,
+    TAKE_PR_ISSUE_QUERY,
+    { issueId },
+    timeoutMs,
+  );
+  return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+}
+
+function requireNewLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
+  if (
+    !issue?.identifier ||
+    !issue.url ||
+    issue.state?.name?.trim().toLowerCase() !== "in progress"
+  ) {
+    throw new Error("Linear rejected take-pr issue creation in In Progress.");
+  }
+  return { identifier: issue.identifier, url: issue.url };
+}
+
+function requireReconciledLinearTakePrIssue(
+  issue: LinearTakePrIssue | undefined,
+): CreatedLinearIssue {
+  if (!issue?.identifier || !issue.url) {
+    throw new Error("Linear take-pr issue reconciliation returned incomplete metadata.");
+  }
+  return { identifier: issue.identifier, url: issue.url };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown error";
 }
 
 export async function createLinearWorkpadReply(
