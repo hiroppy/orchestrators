@@ -16,6 +16,7 @@ efficiently keep many tasks moving, even while away from your desk.
 - Update Linear issue statuses directly from Slack
 - Ask `@Orchestrators status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
+- Attach an existing pull request to Linear so the watcher can monitor it
 - Run `@Orchestrators assign @user` in a tracked task thread to include that
   user in configured notification mentions for only that task. The mentioned
   user must be the person running the command.
