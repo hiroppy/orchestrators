@@ -156,7 +156,7 @@ describe("take-pr Slack flow", () => {
     });
   });
 
-  it("recovers a processing request after its lease expires", async () => {
+  it("prevents concurrent claims until the active claim is released", async () => {
     await withStore((store) => {
       const startedAt = new Date("2026-08-11T00:00:00.000Z");
       store.createPendingTakePrRequest(
@@ -178,27 +178,10 @@ describe("take-pr Slack flow", () => {
       const firstClaim = store.claimPendingTakePrRequest("request123", "service-a", startedAt);
       assert.equal(firstClaim?.status, "processing");
       assert.ok(firstClaim?.claimToken);
-      assert.equal(
-        store.claimPendingTakePrRequest(
-          "request123",
-          "service-a",
-          new Date(startedAt.getTime() + 4 * 60 * 1_000),
-        ),
-        undefined,
-      );
-      assert.equal(
-        store.claimPendingTakePrRequest(
-          "request123",
-          "service-b",
-          new Date(startedAt.getTime() + 5 * 60 * 1_000),
-        ),
-        undefined,
-      );
-      const recoveredClaim = store.claimPendingTakePrRequest(
-        "request123",
-        "service-a",
-        new Date(startedAt.getTime() + 5 * 60 * 1_000),
-      );
+      assert.equal(store.claimPendingTakePrRequest("request123", "service-a"), undefined);
+      assert.equal(store.claimPendingTakePrRequest("request123", "service-b"), undefined);
+      assert.equal(store.releasePendingTakePrRequest("request123", firstClaim.claimToken), true);
+      const recoveredClaim = store.claimPendingTakePrRequest("request123", "service-a");
       assert.equal(recoveredClaim?.selectedService, "service-a");
       assert.ok(recoveredClaim?.claimToken);
       assert.notEqual(recoveredClaim?.claimToken, firstClaim.claimToken);
@@ -636,52 +619,6 @@ describe("take-pr Slack flow", () => {
     });
   });
 
-  it("revalidates a stale processing retry before another Linear mutation", async () => {
-    await withStore(async (store) => {
-      const startedAt = new Date("2026-08-11T00:00:00.000Z");
-      store.createPendingTakePrRequest(
-        {
-          id: "request123",
-          pullRequestUrl: pullRequest.url,
-          repository: pullRequest.repository,
-          pullRequestTitle: pullRequest.title,
-          pullRequestBody: pullRequest.body,
-          headBranch: pullRequest.headRefName,
-          baseBranch: pullRequest.baseRefName,
-          channelId: "C123",
-          threadTs: "10.000",
-          requesterSlackUserId: "U123",
-        },
-        startedAt,
-      );
-      store.claimPendingTakePrRequest("request123", "service-a", startedAt);
-      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-      let creations = 0;
-
-      await handleTakePrAction(
-        {
-          ack: async () => {},
-          action: { selected_option: { value: "request123:service-a" } },
-          body: { user: { id: "U123" } },
-          client: fakeClient(calls),
-          logger: { error: (error) => assert.fail(String(error)) },
-        },
-        store,
-        options({
-          findPullRequest: async () => ({ ...pullRequest, state: "CLOSED" }),
-          createLinearIssue: async () => {
-            creations += 1;
-            throw new Error("should not create");
-          },
-        }),
-      );
-
-      assert.equal(creations, 0);
-      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
-      assert.match(String(calls[0].args.text), /no longer open/);
-    });
-  });
-
   it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -779,12 +716,20 @@ describe("take-pr Slack flow", () => {
     });
   });
 
-  it("keeps an ambiguously created Linear request processing for idempotent recovery", async () => {
+  it("allows immediate retry after an ambiguous Linear result", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
       const takePrOptions = options({
         createLinearIssue: async () => {
-          throw new AmbiguousLinearTakePrIssueError("mutation outcome unknown");
+          creations += 1;
+          if (creations === 1) {
+            throw new AmbiguousLinearTakePrIssueError("mutation outcome unknown");
+          }
+          return {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+          };
         },
       });
       await createPending(store, calls, takePrOptions);
@@ -802,8 +747,24 @@ describe("take-pr Slack flow", () => {
         takePrOptions,
       );
 
-      assert.equal(store.getPendingTakePrRequest("request123")?.status, "processing");
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
       assert.match(String(calls[1].args.text), /mutation outcome unknown/);
+
+      calls.length = 0;
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(creations, 2);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "completed");
     });
   });
 

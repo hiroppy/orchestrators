@@ -6,7 +6,6 @@ import type { KnownBlock } from "@slack/web-api";
 import { parse as parseYaml } from "yaml";
 
 import {
-  AmbiguousLinearTakePrIssueError,
   createLinearTakePrIssue,
   type CreateLinearTakePrIssueInput,
   type CreatedLinearIssue,
@@ -296,7 +295,7 @@ export async function handleTakePrAction(
     if (!store.pendingTakePrClaimIsCurrent(claimed.id, claimToken)) return;
     if (claimed.linearIssueIdentifier && claimed.linearIssueUrl) {
       store.restorePendingTakePrIssueCreated(claimed.id, claimToken);
-    } else if (!(error instanceof AmbiguousLinearTakePrIssueError)) {
+    } else {
       store.releasePendingTakePrRequest(claimed.id, claimToken);
     }
     logger.error(error);

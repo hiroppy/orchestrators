@@ -39,7 +39,6 @@ import { syncDefinitions } from "./definitions.ts";
 export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
-const TAKE_PR_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
 const TAKE_PR_ACTIVE_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const TAKE_PR_COMPLETED_RETENTION_MS = 60 * 60 * 1_000;
 const DEFAULT_STATUS_BY_BUCKET = {
@@ -456,7 +455,7 @@ export class WatcherStore {
     now = new Date(),
   ): PendingTakePrRequest | undefined {
     const request = this.getPendingTakePrRequest(id, now);
-    if (!request || !takePrRequestCanBeClaimed(request, selectedService, now)) return undefined;
+    if (!request || !takePrRequestCanBeClaimed(request, selectedService)) return undefined;
     const claimed: PendingTakePrRequest = {
       ...request,
       status: "processing",
@@ -680,15 +679,10 @@ export class WatcherStore {
 function takePrRequestCanBeClaimed(
   request: PendingTakePrRequest,
   selectedService: string,
-  now: Date,
 ): boolean {
   if (request.status === "pending") return true;
   if (request.status === "created") return request.selectedService === selectedService;
-  if (request.status !== "processing") return false;
-  return (
-    request.selectedService === selectedService &&
-    Date.parse(request.updatedAt) <= now.getTime() - TAKE_PR_PROCESSING_LEASE_MS
-  );
+  return false;
 }
 
 export function taskIdFor(serviceName: string, issueIdentifier: string): string {
