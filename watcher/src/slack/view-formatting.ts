@@ -34,6 +34,10 @@ export function escapeSlack(value: unknown): string {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+export function escapeSlackLinkLabel(value: unknown): string {
+  return escapeSlack(value).replaceAll("|", "｜");
+}
+
 export function isPresent<T>(value: T | null | undefined | false): value is T {
   return value !== null && value !== undefined && value !== false;
 }

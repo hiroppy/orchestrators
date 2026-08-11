@@ -261,7 +261,7 @@ describe("Slack event publishing", () => {
         type: "started",
         service: "service-a",
         issueIdentifier: "ENG-62",
-        issueTitle: "Merge the pull request",
+        issueTitle: "Merge | <deploy> & _verify_",
         issueUrl,
         resolvedState: "In Progress",
         resolvedStateType: "started",
@@ -270,7 +270,7 @@ describe("Slack event publishing", () => {
         type: "updated",
         service: "service-a",
         issueIdentifier: "ENG-62",
-        issueTitle: "Merge the pull request",
+        issueTitle: "Merge | <deploy> & _verify_",
         issueUrl,
         resolvedState: "Done",
         resolvedStateType: "completed",
@@ -304,7 +304,7 @@ describe("Slack event publishing", () => {
       assert.match(JSON.stringify(topLevelPosts[0].args.blocks), new RegExp(issueUrl));
       assert.deepEqual(topLevelPosts[1].args, {
         channel: "C123",
-        text: "Task closed | *Done*\nhttps://example.slack.com/archives/C123/p1000",
+        text: "Task closed | *Done*\n<https://example.slack.com/archives/C123/p1000|Merge ｜ &lt;deploy&gt; &amp; _verify_>",
         blocks: [
           { type: "section", text: { type: "mrkdwn", text: "*Task closed*" } },
           {
@@ -313,11 +313,13 @@ describe("Slack event publishing", () => {
               { type: "mrkdwn", text: "*Status*\nDone" },
               {
                 type: "mrkdwn",
-                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|View task thread>",
+                text: "*Task*\n<https://example.slack.com/archives/C123/p1000|Merge ｜ &lt;deploy&gt; &amp; _verify_>",
               },
             ],
           },
         ],
+        unfurl_links: false,
+        unfurl_media: false,
       });
       const nextTaskPosts = calls.filter(
         ({ method, args }) => method === "postMessage" && args.thread_ts === "2.000",

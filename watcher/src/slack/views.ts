@@ -4,6 +4,7 @@ import {
   capitalize,
   escapeExceptLinks,
   escapeSlack,
+  escapeSlackLinkLabel,
   formatCompactNumber,
   formatNumber,
   isPresent,
@@ -279,17 +280,22 @@ export function buildReviewRequeueLimitMessageBlocks(
   ]);
 }
 
-export function buildTaskClosedMessage(status: string, parentPermalink: string): string {
-  return `Task closed | *${escapeSlack(status)}*\n${parentPermalink}`;
+export function buildTaskClosedMessage(
+  status: string,
+  taskThreadPermalink: string,
+  taskTitle: string,
+): string {
+  return `Task closed | *${escapeSlack(status)}*\n<${taskThreadPermalink}|${escapeSlackLinkLabel(taskTitle)}>`;
 }
 
 export function buildTaskClosedMessageBlocks(
   status: string,
-  parentPermalink: string,
+  taskThreadPermalink: string,
+  taskTitle: string,
 ): SectionBlock[] {
   return buildNotificationBlocks("*Task closed*", [
     `*Status*\n${escapeSlack(status)}`,
-    `*Task*\n<${parentPermalink}|View task thread>`,
+    `*Task*\n<${taskThreadPermalink}|${escapeSlackLinkLabel(taskTitle)}>`,
   ]);
 }
 

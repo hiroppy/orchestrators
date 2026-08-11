@@ -82,7 +82,7 @@ describe("watcher reconciliation and snapshots", () => {
       );
       assert.equal(
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
-        "Task closed | *Done*\nhttps://example.slack.com/archives/C123/p1000",
+        "Task closed | *Done*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
       assert.match(
         String(calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.text),

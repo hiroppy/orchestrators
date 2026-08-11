@@ -272,11 +272,12 @@ export async function publishWatcherEvent(
       });
       store.setRenderedSummary(task.id, summary);
       if (announceTerminalParent) {
-        const closedMessage = await postParentPermalink(
+        const closedMessage = await postTaskClosedMessage(
           client,
           task.parentChannelId,
           task.parentMessageTs,
           task.status,
+          task.title,
         );
         await postRelatedIssues(
           client,
@@ -326,11 +327,12 @@ export async function publishWatcherEvent(
   });
 }
 
-async function postParentPermalink(
+async function postTaskClosedMessage(
   client: SlackClient,
   channel: string,
   messageTs: string,
   status: string,
+  title: string,
 ): Promise<ChatPostMessageResponse> {
   const response = await client.chat.getPermalink({
     channel,
@@ -341,8 +343,10 @@ async function postParentPermalink(
   }
   return client.chat.postMessage({
     channel,
-    text: buildTaskClosedMessage(status, response.permalink),
-    blocks: buildTaskClosedMessageBlocks(status, response.permalink),
+    text: buildTaskClosedMessage(status, response.permalink, title),
+    blocks: buildTaskClosedMessageBlocks(status, response.permalink, title),
+    unfurl_links: false,
+    unfurl_media: false,
   });
 }
 
