@@ -1,0 +1,1 @@
+ALTER TABLE `pending_take_pr_requests` ADD `claim_token` text;

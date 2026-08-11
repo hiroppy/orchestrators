@@ -5,7 +5,7 @@ import type { PullRequest, WatcherEvent } from "../domain/types.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
-  "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName";
+  "url,number,title,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName";
 const GH_PR_FIELDS_WITH_REACTIONS = `${GH_PR_FIELDS},reactionGroups`;
 const GITHUB_REACTION_BY_EMOJI: Record<string, string> = {
   "👍": "THUMBS_UP",
@@ -28,7 +28,6 @@ interface GhPullRequest {
   url?: string;
   number?: number;
   title?: string;
-  body?: string;
   state?: string;
   isDraft?: boolean;
   reviewDecision?: string;
@@ -104,7 +103,6 @@ function toPullRequest(parsed: GhPullRequest, reaction?: string): PullRequest {
     url: parsed.url!,
     number: parsed.number ?? null,
     title: parsed.title ?? null,
-    body: parsed.body ?? null,
     state: parsed.state ?? null,
     isDraft: parsed.isDraft ?? null,
     reviewDecision: parsed.reviewDecision ?? null,

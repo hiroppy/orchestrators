@@ -67,7 +67,6 @@ export interface PullRequest {
   url: string;
   number?: number | null;
   title?: string | null;
-  body?: string | null;
   state?: string | null;
   isDraft?: boolean | null;
   reviewDecision?: string | null;
