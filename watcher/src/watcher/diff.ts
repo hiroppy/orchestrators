@@ -3,7 +3,6 @@ import type {
   Snapshot,
   SnapshotRow,
   SnapshotsByService,
-  TokenCounts,
   WatcherEvent,
 } from "../domain/types.ts";
 import type { WatcherRuntimeConfig } from "../config/runtime.ts";
@@ -165,31 +164,15 @@ function toEvent(
     issueIdentifier,
     issueUrl: issueUrlFor(row, issueIdentifier, linearBaseUrl),
     state: row.state ?? null,
-    message: row.last_message ?? row.error ?? null,
-    activity: activityFor(row.last_message),
     workspacePath: row.workspace_path ?? null,
     startedAt: row.started_at ?? null,
     blockedAt: row.blocked_at ?? null,
-    turnCount: row.turn_count ?? null,
-    tokens: tokensFor(row.tokens),
     lastEvent: row.last_event ?? null,
     lastEventAt: row.last_event_at ?? row.blocked_at ?? row.due_at ?? null,
     attempt: row.attempt ?? null,
     dueAt: row.due_at ?? null,
     error: row.error ?? null,
   }) as unknown as WatcherEvent;
-}
-
-function tokensFor(tokens: SnapshotRow["tokens"]): TokenCounts | null {
-  if (!tokens || typeof tokens !== "object") return null;
-
-  const normalized = compactObject({
-    input: tokens.input_tokens ?? tokens.inputTokens ?? null,
-    output: tokens.output_tokens ?? tokens.outputTokens ?? null,
-    total: tokens.total_tokens ?? tokens.totalTokens ?? null,
-  });
-
-  return Object.keys(normalized).length > 0 ? (normalized as TokenCounts) : null;
 }
 
 function issueIdentifierFor(row: SnapshotRow): string | null {
@@ -210,20 +193,4 @@ function issueUrlFor(
   if (row.issue_url) return row.issue_url;
   if (!linearBaseUrl || !issueIdentifier || !/^[A-Z]+-\d+$/.test(issueIdentifier)) return null;
   return `${linearBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(issueIdentifier)}`;
-}
-
-function activityFor(message?: string): string | null {
-  if (!message) return null;
-
-  const cleaned = message
-    .replaceAll(/\s+\((?:msg|call|rs)_[^)]+\)/g, "")
-    .replaceAll(/\s+/g, " ")
-    .trim();
-
-  if (cleaned === "item started: command execution") return "command execution started";
-  if (cleaned === "item completed: command execution") return "command execution completed";
-  if (cleaned === "item started: agent message") return "agent response started";
-  if (cleaned === "item completed: agent message") return null;
-
-  return cleaned || null;
 }
