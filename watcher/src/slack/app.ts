@@ -20,7 +20,7 @@ import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import { withQueue } from "./async-queue.ts";
-import { notificationTargetsForWatcherEvent } from "./notifications.ts";
+import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./notifications.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackDisplayName } from "./users.ts";
@@ -239,10 +239,10 @@ export async function publishWatcherEvent(
         : undefined,
   );
   if (!persistedTask.parentMessageTs && store.getTaskAssignees(taskId).length === 0) {
-    const initialAssignees = [...(options.defaultAssignees ?? []), event.creatorMention].filter(
-      (value): value is string => Boolean(value?.match(/^<@[A-Z0-9]+>$/i)),
-    );
-    for (const assignee of new Set(initialAssignees)) {
+    for (const assignee of initialTaskAssignees(
+      options.defaultAssignees ?? [],
+      event.creatorMention,
+    )) {
       store.assignTask(taskId, assignee.slice(2, -1));
     }
   }

@@ -127,7 +127,7 @@ describe("watcher polling", () => {
     });
   });
 
-  it("includes task notification assignments in dry-run output", async (context) => {
+  it("models persisted task assignees independently from dry-run notifications", async (context) => {
     await withStore(async (store) => {
       const current = {
         running: [{ issue_identifier: "ENG-62", state: "Blocked" }],
@@ -150,7 +150,8 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked"]),
-        notifications: { statuses: ["Blocked"], events: [] },
+        defaultAssignees: ["<@UDEFAULT>"],
+        notifications: { statuses: [], events: [] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
@@ -160,12 +161,18 @@ describe("watcher polling", () => {
         state: "In Progress",
       });
       store.assignTask("service-a:ENG-62", "U123");
+      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
       const output: string[] = [];
       context.mock.method(console, "log", (line) => output.push(String(line)));
 
       await runOnce({ config, store, dryRun: true });
 
-      assert.match(output.join("\n"), /<@U123>/);
+      const preview = JSON.parse(output[0]) as {
+        slack: { parent: unknown; thread: unknown };
+      };
+      assert.match(JSON.stringify(preview.slack.parent), /@U123/);
+      assert.doesNotMatch(JSON.stringify(preview.slack.parent), /UDEFAULT/);
+      assert.doesNotMatch(JSON.stringify(preview.slack.thread), /U123|UDEFAULT/);
     });
   });
 

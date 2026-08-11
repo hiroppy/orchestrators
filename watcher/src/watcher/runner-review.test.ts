@@ -257,6 +257,10 @@ describe("watcher review reactions", () => {
         ),
         0,
       );
+      assert.match(
+        JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
+        /@U123/,
+      );
       assert.equal(
         store.countEventsAfterLatest(
           "service-a:ENG-62",
@@ -326,6 +330,10 @@ describe("watcher review reactions", () => {
       assert.match(
         JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
         /PR#42/,
+      );
+      assert.match(
+        JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
+        /@U123/,
       );
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress", "In Progress", "In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");

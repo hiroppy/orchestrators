@@ -19,6 +19,7 @@ import {
 } from "../integrations/github.ts";
 import {
   createSlackApp,
+  initialTaskAssignees,
   notificationTargetsForWatcherEvent,
   publishWatcherStarted,
   publishWatcherEvent,
@@ -241,20 +242,20 @@ export async function runOnce({
     if (dryRun) {
       const status = enrichedEvent.resolvedState ?? enrichedEvent.state ?? "Unknown";
       const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
+      const persistedTask = store.getTask(taskId);
+      const persistedAssignees = store.getTaskAssignees(taskId);
+      const parentAssignees =
+        !persistedTask?.parentMessageTs && persistedAssignees.length === 0
+          ? initialTaskAssignees(config.defaultAssignees ?? [], enrichedEvent.creatorMention)
+          : persistedAssignees;
       const notificationTargets = shouldSuppressReviewMention(reviewDecision)
         ? undefined
         : notificationTargetsForWatcherEvent(
             config.notifications,
-            store.getTask(taskId)?.status,
+            persistedTask?.status,
             status,
             enrichedEvent.type,
-            [
-              ...(config.defaultAssignees ?? []),
-              ...(isSlackUserMention(enrichedEvent.creatorMention)
-                ? [enrichedEvent.creatorMention]
-                : []),
-              ...store.getTaskAssignees(taskId),
-            ],
+            parentAssignees,
             reviewDecision.deliverDeferredMention,
           );
       const task = {
@@ -274,7 +275,7 @@ export async function runOnce({
                 task,
                 linearTeamForService(config, task.serviceName)?.statuses ?? [],
                 enrichedEvent,
-                notificationTargets ?? [],
+                parentAssignees,
               ),
               thread: buildThreadMessage(enrichedEvent, {
                 assignees: notificationTargets,
@@ -553,11 +554,16 @@ async function processWatcherEvent({
   }
 
   store.addEvent(requeueEvent);
-  const card = buildTaskCard(requeuedTask, store.getSelectableStatuses(requeuedTask.serviceName), {
-    ...event,
-    state: fromStatus,
-    resolvedState: requeuedTask.status,
-  });
+  const card = buildTaskCard(
+    requeuedTask,
+    store.getSelectableStatuses(requeuedTask.serviceName),
+    {
+      ...event,
+      state: fromStatus,
+      resolvedState: requeuedTask.status,
+    },
+    store.getTaskAssignees(requeuedTask.id),
+  );
   await slackClient.chat.update({
     channel: requeuedTask.parentChannelId!,
     ts: requeuedTask.parentMessageTs!,
@@ -585,10 +591,6 @@ function normalizeStatus(status: string): string {
 function withoutCreatorEmail(event: WatcherEvent): WatcherEvent {
   const { creatorEmail: _, ...safeEvent } = event;
   return safeEvent;
-}
-
-function isSlackUserMention(value: string | null | undefined): value is string {
-  return /^<@[A-Z0-9]+>$/i.test(value ?? "");
 }
 
 function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {

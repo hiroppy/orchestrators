@@ -1,6 +1,13 @@
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
 
+export function initialTaskAssignees(
+  defaultAssignees: string[],
+  creatorMention?: string | null,
+): string[] {
+  return [...new Set([creatorMention, ...defaultAssignees].filter(isSlackUserMention))];
+}
+
 export function notificationTargetsForWatcherEvent(
   notification: ResolvedNotificationConfig | undefined,
   previousStatus: string | undefined,
@@ -44,4 +51,8 @@ function enteredNotificationStatus(
 
 function normalizeStatus(status?: string): string | undefined {
   return status?.trim().toLowerCase();
+}
+
+function isSlackUserMention(value: string | null | undefined): value is string {
+  return /^<@[A-Z0-9]+>$/i.test(value ?? "");
 }

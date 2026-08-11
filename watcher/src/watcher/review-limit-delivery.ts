@@ -101,11 +101,16 @@ async function deliverPendingReviewLimitNotification(
   }
 
   const updatedTask = store.getTask(task.id)!;
-  const card = buildTaskCard(updatedTask, store.getSelectableStatuses(task.serviceName), {
-    ...payload.event,
-    state: pending.fromStatus,
-    resolvedState: updatedTask.status,
-  });
+  const card = buildTaskCard(
+    updatedTask,
+    store.getSelectableStatuses(task.serviceName),
+    {
+      ...payload.event,
+      state: pending.fromStatus,
+      resolvedState: updatedTask.status,
+    },
+    store.getTaskAssignees(updatedTask.id),
+  );
   await slackClient.chat.update({
     channel: task.parentChannelId,
     ts: task.parentMessageTs,
