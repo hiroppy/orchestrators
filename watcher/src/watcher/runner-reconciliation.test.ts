@@ -232,6 +232,106 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("serializes competing reconciliation publishers for the same task", async (context) => {
+    await withStore(async (store) => {
+      context.mock.method(globalThis, "fetch", async () =>
+        Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "Done", type: "completed" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        }),
+      );
+      context.mock.method(console, "error", () => {});
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "Done",
+        () => undefined,
+      );
+      const firstClient = fakeSlackClient([]) as unknown as {
+        chat: { update: (args: Record<string, unknown>) => Promise<unknown> };
+      };
+      let releaseFirstUpdate: (() => void) | undefined;
+      const firstUpdateStarted = new Promise<void>((resolve) => {
+        firstClient.chat.update = async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseFirstUpdate = release;
+          });
+          throw new Error("Simulated Slack card failure");
+        };
+      });
+      const secondCalls: Array<Record<string, unknown>> = [];
+      const secondClient = fakeSlackClient(secondCalls) as unknown as {
+        chat: { update: (args: Record<string, unknown>) => Promise<unknown> };
+      };
+      const secondUpdate = secondClient.chat.update.bind(secondClient.chat);
+      let secondUpdateStarted = false;
+      secondClient.chat.update = async (args) => {
+        secondUpdateStarted = true;
+        return secondUpdate(args);
+      };
+
+      const firstReconciliation = reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: firstClient as never,
+        slackChannelId: "C123",
+        task: closedTask,
+        expectedStatus: "Done",
+      });
+      await firstUpdateStarted;
+      const secondReconciliation = reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: secondClient as never,
+        slackChannelId: "C123",
+        task: closedTask,
+        expectedStatus: "Done",
+      });
+      await Promise.resolve();
+
+      assert.equal(secondUpdateStarted, false);
+      assert.ok(releaseFirstUpdate);
+      releaseFirstUpdate();
+      await Promise.all([firstReconciliation, secondReconciliation]);
+
+      assert.equal(secondUpdateStarted, true);
+      assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      assert.equal(
+        secondCalls.filter(({ method, thread_ts }) => method === "postMessage" && !thread_ts)
+          .length,
+        1,
+      );
+    });
+  });
+
   it("reconciles an unverified status change after immediate completion", async (context) => {
     await withStore(async (store) => {
       const nativeFetch = globalThis.fetch;

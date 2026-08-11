@@ -24,6 +24,7 @@ import {
   publishWatcherEvent,
   type SlackClient,
 } from "../slack/app.ts";
+import { withQueue } from "../slack/async-queue.ts";
 import {
   buildReviewRequeueLimitMessage,
   buildReviewRequeueMessage,
@@ -79,6 +80,7 @@ async function deliverPendingStatusHooksSafely(
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SLACK_STATUS_RECONCILE_PENDING_EVENT = "slack_status_reconcile_pending";
 const SLACK_STATUS_RECONCILED_EVENT = "slack_status_reconciled";
+const taskReconciliationQueues = new Map<string, Promise<void>>();
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -211,31 +213,33 @@ export async function reconcileSlackStatusTransition({
     toStatus: expectedStatus,
   });
 
-  try {
-    const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
-      apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
-      includeCreator: false,
-      maxAttempts: 1,
-    });
-    if (!linearIssue?.state || !linearIssue.stateType || linearIssue.state !== expectedStatus) {
-      return;
-    }
+  await withTaskReconciliationQueue(task.id, async () => {
+    try {
+      const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
+        apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
+        includeCreator: false,
+        maxAttempts: 1,
+      });
+      if (!linearIssue?.state || !linearIssue.stateType || linearIssue.state !== expectedStatus) {
+        return;
+      }
 
-    await publishWatcherEvent(slackClient, store, slackChannelId, {
-      type: "updated",
-      service: task.serviceName,
-      issueIdentifier: task.issueIdentifier,
-      issueTitle: linearIssue.title,
-      issueUrl: linearIssue.url ?? task.linkUrl,
-      resolvedState: linearIssue.state,
-      resolvedStateType: normalizeStatus(linearIssue.stateType),
-      pullRequest: linearIssue.pullRequest,
-      relatedIssues: linearIssue.relatedIssues,
-    });
-    markSlackStatusReconciled(store, task.id);
-  } catch (error) {
-    console.error("Failed to reconcile Slack status transition:", error);
-  }
+      await publishWatcherEvent(slackClient, store, slackChannelId, {
+        type: "updated",
+        service: task.serviceName,
+        issueIdentifier: task.issueIdentifier,
+        issueTitle: linearIssue.title,
+        issueUrl: linearIssue.url ?? task.linkUrl,
+        resolvedState: linearIssue.state,
+        resolvedStateType: normalizeStatus(linearIssue.stateType),
+        pullRequest: linearIssue.pullRequest,
+        relatedIssues: linearIssue.relatedIssues,
+      });
+      markSlackStatusReconciled(store, task.id);
+    } catch (error) {
+      console.error("Failed to reconcile Slack status transition:", error);
+    }
+  });
 }
 
 export async function runPoll(options: RunOnceOptions): Promise<void> {
@@ -370,19 +374,20 @@ export async function runOnce({
       );
     } else {
       if (!slackClient || !slackChannelId) throw new Error("Slack client is required.");
-      await processWatcherEvent({
-        config,
-        store,
-        slackClient,
-        slackChannelId,
-        event: enrichedEvent,
-        isAuthoritative: enrichment.isAuthoritative,
-        reviewDecision,
-        updateLinearStatus,
+      const taskId = taskIdFor(source.service, source.issueIdentifier);
+      await withTaskReconciliationQueue(taskId, async () => {
+        await processWatcherEvent({
+          config,
+          store,
+          slackClient,
+          slackChannelId,
+          event: enrichedEvent,
+          isAuthoritative: enrichment.isAuthoritative,
+          reviewDecision,
+          updateLinearStatus,
+        });
+        if (enrichment.isAuthoritative) markReviewRequeueReconciled(store, taskId);
       });
-      if (enrichment.isAuthoritative) {
-        markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
-      }
     }
   }
 
@@ -522,19 +527,25 @@ async function reconcileLinearStatuses({
       slackClient,
     });
 
-    await processWatcherEvent({
-      config,
-      store,
-      slackClient,
-      slackChannelId,
-      event: enrichedEvent,
-      isAuthoritative: true,
-      reviewDecision,
-      updateLinearStatus,
+    await withTaskReconciliationQueue(task.id, async () => {
+      await processWatcherEvent({
+        config,
+        store,
+        slackClient,
+        slackChannelId,
+        event: enrichedEvent,
+        isAuthoritative: true,
+        reviewDecision,
+        updateLinearStatus,
+      });
+      markReviewRequeueReconciled(store, task.id);
+      markSlackStatusReconciled(store, task.id);
     });
-    markReviewRequeueReconciled(store, task.id);
-    markSlackStatusReconciled(store, task.id);
   }
+}
+
+function withTaskReconciliationQueue<T>(taskId: string, run: () => Promise<T>): Promise<T> {
+  return withQueue(taskReconciliationQueues, taskId, run);
 }
 
 function markSlackStatusReconciled(store: WatcherStore, taskId: string): void {
