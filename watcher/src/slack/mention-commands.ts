@@ -13,7 +13,7 @@ import {
   type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
-import { resolveSlackDisplayName } from "./users.ts";
+import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
 
@@ -288,7 +288,7 @@ async function handleUnassignCommand({
 }
 
 async function refreshTaskAssignees(
-  client: Pick<SlackClient, "chat">,
+  client: Pick<SlackClient, "chat" | "users">,
   store: WatcherStore,
   task: Task,
   logger: { error(error: unknown): void },
@@ -298,11 +298,12 @@ async function refreshTaskAssignees(
     if (!currentTask.parentChannelId || !currentTask.parentMessageTs) return;
 
     const assignees = store.getTaskAssignees(currentTask.id);
+    const assigneeLabels = await resolveSlackAssigneeLabels(client, assignees, logger);
     const baseCard = buildTaskCard(
       currentTask,
       store.getSelectableStatuses(currentTask.serviceName),
       undefined,
-      assignees,
+      assigneeLabels,
     );
     let currentCard = baseCard;
     try {
@@ -313,7 +314,7 @@ async function refreshTaskAssignees(
     } catch (error) {
       logger.error(error);
     }
-    const card = replaceTaskCardAssignees(currentCard, assignees);
+    const card = replaceTaskCardAssignees(currentCard, assigneeLabels);
     await client.chat.update({
       channel: currentTask.parentChannelId,
       ts: currentTask.parentMessageTs,

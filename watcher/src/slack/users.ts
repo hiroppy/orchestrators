@@ -27,3 +27,19 @@ export async function resolveSlackDisplayName(
     return fallback;
   }
 }
+
+export async function resolveSlackAssigneeLabels(
+  client: Pick<SlackClient, "users">,
+  assignees: string[],
+  logger?: { error(error: unknown): void },
+): Promise<string[]> {
+  return Promise.all(
+    assignees.map(async (assignee) => {
+      const slackUserId = assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1];
+      if (!slackUserId) return assignee;
+
+      const displayName = await resolveSlackDisplayName(client, { id: slackUserId }, logger);
+      return `@${displayName}`;
+    }),
+  );
+}

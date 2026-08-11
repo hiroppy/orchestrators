@@ -23,7 +23,7 @@ import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./noti
 import { withTaskCardQueue } from "./task-card-queue.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
-import { resolveSlackDisplayName } from "./users.ts";
+import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
 import type { SlackClient } from "./client-types.ts";
 import {
   handleTakePrAction,
@@ -152,6 +152,11 @@ export async function handleStatusAction(
       if (!existingTask.parentChannelId || !existingTask.parentMessageTs) {
         throw new Error(`Task has no Slack parent message: ${taskId}`);
       }
+      const assigneeLabels = await resolveSlackAssigneeLabels(
+        client,
+        store.getTaskAssignees(taskId),
+        logger,
+      );
       const card = buildTaskCard(
         {
           ...existingTask,
@@ -165,7 +170,7 @@ export async function handleStatusAction(
           issueIdentifier: existingTask.issueIdentifier,
           resolvedState: selectedStatus,
         },
-        store.getTaskAssignees(taskId),
+        assigneeLabels,
       );
       await updateLinearStatus(existingTask, selectedStatus);
       await client.chat.update({
@@ -262,11 +267,12 @@ export async function publishWatcherEvent(
       assignees,
       options.forceMention,
     );
+    const assigneeLabels = await resolveSlackAssigneeLabels(client, assignees);
     const card = buildTaskCard(
       task,
       store.getSelectableStatuses(task.serviceName),
       event,
-      assignees,
+      assigneeLabels,
     );
     const summary = JSON.stringify(card);
     const announceTerminalParent =
