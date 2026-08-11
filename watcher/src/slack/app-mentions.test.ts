@@ -427,6 +427,49 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("reports an assign-specific error when persistence fails", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const errors: unknown[] = [];
+      const originalAssign = store.assignTask.bind(store);
+      store.assignTask = () => {
+        throw new Error("database unavailable");
+      };
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> assign <@U123>",
+          },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+        "UBOT",
+      );
+
+      store.assignTask = originalAssign;
+      assert.deepEqual(store.getTaskAssignees(task.id), []);
+      assert.equal(errors.length, 1);
+      assert.equal(calls.length, 1);
+      assert.equal(
+        calls[0].args.text,
+        "[error] Failed to assign you to the task. No assignment was changed.",
+      );
+    });
+  });
+
   it("idempotently unassigns the requesting user from the task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({

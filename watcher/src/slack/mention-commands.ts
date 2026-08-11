@@ -187,7 +187,18 @@ async function handleAssignCommand({
   }
 
   if (!alreadyAssigned) {
-    store.assignTask(task.id, slackUserId);
+    try {
+      store.assignTask(task.id, slackUserId);
+    } catch (error) {
+      logger.error(error);
+      await postSlackOperationError(
+        client,
+        { channel: event.channel, threadTs },
+        "Failed to assign you to the task. No assignment was changed.",
+        logger,
+      );
+      return;
+    }
     try {
       await refreshTaskAssignees(client, store, task, logger);
     } catch (error) {
