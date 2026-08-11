@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 
 import type { TaskEvent } from "../domain/types.ts";
 import type { WatcherDatabase } from "./database.ts";
-import { statuses, taskEvents } from "./schema.ts";
+import { services, statuses, taskEvents, tasks } from "./schema.ts";
 import { insertTaskEvent, type TaskEventInput } from "./store-helpers.ts";
 
 export function addTaskEvent(db: WatcherDatabase, event: TaskEventInput): TaskEvent {
@@ -120,7 +120,9 @@ export function getTaskIdsWithIncompleteEvent(
       latestCompleted: sql<number>`coalesce(max(case when ${taskEvents.type} = ${completedType} then ${taskEvents.id} end), 0)`,
     })
     .from(taskEvents)
-    .where(inArray(taskEvents.type, [pendingType, completedType]))
+    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
+    .innerJoin(services, eq(tasks.serviceId, services.id))
+    .where(and(inArray(taskEvents.type, [pendingType, completedType]), eq(services.active, true)))
     .groupBy(taskEvents.taskId)
     .all();
 
@@ -157,9 +159,11 @@ export function getUncompletedTaskEvents(
   return db
     .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
     .from(taskEvents)
+    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
+    .innerJoin(services, eq(tasks.serviceId, services.id))
     .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
     .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
-    .where(and(...conditions))
+    .where(and(...conditions, eq(services.active, true)))
     .orderBy(asc(taskEvents.id))
     .all()
     .map(eventFromRow);

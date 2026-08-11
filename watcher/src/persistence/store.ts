@@ -85,7 +85,9 @@ export class WatcherStore {
       })
       .from(taskObservations)
       .innerJoin(tasks, eq(taskObservations.taskId, tasks.id))
+      .innerJoin(services, eq(tasks.serviceId, services.id))
       .leftJoin(statuses, eq(taskObservations.trackerStatusId, statuses.id))
+      .where(eq(services.active, true))
       .all();
     const snapshots: Record<string, Snapshot> = Object.fromEntries(
       serviceRows.map((service) => [

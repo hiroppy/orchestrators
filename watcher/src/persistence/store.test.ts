@@ -72,6 +72,7 @@ describe("WatcherStore", () => {
         },
       });
       store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      store.addEvent({ taskId: "service-a:ENG-62", type: "status_hook_pending" });
 
       store.syncDefinitions([], linearTeams);
       store.replaceSnapshots({});
@@ -79,6 +80,14 @@ describe("WatcherStore", () => {
       assert.equal(store.getSnapshots()["service-a"], undefined);
       assert.deepEqual(store.getSelectableStatuses("service-a"), []);
       assert.deepEqual(store.getTasksForLinearSync(), []);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent("status_hook_pending", "status_hook_completed"),
+        [],
+      );
+      assert.deepEqual(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed"),
+        [],
+      );
       assert.equal(store.getTask("service-a:ENG-62")?.issueIdentifier, "ENG-62");
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
 
@@ -92,6 +101,14 @@ describe("WatcherStore", () => {
       ]);
       assert.deepEqual(store.getSelectableStatuses("service-a"), ["Todo", "Done"]);
       assert.equal(store.getTasksForLinearSync()[0]?.id, "service-a:ENG-62");
+      assert.equal(
+        store.getTaskIdsWithIncompleteEvent("status_hook_pending", "status_hook_completed")[0],
+        "service-a:ENG-62",
+      );
+      assert.equal(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed")[0]?.taskId,
+        "service-a:ENG-62",
+      );
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
     });
   });
