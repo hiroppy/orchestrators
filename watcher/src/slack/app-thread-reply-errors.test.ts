@@ -56,6 +56,15 @@ describe("Slack thread reply errors", () => {
         "UBOT",
       );
       await handleThreadReply(
+        args("2.875", "<@UBOT> take-pr https://github.com/example/repo/pull/1"),
+        store,
+        async (_task, reply) => {
+          replies.push(reply.text);
+          return true;
+        },
+        "UBOT",
+      );
+      await handleThreadReply(
         args("3.000", "<@UCOLLEAGUE> status is still blocked"),
         store,
         async (_task, reply) => {

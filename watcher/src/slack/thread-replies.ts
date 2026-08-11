@@ -67,7 +67,7 @@ function isRecognizedMentionCommand(text: string, botUserId?: string): boolean {
   for (const mention of mentions) {
     if (mention[1]?.toLowerCase() !== botUserId.toLowerCase()) continue;
     const commandText = text.slice((mention.index ?? 0) + mention[0].length);
-    return /^\s*(?:assign|help|status)(?:\s|$)/i.test(commandText);
+    return /^\s*(?:assign|help|status|take-pr)(?:\s|$)/i.test(commandText);
   }
   return false;
 }

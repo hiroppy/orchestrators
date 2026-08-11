@@ -56,12 +56,16 @@ export async function handleAppMention(
             ? (mention.event.threadTs ?? mention.event.ts)
             : mention.event.threadTs,
       },
-      mention.command === "take-pr"
-        ? "Failed to start take-pr. No Linear issue was created."
-        : "Failed to load the current task status.",
+      commandFailureMessage(mention.command),
       logger,
     );
   }
+}
+
+function commandFailureMessage(command: string): string {
+  if (command === "help") return "Failed to show the available commands.";
+  if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
+  return "Failed to load the current task status.";
 }
 
 async function handleTakePrCommand({

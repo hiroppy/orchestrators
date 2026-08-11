@@ -72,6 +72,41 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("reports a help-specific error when the help response cannot be posted", async () => {
+    await withStore(async (store) => {
+      const messages: Array<Record<string, unknown>> = [];
+      let postAttempts = 0;
+
+      await handleAppMention(
+        {
+          event: { channel: "C999", ts: "20.000", text: "<@UBOT> help" },
+          client: {
+            users: {
+              info: async () => ({
+                ok: true,
+                user: { profile: { display_name: "Project Bot" } },
+              }),
+            },
+            chat: {
+              postMessage: async (message: Record<string, unknown>) => {
+                postAttempts += 1;
+                if (postAttempts === 1) throw new Error("help unavailable");
+                messages.push(message);
+                return { ok: true };
+              },
+            },
+          } as never,
+          logger: { error: () => {} },
+        },
+        store,
+      );
+
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].text, "[error] Failed to show the available commands.");
+      assert.doesNotMatch(String(messages[0].text), /current task status/);
+    });
+  });
+
   it("replies to an exact status mention with tracked tasks grouped by status", async () => {
     await withStore(async (store) => {
       const todo = store.upsertTaskFromEvent({
