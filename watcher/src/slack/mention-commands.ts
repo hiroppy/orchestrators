@@ -25,8 +25,9 @@ export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
   store: WatcherStore,
   configuredMentionTargets: string[] = [],
+  botUserId?: string,
 ): Promise<void> {
-  const mention = parseMentionCommand(event);
+  const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
   const handler = commandHandlers[mention.command];
   if (!handler) return;
@@ -53,6 +54,7 @@ export async function handleAppMention(
 
 function parseMentionCommand(
   event: unknown,
+  configuredBotUserId?: string,
 ): { event: AppMentionEvent; command: string; args: string[] } | undefined {
   if (!event || typeof event !== "object") return undefined;
   const value = event as Record<string, unknown>;
@@ -65,10 +67,13 @@ function parseMentionCommand(
     return undefined;
   }
 
-  const botMentionMatch = value.text.match(/<@([A-Z0-9]+)>/i);
+  const botMentionMatch = configuredBotUserId
+    ? value.text.match(new RegExp(`<@(${escapeRegExp(configuredBotUserId)})>`, "i"))
+    : value.text.match(/<@([A-Z0-9]+)>/i);
   if (!botMentionMatch) return undefined;
   const [botMention, botUserId] = botMentionMatch;
-  const [command, ...args] = value.text.replace(botMention, " ").trim().split(/\s+/);
+  const commandText = value.text.slice((botMentionMatch.index ?? 0) + botMention.length);
+  const [command, ...args] = commandText.trim().split(/\s+/);
   if (!command) return undefined;
   return {
     event: {
@@ -83,6 +88,10 @@ function parseMentionCommand(
     command: command.toLowerCase(),
     args,
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function handleAssignCommand({

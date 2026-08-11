@@ -45,6 +45,31 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("parses the command after the configured bot mention", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C999",
+            ts: "20.000",
+            text: "<@UCOLLEAGUE> hello <@UBOT> help",
+          },
+          client: fakeClient(calls, { UBOT: "Project Bot" }),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        [],
+        "UBOT",
+      );
+
+      assert.deepEqual(calls[0], { method: "usersInfo", args: { user: "UBOT" } });
+      assert.equal(calls[1].method, "postMessage");
+      assert.match(String(calls[1].args.text), /@Project Bot help/);
+    });
+  });
+
   it("replies to an exact status mention with tracked tasks grouped by status", async () => {
     await withStore(async (store) => {
       const todo = store.upsertTaskFromEvent({
