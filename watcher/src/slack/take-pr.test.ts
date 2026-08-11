@@ -76,6 +76,17 @@ other:
       projectSlugFromWorkflow("tracker:\n  provider:\n    project_slug: missing"),
       undefined,
     );
+    assert.equal(
+      projectSlugFromWorkflow(`---
+tracker:
+  provider:
+    defaults:
+      project_slug: wrong-project
+    project_slug: correct-project
+---
+`),
+      "correct-project",
+    );
   });
 });
 
@@ -257,6 +268,51 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("revalidates a stale processing retry before another Linear mutation", async () => {
+    await withStore(async (store) => {
+      const startedAt = new Date("2026-08-11T00:00:00.000Z");
+      store.createPendingTakePrRequest(
+        {
+          id: "request123",
+          pullRequestUrl: pullRequest.url,
+          repository: pullRequest.repository,
+          pullRequestTitle: pullRequest.title,
+          headBranch: pullRequest.headRefName,
+          baseBranch: pullRequest.baseRefName,
+          channelId: "C123",
+          threadTs: "10.000",
+          requesterSlackUserId: "U123",
+        },
+        startedAt,
+      );
+      store.claimPendingTakePrRequest("request123", "service-a", startedAt);
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "request123:service-a" } },
+          body: { user: { id: "U123" } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        options({
+          findPullRequest: async () => ({ ...pullRequest, state: "CLOSED" }),
+          createLinearIssue: async () => {
+            creations += 1;
+            throw new Error("should not create");
+          },
+        }),
+      );
+
+      assert.equal(creations, 0);
+      assert.equal(store.getPendingTakePrRequest("request123")?.status, "pending");
+      assert.match(String(calls[0].args.text), /no longer open/);
+    });
+  });
+
   it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -315,6 +371,10 @@ describe("take-pr Slack flow", () => {
         args: { channel: "C123", message_ts: "10.000" },
       });
       assert.match(String(calls[1].args.text), /ENG-100.*service-a.*Existing PR/s);
+      assert.match(
+        String(calls[1].args.client_msg_id),
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
     });
   });
 
@@ -391,6 +451,7 @@ describe("take-pr Slack flow", () => {
         },
       });
       await createPending(store, calls, takePrOptions);
+      const attemptedPosts: Array<Record<string, unknown>> = [];
 
       await assert.rejects(
         handleTakePrAction(
@@ -404,7 +465,8 @@ describe("take-pr Slack flow", () => {
                   ok: true,
                   permalink: "https://example.slack.com/archives/C123/p10000",
                 }),
-                postMessage: async () => {
+                postMessage: async (args: Record<string, unknown>) => {
+                  attemptedPosts.push(args);
                   throw new Error("Slack unavailable");
                 },
               },
@@ -418,6 +480,8 @@ describe("take-pr Slack flow", () => {
       );
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "created");
       assert.equal(store.getPendingTakePrRequest("request123")?.linearIssueIdentifier, "ENG-100");
+      assert.match(String(attemptedPosts[1].text), /delivery could not be verified/);
+      const clientMessageId = attemptedPosts[0].client_msg_id;
 
       calls.length = 0;
       await handleTakePrAction(
@@ -435,6 +499,7 @@ describe("take-pr Slack flow", () => {
       assert.equal(creations, 1);
       assert.equal(store.getPendingTakePrRequest("request123")?.status, "completed");
       assert.match(String(calls[0].args.text), /ENG-100/);
+      assert.equal(calls[0].args.client_msg_id, clientMessageId);
     });
   });
 

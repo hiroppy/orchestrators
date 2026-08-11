@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -170,36 +170,6 @@ export async function handleTakePrAction(
     );
     return;
   }
-  if (request.status === "pending") {
-    let currentPullRequest: PullRequest | null;
-    try {
-      currentPullRequest = await (options.findPullRequest ?? findPullRequestByUrl)(
-        request.pullRequestUrl,
-      );
-    } catch (error) {
-      logger.error(error);
-      currentPullRequest = null;
-    }
-    if (!hasCompletePullRequestMetadata(currentPullRequest)) {
-      await postTakePrError(
-        client,
-        request.channelId,
-        request.threadTs,
-        "Could not revalidate the GitHub pull request. No Linear issue was created.",
-      );
-      return;
-    }
-    if (currentPullRequest.state.toUpperCase() !== "OPEN") {
-      await postTakePrError(
-        client,
-        request.channelId,
-        request.threadTs,
-        "The GitHub pull request is no longer open. No Linear issue was created.",
-      );
-      return;
-    }
-  }
-
   const claimed = store.claimPendingTakePrRequest(request.id, service.name);
   if (!claimed) return;
 
@@ -209,6 +179,12 @@ export async function handleTakePrAction(
         ? { identifier: claimed.linearIssueIdentifier, url: claimed.linearIssueUrl }
         : undefined;
     if (!issue) {
+      const pullRequestError = await revalidatePullRequest(claimed.pullRequestUrl, options, logger);
+      if (pullRequestError) {
+        store.releasePendingTakePrRequest(claimed.id);
+        await postTakePrError(client, claimed.channelId, claimed.threadTs, pullRequestError);
+        return;
+      }
       const linearTeam = options.linearTeams[service.linearTeam];
       if (!linearTeam?.apiKey || !linearTeam.teamId) {
         throw new Error(`Linear configuration is incomplete for service ${service.name}.`);
@@ -243,6 +219,7 @@ export async function handleTakePrAction(
         `Created <${issue.url}|${issue.identifier}> for service \`${service.name}\`.`,
         `Existing PR: <${claimed.pullRequestUrl}|${escapeSlackLinkLabel(`${claimed.repository}: ${singleLine(claimed.pullRequestTitle)}`)}>`,
       ].join("\n"),
+      client_msg_id: stableSlackClientMessageId(claimed.id),
       unfurl_links: false,
       unfurl_media: false,
     });
@@ -254,7 +231,15 @@ export async function handleTakePrAction(
       store.releasePendingTakePrRequest(claimed.id);
     }
     logger.error(error);
-    await postTakePrError(client, claimed.channelId, claimed.threadTs, takePrErrorMessage(error));
+    const deliveryPending = store.getPendingTakePrRequest(claimed.id)?.status === "created";
+    await postTakePrError(
+      client,
+      claimed.channelId,
+      claimed.threadTs,
+      deliveryPending
+        ? "The Linear issue was created, but Slack confirmation delivery could not be verified. Select the same service to retry."
+        : takePrErrorMessage(error),
+    );
   }
 }
 
@@ -291,11 +276,14 @@ export function projectSlugFromWorkflow(workflow: string): string | undefined {
   const provider = findYamlMapping(lines, "provider", tracker.index, tracker.indent);
   if (!provider) return undefined;
 
+  let childIndent: number | undefined;
   for (let index = provider.index + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const indent = indentation(line);
     if (indent <= provider.indent) break;
+    childIndent ??= indent;
+    if (indent !== childIndent) continue;
     const match = line.match(/^\s*project_slug:\s*(.*?)\s*$/);
     if (match) return yamlString(match[1]);
   }
@@ -447,17 +435,46 @@ function pullRequestIdentity(pullRequestUrl: string): string {
   }
 }
 
+async function revalidatePullRequest(
+  pullRequestUrl: string,
+  options: TakePrOptions,
+  logger: { error(error: unknown): void },
+): Promise<string | undefined> {
+  let pullRequest: PullRequest | null;
+  try {
+    pullRequest = await (options.findPullRequest ?? findPullRequestByUrl)(pullRequestUrl);
+  } catch (error) {
+    logger.error(error);
+    pullRequest = null;
+  }
+  if (!hasCompletePullRequestMetadata(pullRequest)) {
+    return "Could not revalidate the GitHub pull request. No Linear issue was created.";
+  }
+  if (pullRequest.state.toUpperCase() !== "OPEN") {
+    return "The GitHub pull request is no longer open. No Linear issue was created.";
+  }
+  return undefined;
+}
+
+function stableSlackClientMessageId(requestId: string): string {
+  const hex = createHash("sha256").update(`take-pr:${requestId}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 function findYamlMapping(
   lines: string[],
   key: string,
   afterIndex: number,
   parentIndent: number,
 ): { index: number; indent: number } | undefined {
+  let childIndent = afterIndex < 0 ? 0 : undefined;
   for (let index = afterIndex + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const indent = indentation(line);
     if (afterIndex >= 0 && indent <= parentIndent) break;
+    childIndent ??= indent;
+    if (indent !== childIndent) continue;
     if (line.match(new RegExp(`^\\s*${key}:\\s*(?:#.*)?$`))) return { index, indent };
   }
   return undefined;
