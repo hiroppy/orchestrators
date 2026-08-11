@@ -253,7 +253,10 @@ export async function createLinearTakePrIssue(
       if (!created.issueCreate?.success) {
         throw new Error("Linear rejected take-pr issue creation in In Progress.");
       }
-      issue = requireNewLinearTakePrIssue(created.issueCreate.issue);
+      issue = {
+        ...requireNewLinearTakePrIssue(created.issueCreate.issue),
+        attachmentUrls: [],
+      };
     } catch (error) {
       try {
         issue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
@@ -267,8 +270,10 @@ export async function createLinearTakePrIssue(
     }
   }
 
-  await createLinearTakePrAttachment(apiKey, issueId, input, timeoutMs);
-  return issue;
+  if (!issue.attachmentUrls.includes(input.pullRequestUrl)) {
+    await createLinearTakePrAttachment(apiKey, issueId, input, timeoutMs);
+  }
+  return { identifier: issue.identifier, url: issue.url };
 }
 
 function linearProjectSlugId(projectSlug: string): string {
@@ -299,14 +304,19 @@ async function createLinearTakePrAttachment(
 interface LinearTakePrIssue {
   identifier?: string;
   url?: string;
+  attachments?: { nodes?: Array<{ url?: string | null }> | null } | null;
   state?: { name?: string };
+}
+
+interface ReconciledLinearTakePrIssue extends CreatedLinearIssue {
+  attachmentUrls: string[];
 }
 
 async function findLinearTakePrIssue(
   apiKey: string,
   issueId: string,
   timeoutMs: number,
-): Promise<CreatedLinearIssue | null> {
+): Promise<ReconciledLinearTakePrIssue | null> {
   try {
     const data = await linearRequest<{ issue?: LinearTakePrIssue | null }>(
       apiKey,
@@ -314,7 +324,11 @@ async function findLinearTakePrIssue(
       { issueId },
       timeoutMs,
     );
-    return data.issue ? requireReconciledLinearTakePrIssue(data.issue) : null;
+    if (!data.issue) return null;
+    return {
+      ...requireReconciledLinearTakePrIssue(data.issue),
+      attachmentUrls: data.issue.attachments?.nodes?.flatMap(({ url }) => (url ? [url] : [])) ?? [],
+    };
   } catch (error) {
     if (
       error instanceof Error &&

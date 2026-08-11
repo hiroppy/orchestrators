@@ -202,6 +202,11 @@ export const TAKE_PR_ISSUE_QUERY = `
     issue(id: $issueId) {
       identifier
       url
+      attachments {
+        nodes {
+          url
+        }
+      }
       state {
         name
       }

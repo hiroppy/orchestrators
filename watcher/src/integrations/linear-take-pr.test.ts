@@ -220,6 +220,30 @@ describe("createLinearTakePrIssue", () => {
     });
   });
 
+  it("does not duplicate the pull request attachment when retrying an existing issue", async (context) => {
+    let requests = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requests += 1;
+      if (requests === 1) return takePrTargetResponse();
+      return Response.json({
+        data: {
+          issue: {
+            identifier: "ENG-100",
+            url: "https://linear.app/example/issue/ENG-100/take-pr",
+            attachments: { nodes: [{ url: input.pullRequestUrl }] },
+            state: { name: "In Progress" },
+          },
+        },
+      });
+    });
+
+    assert.deepEqual(await createLinearTakePrIssue(input, { apiKey: "lin_test" }), {
+      identifier: "ENG-100",
+      url: "https://linear.app/example/issue/ENG-100/take-pr",
+    });
+    assert.equal(requests, 2);
+  });
+
   it("reports an ambiguous result when post-mutation reconciliation also fails", async (context) => {
     let requests = 0;
     context.mock.method(globalThis, "fetch", async () => {
