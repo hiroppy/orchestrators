@@ -51,6 +51,68 @@ describe("WatcherStore", () => {
     });
   });
 
+  it("hides removed services and restores their history when reconfigured", async () => {
+    await withStore((store) => {
+      const linearTeams = {
+        "workspace-a-eng": {
+          apiKey: "lin_test",
+          teamId: "team-a",
+          statuses: ["Todo", "Done"],
+        },
+      };
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://old.test/state", linearTeam: "workspace-a-eng" }],
+        linearTeams,
+      );
+      store.replaceSnapshots({
+        "service-a": {
+          running: [{ issue_identifier: "ENG-62", state: "Todo" }],
+          retrying: [],
+          blocked: [],
+        },
+      });
+      store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      store.addEvent({ taskId: "service-a:ENG-62", type: "status_hook_pending" });
+
+      store.syncDefinitions([], linearTeams);
+      store.replaceSnapshots({});
+
+      assert.equal(store.getSnapshots()["service-a"], undefined);
+      assert.deepEqual(store.getSelectableStatuses("service-a"), []);
+      assert.deepEqual(store.getTasksForLinearSync(), []);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent("status_hook_pending", "status_hook_completed"),
+        [],
+      );
+      assert.deepEqual(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed"),
+        [],
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.issueIdentifier, "ENG-62");
+      assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
+
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://new.test/state", linearTeam: "workspace-a-eng" }],
+        linearTeams,
+      );
+
+      assert.deepEqual(store.getSnapshots()["service-a"]?.running, [
+        { issue_identifier: "ENG-62", state: "Todo" },
+      ]);
+      assert.deepEqual(store.getSelectableStatuses("service-a"), ["Todo", "Done"]);
+      assert.equal(store.getTasksForLinearSync()[0]?.id, "service-a:ENG-62");
+      assert.equal(
+        store.getTaskIdsWithIncompleteEvent("status_hook_pending", "status_hook_completed")[0],
+        "service-a:ENG-62",
+      );
+      assert.equal(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed")[0]?.taskId,
+        "service-a:ENG-62",
+      );
+      assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 1);
+    });
+  });
+
   it("round-trips normalized observations and removes tasks no longer observed", async () => {
     await withStore((store) => {
       store.syncDefinitions(
