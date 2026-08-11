@@ -369,6 +369,39 @@ describe("take-pr Slack flow", () => {
     });
   });
 
+  it("asks the requester to select a service before confirming", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let creations = 0;
+      const takePrOptions = options({
+        services: [
+          { name: "other", url: "https://other.test/state", linearTeam: "workspace-a-eng" },
+        ],
+        createLinearIssue: async () => {
+          creations += 1;
+          throw new Error("should not create");
+        },
+      });
+      await createPending(store, calls, takePrOptions);
+      calls.length = 0;
+
+      await handleTakePrAction(
+        {
+          ack: async () => {},
+          action: { value: "request123" },
+          body: { user: { id: "U123" }, state: { values: {} } },
+          client: fakeClient(calls),
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        takePrOptions,
+      );
+
+      assert.equal(creations, 0);
+      assert.match(String(calls[0].args.text), /Select a service before confirming take-pr/);
+    });
+  });
+
   it("deduplicates Slack redelivery of the same app mention", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

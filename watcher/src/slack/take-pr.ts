@@ -140,6 +140,27 @@ export async function handleTakePrAction(
 
   const selection = takePrSelectionFromAction(action, body);
   if (!selection) {
+    const requestId = takePrConfirmRequestId(action);
+    const request = requestId ? store.getPendingTakePrRequest(requestId) : undefined;
+    if (request) {
+      await postTakePrError(
+        client,
+        request.channelId,
+        request.threadTs,
+        "Select a service before confirming take-pr.",
+      );
+      return;
+    }
+    const source = requestId ? takePrSourceFromActionBody(body) : undefined;
+    if (source) {
+      await postTakePrError(
+        client,
+        source.channelId,
+        source.threadTs,
+        "This take-pr selector has expired. Run the take-pr command again.",
+      );
+      return;
+    }
     logger.error(new Error("take-pr action did not include a valid pending request ID."));
     return;
   }
@@ -425,6 +446,12 @@ function takePrSelectionFromAction(
   } catch {
     return undefined;
   }
+}
+
+function takePrConfirmRequestId(action: unknown): string | undefined {
+  if (!action || typeof action !== "object") return undefined;
+  const value = (action as { value?: unknown }).value;
+  return typeof value === "string" && /^[A-Za-z0-9_-]{8,32}$/.test(value) ? value : undefined;
 }
 
 function takePrSourceFromActionBody(
