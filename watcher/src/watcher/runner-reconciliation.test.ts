@@ -170,6 +170,65 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("recovers missing Linear state metadata while a task remains in Symphony", async (context) => {
+    await withStore(async (store) => {
+      const activeSnapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "Todo" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Canceled task",
+              state: { name: "Canceled", type: "canceled" },
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl(activeSnapshot),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["Todo", "Canceled"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({ "service-a": activeSnapshot });
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Canceled task",
+        resolvedState: "Canceled",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.linearStateType, "canceled");
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *Canceled*\n<https://example.slack.com/archives/C123/p1000|Canceled task>",
+      );
+    });
+  });
+
   it("preserves active tasks through an outage and reports recovery without false transitions", async (context) => {
     await withStore(async (store) => {
       const activeSnapshot = {

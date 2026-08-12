@@ -291,8 +291,9 @@ async function reconcileLinearStatuses({
   reviewReconciliationTaskIds: ReadonlySet<string>;
 }): Promise<void> {
   for (const task of store.getTasksForLinearSync(reviewReconciliationTaskIds)) {
+    const hasCurrentLinearState = skipTaskIds.has(task.id) && Boolean(task.linearStateType);
     if (
-      skipTaskIds.has(task.id) ||
+      hasCurrentLinearState ||
       task.issueIdentifier.startsWith("watcher:") ||
       !task.parentChannelId ||
       !task.parentMessageTs

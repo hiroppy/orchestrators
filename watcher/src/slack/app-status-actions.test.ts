@@ -131,6 +131,52 @@ describe("Slack status actions", () => {
     });
   });
 
+  it("allows status transition handling to publish the same task without deadlocking", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Done" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        async () => {},
+        async (task) => {
+          await publishWatcherEvent(client, store, "C123", {
+            type: "updated",
+            service: task.serviceName,
+            issueIdentifier: task.issueIdentifier,
+            resolvedState: "Done",
+            resolvedStateType: "completed",
+          });
+        },
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
+      assert.equal(
+        calls.filter(({ method, args }) => method === "postMessage" && !args.thread_ts).length,
+        2,
+      );
+    });
+  });
+
   it("serializes concurrent status changes for the same task", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
