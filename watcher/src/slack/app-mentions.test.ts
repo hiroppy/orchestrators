@@ -34,9 +34,9 @@ describe("Slack mention commands", () => {
           "• `@Project Bot status`",
           "  Show tracked Todo, In Progress, and In Review tasks.",
           "• `@Project Bot assign @user`",
-          "  Add yourself to notifications for a tracked task. Run this in the task thread.",
+          "  Add a user to notifications for a tracked task. Run this in the task thread.",
           "• `@Project Bot unassign @user`",
-          "  Remove yourself from notifications for a tracked task. Run this in the task thread.",
+          "  Remove a user from notifications for a tracked task. Run this in the task thread.",
           "• `@Project Bot take-pr <GitHub PR URL>`",
           "  Create a Linear issue for an existing open pull request.",
           "• `@Project Bot help`",
@@ -261,7 +261,7 @@ describe("Slack mention commands", () => {
               channel: "C123",
               thread_ts: "10.000",
               ts,
-              user: "UHIROPPY",
+              user: "UREQUESTER",
               text: "<@UBOT> assign <@UHIROPPY>",
             },
             client,
@@ -441,13 +441,6 @@ describe("Slack mention commands", () => {
           ts: "24.000",
           text: "<@UBOT> assign <@U123> <@U456>",
         },
-        {
-          channel: "C123",
-          thread_ts: "10.000",
-          ts: "25.000",
-          user: "U999",
-          text: "<@UBOT> assign <@U123>",
-        },
       ];
 
       for (const event of events) {
@@ -464,11 +457,10 @@ describe("Slack mention commands", () => {
       assert.deepEqual(store.getTaskAssignees(task.id), []);
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
-      for (const call of calls.slice(1, -1)) {
+      for (const call of calls.slice(1)) {
         assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user`");
         assert.equal(call.args.thread_ts, "10.000");
       }
-      assert.equal(calls.at(-1)?.args.text, "[error] You can only assign yourself to the task.");
     });
   });
 
@@ -543,12 +535,12 @@ describe("Slack mention commands", () => {
       assert.equal(calls.length, 1);
       assert.equal(
         calls[0].args.text,
-        "[error] Failed to assign you to the task. No assignment was changed.",
+        "[error] Failed to assign the user to the task. No assignment was changed.",
       );
     });
   });
 
-  it("idempotently unassigns the requesting user from the task", async () => {
+  it("idempotently unassigns another user from the task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -575,7 +567,7 @@ describe("Slack mention commands", () => {
               channel: "C123",
               thread_ts: "10.000",
               ts,
-              user: "U123",
+              user: "UREQUESTER",
               text: "<@UBOT> unassign <@U123>",
             },
             client: fakeClient(calls),
@@ -643,13 +635,6 @@ describe("Slack mention commands", () => {
           user: "U123",
           text: "<@UBOT> unassign",
         },
-        {
-          channel: "C123",
-          thread_ts: "10.000",
-          ts: "23.000",
-          user: "U123",
-          text: "<@UBOT> unassign <@U456>",
-        },
       ]) {
         await handleAppMention(
           {
@@ -662,13 +647,12 @@ describe("Slack mention commands", () => {
       }
 
       assert.deepEqual(store.getTaskAssignees(task.id), ["<@U123>"]);
-      assert.equal(calls.length, 4);
+      assert.equal(calls.length, 3);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       assert.equal(calls[0].args.thread_ts, undefined);
       assert.match(String(calls[1].args.text), /tracked task thread/);
       assert.equal(calls[1].args.thread_ts, "99.000");
       assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user`");
-      assert.equal(calls[3].args.text, "[error] You can only unassign yourself from the task.");
     });
   });
 
@@ -721,7 +705,7 @@ describe("Slack mention commands", () => {
           args: {
             channel: "C123",
             thread_ts: "10.000",
-            text: "[error] You were unassigned, but the confirmation reaction could not be added.",
+            text: "[error] The user was unassigned, but the confirmation reaction could not be added.",
           },
         },
       ]);
@@ -766,7 +750,7 @@ describe("Slack mention commands", () => {
       assert.equal(calls.length, 1);
       assert.equal(
         calls[0].args.text,
-        "[error] Failed to unassign you from the task. No assignment was changed.",
+        "[error] Failed to unassign the user from the task. No assignment was changed.",
       );
     });
   });

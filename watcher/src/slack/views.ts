@@ -32,8 +32,8 @@ export function buildHelpMessage(botName: string): string {
   return [
     "*Available commands*",
     `• \`${commandPrefix} status\`\n  Show tracked Todo, In Progress, and In Review tasks.`,
-    `• \`${commandPrefix} assign @user\`\n  Add yourself to notifications for a tracked task. Run this in the task thread.`,
-    `• \`${commandPrefix} unassign @user\`\n  Remove yourself from notifications for a tracked task. Run this in the task thread.`,
+    `• \`${commandPrefix} assign @user\`\n  Add a user to notifications for a tracked task. Run this in the task thread.`,
+    `• \`${commandPrefix} unassign @user\`\n  Remove a user from notifications for a tracked task. Run this in the task thread.`,
     `• \`${commandPrefix} take-pr <GitHub PR URL>\`\n  Create a Linear issue for an existing open pull request.`,
     `• \`${commandPrefix} help\`\n  Show this help message.`,
   ].join("\n");
