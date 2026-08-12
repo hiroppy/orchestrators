@@ -19,11 +19,9 @@ efficiently keep many tasks moving, even while away from your desk.
 - Mention the configured bot with `status` for tracked Todo, In Progress, and In Review tasks,
   with links to their Slack task threads when available
 - Mention the configured bot with `assign @user` in a tracked task thread to include that
-  user in task assignees for only that task. The mentioned
-  user must be the person running the command.
+  user in task assignees for only that task. Any user can assign another user.
 - Mention the configured bot with `unassign @user` in a tracked task thread to remove that
-  user from the task assignees. The mentioned user must be the person running
-  the command.
+  user from the task assignees. Any user can unassign another user.
 - Attach an existing pull request to Linear so the watcher can monitor it
 - Reply to a Linear workpad from its Slack task thread, so you can keep
   Symphony work moving directly from Slack

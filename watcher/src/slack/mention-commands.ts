@@ -74,7 +74,7 @@ function commandFailureMessage(command: string): string {
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
   if (command === "unassign") {
-    return "Failed to unassign you from the task. No assignment was changed.";
+    return "Failed to unassign the user from the task. No assignment was changed.";
   }
   return "Failed to load the current task status.";
 }
@@ -169,15 +169,6 @@ async function handleAssignCommand({
     );
     return;
   }
-  if (event.user !== slackUserId) {
-    await postSlackOperationError(
-      client,
-      { channel: event.channel, threadTs },
-      "You can only assign yourself to the task.",
-    );
-    return;
-  }
-
   const assignees = store.getTaskAssignees(task.id);
   const slackMention = `<@${slackUserId}>`;
   const alreadyAssigned = assignees.includes(slackMention);
@@ -198,7 +189,7 @@ async function handleAssignCommand({
       await postSlackOperationError(
         client,
         { channel: event.channel, threadTs },
-        "Failed to assign you to the task. No assignment was changed.",
+        "Failed to assign the user to the task. No assignment was changed.",
         logger,
       );
       return;
@@ -211,7 +202,7 @@ async function handleAssignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You were assigned, but the task card could not be updated.",
+      "The user was assigned, but the task card could not be updated.",
       logger,
     );
     return;
@@ -255,15 +246,6 @@ async function handleUnassignCommand({
     );
     return;
   }
-  if (event.user !== slackUserId) {
-    await postSlackOperationError(
-      client,
-      { channel: event.channel, threadTs },
-      "You can only unassign yourself from the task.",
-    );
-    return;
-  }
-
   store.unassignTask(task.id, slackUserId);
   try {
     await refreshTaskAssignees(client, store, task, logger);
@@ -272,7 +254,7 @@ async function handleUnassignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You were unassigned, but the task card could not be updated.",
+      "The user was unassigned, but the task card could not be updated.",
       logger,
     );
     return;
@@ -284,7 +266,7 @@ async function handleUnassignCommand({
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      "You were unassigned, but the confirmation reaction could not be added.",
+      "The user was unassigned, but the confirmation reaction could not be added.",
       logger,
     );
   }
