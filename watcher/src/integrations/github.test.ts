@@ -105,6 +105,7 @@ describe("findPullRequest", () => {
             stdout: JSON.stringify({
               url: "https://github.com/example/service/pull/123",
               headRefName: "eng-65-contact-form",
+              labels: [{ name: "stg-deploy" }],
               reactionGroups: [
                 { content: "THUMBS_UP", users: { totalCount: 2 } },
                 { content: "EYES", users: { totalCount: 1 } },
@@ -116,7 +117,7 @@ describe("findPullRequest", () => {
     );
 
     assert.equal(result?.hasConfiguredReaction, true);
-    assert.deepEqual(result?.labels, []);
+    assert.deepEqual(result?.labels, ["stg-deploy"]);
   });
 
   it("returns null when gh finds a PR for a stale branch", async () => {
@@ -188,6 +189,7 @@ describe("findPullRequestByUrl", () => {
           stdout: JSON.stringify({
             url,
             number: 123,
+            labels: [{ name: "symphony" }],
             reactionGroups: [{ content: "EYES", users: { totalCount: 0 } }],
           }),
         };
@@ -195,6 +197,17 @@ describe("findPullRequestByUrl", () => {
     });
 
     assert.equal(result?.hasConfiguredReaction, false);
+    assert.deepEqual(result?.labels, ["symphony"]);
+  });
+
+  it("normalizes missing labels to an empty list", async () => {
+    const result = await findPullRequestByUrl("https://github.com/example/service/pull/123", {
+      execFile: async () => ({
+        stdout: JSON.stringify({ url: "https://github.com/example/service/pull/123" }),
+      }),
+    });
+
+    assert.deepEqual(result?.labels, []);
   });
 
   it("maps a configured emoji to GitHub reaction content", async () => {
