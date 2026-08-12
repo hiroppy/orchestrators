@@ -6,7 +6,7 @@ export function initialTaskAssignees(
   defaultAssignees: string[],
   creatorMention?: string | null,
 ): string[] {
-  return [...new Set([creatorMention, ...defaultAssignees].filter(isSlackUserMention))];
+  return [...new Set([creatorMention, ...defaultAssignees].filter(isSlackAssigneeMention))];
 }
 
 export function notificationTargetsForWatcherEvent(
@@ -50,6 +50,6 @@ function enteredNotificationStatus(
   );
 }
 
-function isSlackUserMention(value: string | null | undefined): value is string {
-  return /^<@[A-Z0-9]+>$/i.test(value ?? "");
+function isSlackAssigneeMention(value: string | null | undefined): value is string {
+  return /^(?:<@[A-Z0-9]+>|<!subteam\^[A-Z0-9]+(?:\|[^>]+)?>)$/i.test(value ?? "");
 }

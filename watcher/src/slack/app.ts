@@ -254,7 +254,10 @@ export async function publishWatcherEvent(
         options.defaultAssignees ?? [],
         event.creatorMention,
       )) {
-        store.assignTask(taskId, assignee.slice(2, -1));
+        store.assignTask(
+          taskId,
+          assignee.startsWith("<@") ? assignee.slice(2, -1) : assignee.slice(1, -1),
+        );
       }
     }
     let task = persistedTask;

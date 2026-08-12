@@ -400,7 +400,9 @@ export class WatcherStore {
       .where(eq(taskAssignees.taskId, taskId))
       .orderBy(asc(taskAssignees.createdAt), asc(taskAssignees.slackUserId))
       .all()
-      .map(({ slackUserId }) => `<@${slackUserId}>`);
+      .map(({ slackUserId }) =>
+        slackUserId.startsWith("!subteam^") ? `<${slackUserId}>` : `<@${slackUserId}>`,
+      );
   }
 
   createPendingTakePrRequest(

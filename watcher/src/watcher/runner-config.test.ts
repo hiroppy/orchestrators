@@ -82,14 +82,14 @@ describe("watcher configuration", () => {
       {
         ...baseConfig(),
         slack: {
-          defaultAssignees: ["<@U123>"],
+          defaultAssignees: ["<@U123>", "<!subteam^S123>"],
           notifications: {},
         },
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.defaultAssignees, ["<@U123>"]);
+    assert.deepEqual(config.defaultAssignees, ["<@U123>", "<!subteam^S123>"]);
     assert.deepEqual(config.notifications, {
       statuses: [],
       events: [],
@@ -118,7 +118,7 @@ describe("watcher configuration", () => {
           } as never,
           { requireSlack: false },
         ),
-      /defaultAssignees must contain only Slack user mentions/,
+      /defaultAssignees must contain only Slack user or user group mentions/,
     );
     assert.throws(
       () =>

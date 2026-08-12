@@ -265,8 +265,10 @@ export async function handleTakePrAction(
         pullRequest: validation.pullRequest,
       });
       for (const assignee of new Set(initialAssignees)) {
-        const slackUserId = assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1];
-        if (slackUserId) store.assignTask(task.id, slackUserId);
+        const assigneeId =
+          assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1] ??
+          assignee.match(/^<(!subteam\^[A-Z0-9]+)(?:\|[^>]+)?>$/i)?.[1];
+        if (assigneeId) store.assignTask(task.id, assigneeId);
       }
     }
     await client.chat.postMessage({

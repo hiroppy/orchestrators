@@ -230,9 +230,13 @@ function resolveDefaultAssignees(assignees: string[] | undefined): string[] {
   if (assignees === undefined) return [];
   if (
     !Array.isArray(assignees) ||
-    assignees.some((assignee) => typeof assignee !== "string" || !/^<@[A-Z0-9]+>$/i.test(assignee))
+    assignees.some(
+      (assignee) =>
+        typeof assignee !== "string" ||
+        !/^(?:<@[A-Z0-9]+>|<!subteam\^[A-Z0-9]+(?:\|[^>]+)?>)$/i.test(assignee),
+    )
   ) {
-    throw new Error("slack.defaultAssignees must contain only Slack user mentions.");
+    throw new Error("slack.defaultAssignees must contain only Slack user or user group mentions.");
   }
   if (assignees.join(" ").length > MAX_ASSIGNEES_LENGTH) {
     throw new Error(
