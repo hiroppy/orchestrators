@@ -221,10 +221,11 @@ describe("WatcherStore", () => {
         state: "In Progress",
       });
 
-      assert.equal(store.assignTask("service-a:ENG-62", "U123"), true);
-      assert.equal(store.assignTask("service-a:ENG-62", "U123"), false);
-      assert.equal(store.assignTask("service-a:ENG-62", "U456"), true);
-      assert.equal(store.assignTask("service-a:ENG-62", "!subteam^S123"), true);
+      const assignedAt = new Date("2026-01-01T00:00:00.000Z");
+      assert.equal(store.assignTask("service-a:ENG-62", "U123", assignedAt), true);
+      assert.equal(store.assignTask("service-a:ENG-62", "U123", assignedAt), false);
+      assert.equal(store.assignTask("service-a:ENG-62", "U456", assignedAt), true);
+      assert.equal(store.assignTask("service-a:ENG-62", "!subteam^S123", assignedAt), true);
       assert.deepEqual(store.getTaskAssignees("service-a:ENG-62"), [
         "<!subteam^S123>",
         "<@U123>",
