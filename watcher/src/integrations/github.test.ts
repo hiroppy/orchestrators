@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName",
+            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -66,6 +66,7 @@ describe("findPullRequest", () => {
               reviewDecision: "REVIEW_REQUIRED",
               headRefName: "eng-65-contact-form",
               headRefOid: "abc123",
+              labels: [{ name: "stg-deploy" }, { name: "symphony" }],
             }),
           };
         },
@@ -84,6 +85,7 @@ describe("findPullRequest", () => {
       headRefOid: "abc123",
       baseRefName: null,
       repository: "example/example-service",
+      labels: ["stg-deploy", "symphony"],
     });
   });
 
@@ -97,7 +99,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
+            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
           ]);
           return {
             stdout: JSON.stringify({
@@ -178,7 +180,7 @@ describe("findPullRequestByUrl", () => {
           "view",
           url,
           "--json",
-          "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,reactionGroups",
+          "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
         ]);
         assert.equal(options.cwd, undefined);
         return {
