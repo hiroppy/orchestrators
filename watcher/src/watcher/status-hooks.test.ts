@@ -20,7 +20,11 @@ const context: StatusHookContext = {
   service: "ios",
   issue: { identifier: "APP-42", title: "Ship preview" },
   transition: { from: "In Progress", to: "In Review" },
-  pullRequest: { url: "https://github.com/example/app/pull/42", number: 42 },
+  pullRequest: {
+    url: "https://github.com/example/app/pull/42",
+    number: 42,
+    labels: ["stg-deploy"],
+  },
 };
 const helpers = {
   slack: {

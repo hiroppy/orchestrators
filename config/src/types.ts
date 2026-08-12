@@ -55,6 +55,7 @@ export interface StatusHookContext {
     reviewDecision?: string | null;
     headRefName?: string | null;
     headRefOid?: string | null;
+    labels?: string[];
   };
 }
 

@@ -59,6 +59,7 @@ export interface PullRequest {
   headRefOid?: string | null;
   baseRefName?: string | null;
   repository?: string | null;
+  labels?: string[];
   hasConfiguredReaction?: boolean;
 }
 

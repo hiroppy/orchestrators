@@ -105,6 +105,9 @@ export function taskFromRow(
       ? {
           url: row.pullRequestUrl,
           ...(row.pullRequestNumber === null ? {} : { number: row.pullRequestNumber }),
+          ...(row.pullRequestLabels === null
+            ? {}
+            : { labels: JSON.parse(row.pullRequestLabels) as string[] }),
         }
       : undefined,
     parentChannelId: row.parentChannelId,
