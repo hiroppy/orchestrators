@@ -68,22 +68,10 @@ index c87d048..1b2ea79 100644
  
  1. Identify the PR number from issue links/attachments.
  2. Gather feedback from all channels:
-@@ -184,19 +200,31 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
+@@ -184,19 +200,19 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
  5. Re-run validation after feedback-driven changes and push updates.
  6. Repeat this sweep until there are no outstanding actionable comments.
  
-+## PR review quiet window (required)
-+
-+After every push to a pull request, keep the issue in `In Progress` for a continuous 10-minute review quiet window:
-+
-+1. Record the latest PR HEAD SHA and the quiet-window start time in the workpad.
-+2. Poll PR reviews, review comments, top-level comments, and checks every 60 seconds.
-+3. If new human or review-bot review/comment activity appears, inspect it immediately and restart the quiet window from that activity. Ignore purely operational bot updates such as deployment status notifications.
-+4. If actionable feedback appears, address it, rerun the required validation, push the updates, and restart the quiet window from the new push.
-+5. Check status changes alone do not restart the quiet window, but pending or failing required checks prevent completion. Continue polling until all required checks are green; fix failures and push as needed.
-+6. Before completing the window, fetch the PR again and verify that its HEAD SHA still matches the recorded SHA.
-+7. Move the issue to `In Review` only after the full quiet window completes with all required checks green, no new relevant review/comment activity, and no unresolved actionable feedback.
-+
  ## Blocked-access escape hatch (required behavior)
  
  Use this only when completion is blocked by missing required tools or missing auth/permissions that cannot be resolved in-session.
@@ -103,7 +91,7 @@ index c87d048..1b2ea79 100644
  
  1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff `pull` sync result is already recorded in the workpad before implementation continues.
  2.  If current issue state is `Todo`, move it to `In Progress`; otherwise leave the current state unchanged.
-@@ -227,23 +255,24 @@ Use this only when completion is blocked by missing required tools or missing au
+@@ -227,23 +243,23 @@ Use this only when completion is blocked by missing required tools or missing au
      - Do not include PR URL in the workpad comment; keep PR linkage on the issue via attachment/link fields.
      - Add a short `### Confusions` section at the bottom when any part of task execution was unclear/confusing, with concise bullets.
      - Do not post any additional completion summary comment.
@@ -111,7 +99,6 @@ index c87d048..1b2ea79 100644
 +11. Before moving to `In Review`, poll PR feedback and checks:
      - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
      - Run the full PR feedback sweep protocol.
-+    - Complete the required PR review quiet window after the latest push.
      - Confirm PR checks are passing (green) after the latest changes.
      - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
      - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
