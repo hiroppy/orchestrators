@@ -363,7 +363,7 @@ export function buildStatusSummary(
   context?: StatusSummaryContext,
 ): string {
   const statusSections = STATUS_SUMMARY_STATUSES.map((status) =>
-    statusSectionText(tasks, status, slackLinks),
+    statusSectionText(tasks, status, slackLinks, MAX_SECTION_TEXT_LENGTH),
   );
   if (!context) return statusSections.join("\n\n");
 
@@ -378,7 +378,7 @@ export function buildStatusSummaryBlocks(
   context?: StatusSummaryContext,
 ): SectionBlock[] {
   const statusBlocks = STATUS_SUMMARY_STATUSES.map((status) =>
-    buildTextSection(statusSectionText(tasks, status, slackLinks)),
+    buildTextSection(statusSectionText(tasks, status, slackLinks, MAX_SECTION_TEXT_LENGTH)),
   );
   const serviceBlocks = context
     ? serviceStatusSections(context).map((text) => buildTextSection(text))
@@ -463,6 +463,7 @@ function statusSectionText(
   tasks: Task[],
   status: string,
   slackLinks: ReadonlyMap<string, string>,
+  maxLength: number,
 ): string {
   const matching = tasks
     .filter((task) => normalizeStatus(task.status) === normalizeStatus(status))
@@ -472,10 +473,26 @@ function statusSectionText(
         left.issueIdentifier.localeCompare(right.issueIdentifier),
     );
   const taskLines = matching.map((task) => statusTaskText(task, slackLinks.get(task.id)));
-  return [
-    `*${status} (${matching.length})*`,
-    ...(taskLines.length > 0 ? taskLines : ["• None"]),
-  ].join("\n");
+  if (taskLines.length === 0) return `*${status} (0)*\n• None`;
+
+  const heading = `*${status} (${matching.length})*`;
+  const visibleTaskLines: string[] = [];
+  const render = () => {
+    const omittedTaskCount = taskLines.length - visibleTaskLines.length;
+    return [
+      heading,
+      ...visibleTaskLines,
+      ...(omittedTaskCount > 0 ? [`• … ${omittedTaskCount} more`] : []),
+    ].join("\n");
+  };
+
+  for (const line of taskLines) {
+    visibleTaskLines.push(line);
+    if (render().length <= maxLength) continue;
+    visibleTaskLines.pop();
+    break;
+  }
+  return render();
 }
 
 function statusTaskText(task: Task, slackUrl?: string): string {

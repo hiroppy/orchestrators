@@ -453,4 +453,30 @@ describe("Slack rendering", () => {
     assert.match(summary, /\*Todo \(0\)\*\n• None/);
     assert.match(summary, /\*In Review \(0\)\*\n• None$/);
   });
+
+  it("bounds long task lists in fallback text and section blocks", () => {
+    const tasks = Array.from({ length: 90 }, (_, index) => ({
+      ...task,
+      id: `service-a:ENG-${index}`,
+      issueIdentifier: `ENG-${index}`,
+      title: `Task ${index} ${"x".repeat(2_000)}`,
+      status: STATUS_SUMMARY_STATUSES[index % STATUS_SUMMARY_STATUSES.length],
+    }));
+    const context = {
+      serviceNames: ["service-a"],
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    };
+    const summary = buildStatusSummary(tasks, new Map(), context);
+    const blocks = buildStatusSummaryBlocks(tasks, new Map(), context);
+
+    assert.ok(summary.length <= 40_000);
+    assert.equal(
+      blocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    for (const status of STATUS_SUMMARY_STATUSES) {
+      assert.match(summary, new RegExp(`\\*${status} \\(30\\)\\*`));
+    }
+    assert.equal(summary.match(/• … \d+ more/g)?.length, STATUS_SUMMARY_STATUSES.length);
+  });
 });
