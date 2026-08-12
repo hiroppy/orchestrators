@@ -141,7 +141,7 @@ export async function handleStatusAction(
     if (!taskId) throw new Error("Slack action did not include a task ID.");
     if (!actor) throw new Error("Slack action did not include a user ID.");
 
-    await withTaskCardQueue(taskId, async () => {
+    const statusTransition = await withTaskCardQueue(taskId, async () => {
       const existingTask = store.getTask(taskId);
       if (!existingTask) throw new Error(`Task not found: ${taskId}`);
       const configuredStatuses = store.getSelectableStatuses(existingTask.serviceName);
@@ -187,8 +187,6 @@ export async function handleStatusAction(
           createStatusTransitionEvent?.(updatedTask, previousStatus, selectedStatus),
       );
       store.setRenderedSummary(task.id, JSON.stringify(card));
-      await onStatusTransition?.(task, fromStatus, selectedStatus, client);
-
       const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
       const statusChangedLine = buildStatusChangedMessage(
         actorDisplayName,
@@ -210,7 +208,16 @@ export async function handleStatusAction(
         body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
+      return { task, fromStatus };
     });
+    if (statusTransition) {
+      await onStatusTransition?.(
+        statusTransition.task,
+        statusTransition.fromStatus,
+        selectedStatus,
+        client,
+      );
+    }
   } catch (error) {
     logger.error(error);
   }
