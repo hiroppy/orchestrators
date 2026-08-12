@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `pull_request_labels` text;

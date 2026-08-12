@@ -15,6 +15,11 @@ describe("Slack status actions", () => {
         issueIdentifier: "ENG-62",
         issueUrl: "https://linear.app/example/issue/ENG-62/title",
         state: "In Review",
+        pullRequest: {
+          url: "https://github.com/example/app/pull/42",
+          number: 42,
+          labels: ["stg-deploy"],
+        },
       });
       calls.length = 0;
       let acknowledged = false;
@@ -66,6 +71,10 @@ describe("Slack status actions", () => {
         async (task, fromStatus, toStatus) => {
           assert.equal(task.status, "Rework");
           hookTransitions.push(`${fromStatus} -> ${toStatus}`);
+        },
+        (task) => {
+          assert.deepEqual(task.pullRequest?.labels, ["stg-deploy"]);
+          return undefined;
         },
       );
 

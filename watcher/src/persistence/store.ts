@@ -278,6 +278,7 @@ export class WatcherStore {
     if (!service) throw new Error(`Service not found: ${event.service}`);
     const statusName = event.resolvedState ?? event.state ?? existing?.status ?? "Unknown";
     const statusId = ensureStatus(this.db, service.id, statusName, timestamp);
+    const pullRequestLabels = JSON.stringify(event.pullRequest?.labels);
 
     this.db
       .insert(tasks)
@@ -291,6 +292,7 @@ export class WatcherStore {
         linkUrl: event.issueUrl,
         pullRequestUrl: event.pullRequest?.url,
         pullRequestNumber: event.pullRequest?.number,
+        pullRequestLabels,
         lastEventAt: event.lastEventAt ?? timestamp,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -304,6 +306,7 @@ export class WatcherStore {
           linkUrl: event.issueUrl ?? existing?.linkUrl,
           pullRequestUrl: event.pullRequest?.url ?? existing?.pullRequest?.url,
           pullRequestNumber: event.pullRequest?.number ?? existing?.pullRequest?.number,
+          pullRequestLabels,
           lastEventAt: event.lastEventAt ?? timestamp,
           updatedAt: timestamp,
         },
