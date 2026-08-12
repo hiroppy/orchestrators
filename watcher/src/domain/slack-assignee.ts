@@ -6,7 +6,9 @@ export function slackAssigneeIdFromMention(mention: string): string | undefined 
   if (userId) return userId;
 
   const userGroupId = mention.match(SLACK_USER_GROUP_MENTION)?.[1];
-  return userGroupId ? `!subteam^${userGroupId}` : undefined;
+  if (!userGroupId || userGroupId !== userGroupId.toUpperCase()) return undefined;
+
+  return `!subteam^${userGroupId}`;
 }
 
 export function isSlackAssigneeMention(value: unknown): value is string {

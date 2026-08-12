@@ -125,6 +125,17 @@ describe("watcher configuration", () => {
         resolveWatcherConfig(
           {
             ...baseConfig(),
+            slack: { defaultAssignees: ["<!subteam^s123>"] },
+          },
+          { requireSlack: false },
+        ),
+      /defaultAssignees must contain only Slack user or user group mentions/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
             slack: { defaultAssignees: [`<@${"X".repeat(2_001)}>`] },
           },
           { requireSlack: false },
