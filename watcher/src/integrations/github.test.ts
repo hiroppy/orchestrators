@@ -116,6 +116,7 @@ describe("findPullRequest", () => {
     );
 
     assert.equal(result?.hasConfiguredReaction, true);
+    assert.deepEqual(result?.labels, []);
   });
 
   it("returns null when gh finds a PR for a stale branch", async () => {
