@@ -550,7 +550,7 @@ describe("take-pr Slack flow", () => {
       const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
       let pullRequestLookups = 0;
       const takePrOptions = options({
-        defaultAssignees: ["<@UDEFAULT>"],
+        defaultAssignees: ["<!subteam^SDEFAULT|reviewers>"],
         findPullRequest: async () => ({
           ...pullRequest,
           url: ++pullRequestLookups === 1 ? pullRequest.url : canonicalPullRequestUrl,
@@ -603,8 +603,8 @@ describe("take-pr Slack flow", () => {
       assert.equal(acknowledged, true);
       assert.equal(store.getPendingTakePrRequest("request123"), undefined);
       assert.deepEqual(store.getTaskAssignees("service-a:ENG-100").sort(), [
+        "<!subteam^SDEFAULT>",
         "<@U123>",
-        "<@UDEFAULT>",
       ]);
       assert.deepEqual(calls[0], {
         method: "getPermalink",

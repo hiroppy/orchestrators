@@ -94,7 +94,7 @@ describe("Slack event notifications", () => {
           creatorMention: "<@UCREATOR>",
         },
         notification,
-        { defaultAssignees: ["<@UREVIEWERS>"] },
+        { defaultAssignees: ["<!SUBTEAM^SREVIEWERS|reviewers>"] },
       );
       await publishWatcherEvent(
         client,
@@ -141,7 +141,8 @@ describe("Slack event notifications", () => {
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 2);
       for (const text of threadTexts) {
-        assert.match(text, /Assignees: <@UCREATOR> <@UREVIEWERS>/);
+        assert.match(text, /Assignees: .*<!subteam\^SREVIEWERS>/);
+        assert.match(text, /Assignees: .*<@UCREATOR>/);
       }
     });
   });
