@@ -238,7 +238,7 @@ export function buildSlackPreviewMessage(
     );
     const statusSummary = {
       serviceNames: ["service-a", "service-b"],
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     };
     return {
       text: buildStatusSummary(tasks, slackLinks, statusSummary),

@@ -178,12 +178,9 @@ describe("Slack preview", () => {
     assert.equal(
       messages[4].text,
       [
-        "*Running services (2)*",
+        "*Running services (Started at 08/12 11:00)*",
         "• service-a",
         "• service-b",
-        "",
-        "*Started at*",
-        "<!date^1786500000^{date_short_pretty} {time}|2026-08-12T02:00:00.000Z>",
         "",
         "*Todo (2)*",
         "• [preview-service] PREVIEW-120: Plan the Slack status command",

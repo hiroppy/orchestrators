@@ -390,7 +390,7 @@ function serviceStatusText(
   { serviceNames, startedAt }: StatusSummaryContext,
   maxLength: number,
 ): string {
-  const heading = `*Running services (${serviceNames.length})*`;
+  const heading = serviceStatusHeading(startedAt);
   const serviceLines = serviceNames.map(
     (name) => `• ${truncate(escapeSlack(name), MAX_SECTION_TEXT_LENGTH - 2)}`,
   );
@@ -401,8 +401,6 @@ function serviceStatusText(
       heading,
       ...(serviceLines.length === 0 ? ["• None"] : visibleServiceLines),
       ...(omittedServiceCount > 0 ? [`• … ${omittedServiceCount} more`] : []),
-      "",
-      startedAtText(startedAt),
     ].join("\n");
   };
 
@@ -422,7 +420,7 @@ function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext
   const hasServices = services.length > 0;
   const serviceLines = hasServices ? services : ["• None"];
   const sections: string[] = [];
-  let section = `*Running services (${serviceNames.length})*`;
+  let section = serviceStatusHeading(startedAt);
   let visibleServiceCount = 0;
 
   for (const line of serviceLines) {
@@ -439,24 +437,25 @@ function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext
   }
 
   const omittedServiceCount = serviceNames.length - visibleServiceCount;
-  const footer = [
-    ...(omittedServiceCount > 0 ? [`• … ${omittedServiceCount} more`] : []),
-    "",
-    startedAtText(startedAt),
-  ].join("\n");
-  if (`${section}\n${footer}`.length <= MAX_SECTION_TEXT_LENGTH) {
-    section = `${section}\n${footer}`;
-  } else {
-    sections.push(section);
-    section = footer;
+  if (omittedServiceCount > 0) {
+    const omissionLine = `• … ${omittedServiceCount} more`;
+    if (`${section}\n${omissionLine}`.length <= MAX_SECTION_TEXT_LENGTH) {
+      section = `${section}\n${omissionLine}`;
+    } else {
+      sections.push(section);
+      section = omissionLine;
+    }
   }
   sections.push(section);
   return sections;
 }
 
-function startedAtText(startedAt: Date): string {
-  const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
-  return `*Started at*\n<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
+function serviceStatusHeading(startedAt: Date): string {
+  const month = String(startedAt.getMonth() + 1).padStart(2, "0");
+  const day = String(startedAt.getDate()).padStart(2, "0");
+  const hours = String(startedAt.getHours()).padStart(2, "0");
+  const minutes = String(startedAt.getMinutes()).padStart(2, "0");
+  return `*Running services (Started at ${month}/${day} ${hours}:${minutes})*`;
 }
 
 function statusSectionText(

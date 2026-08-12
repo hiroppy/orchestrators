@@ -389,11 +389,10 @@ describe("Slack rendering", () => {
   it("shows an empty running service list with the watcher start time", () => {
     const summary = buildStatusSummary([], new Map(), {
       serviceNames: [],
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     });
 
-    assert.match(summary, /^\*Running services \(0\)\*\n• None/);
-    assert.match(summary, /\*Started at\*\n<!date\^1786500000\^/);
+    assert.match(summary, /^\*Running services \(Started at 08\/12 11:00\)\*\n• None/);
     assert.match(summary, /\*Todo \(0\)\*\n• None/);
   });
 
@@ -403,7 +402,7 @@ describe("Slack rendering", () => {
         ...Array.from({ length: 100 }, (_, index) => `service-${index}-${"x".repeat(40)}`),
         "<&>".repeat(2_000),
       ],
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     });
     const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
     const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
@@ -413,9 +412,8 @@ describe("Slack rendering", () => {
       serviceBlocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
       true,
     );
-    assert.match(serviceText, /^\*Running services \(101\)\*/);
+    assert.match(serviceText, /^\*Running services \(Started at 08\/12 11:00\)\*/);
     assert.match(serviceText, /…/);
-    assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
   });
 
   it("keeps the status summary within Slack's message block limit", () => {
@@ -424,7 +422,7 @@ describe("Slack rendering", () => {
         { length: 100 },
         (_, index) => `service-${index}-${"x".repeat(3_000)}`,
       ),
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     });
     const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
     const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
@@ -435,7 +433,7 @@ describe("Slack rendering", () => {
       true,
     );
     assert.match(serviceText, /• … \d+ more/);
-    assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
+    assert.match(serviceText, /^\*Running services \(Started at 08\/12 11:00\)/);
   });
 
   it("keeps fallback text within Slack's message text limit", () => {
@@ -444,12 +442,12 @@ describe("Slack rendering", () => {
         { length: 100 },
         (_, index) => `service-${index}-${"x".repeat(3_000)}`,
       ),
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     });
 
     assert.ok(summary.length <= 40_000);
     assert.match(summary, /• … \d+ more/);
-    assert.match(summary, /\*Started at\*\n<!date\^1786500000\^/);
+    assert.match(summary, /^\*Running services \(Started at 08\/12 11:00\)/);
     assert.match(summary, /\*Todo \(0\)\*\n• None/);
     assert.match(summary, /\*In Review \(0\)\*\n• None$/);
   });
@@ -464,7 +462,7 @@ describe("Slack rendering", () => {
     }));
     const context = {
       serviceNames: ["service-a"],
-      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+      startedAt: new Date(2026, 7, 12, 11, 0),
     };
     const summary = buildStatusSummary(tasks, new Map(), context);
     const blocks = buildStatusSummaryBlocks(tasks, new Map(), context);

@@ -151,7 +151,7 @@ describe("Slack mention commands", () => {
         undefined,
         {
           serviceNames: ["service-a", "service-b"],
-          startedAt: new Date("2026-08-12T02:00:00.000Z"),
+          startedAt: new Date(2026, 7, 12, 11, 0),
         },
       );
 
@@ -166,12 +166,9 @@ describe("Slack mention commands", () => {
       assert.equal(
         calls[1].args.text,
         [
-          "*Running services (2)*",
+          "*Running services (Started at 08/12 11:00)*",
           "• service-a",
           "• service-b",
-          "",
-          "*Started at*",
-          "<!date^1786500000^{date_short_pretty} {time}|2026-08-12T02:00:00.000Z>",
           "",
           "*Todo (1)*",
           "• [service-a] ENG-60: Plan the change",
