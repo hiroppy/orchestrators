@@ -5,6 +5,7 @@ import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
+  buildStatusSummary,
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
@@ -381,5 +382,16 @@ describe("Slack rendering", () => {
     assert.ok(cardAssigneesField);
     assert.ok(cardAssigneesField.text.length <= 2_000);
     assert.doesNotMatch(JSON.stringify(card), /<@U/);
+  });
+
+  it("shows an empty running service list with the watcher start time", () => {
+    const summary = buildStatusSummary([], new Map(), {
+      serviceNames: [],
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+
+    assert.match(summary, /^\*Running services \(0\)\*\n• None/);
+    assert.match(summary, /\*Started at\*\n<!date\^1786500000\^/);
+    assert.match(summary, /\*Todo \(0\)\*\n• None/);
   });
 });

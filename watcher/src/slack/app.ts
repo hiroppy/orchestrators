@@ -12,8 +12,7 @@ import {
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
-  buildWatcherStartedMessage,
-  buildWatcherStartedMessageBlocks,
+  type StatusSummaryContext,
 } from "./views.ts";
 import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
@@ -61,6 +60,7 @@ export interface SlackAppOptions {
   createStatusTransitionEvent?: StatusTransitionEventFactory;
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
+  statusSummary: StatusSummaryContext;
 }
 
 export function createSlackApp({
@@ -73,6 +73,7 @@ export function createSlackApp({
   createStatusTransitionEvent,
   onStatusTransition,
   takePr,
+  statusSummary,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -93,7 +94,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, botUserId, takePr);
+    await handleAppMention(args, store, botUserId, takePr, statusSummary);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
@@ -398,18 +399,6 @@ async function postRelatedIssues(
   } catch (error) {
     console.error("Failed to post related issues:", error);
   }
-}
-
-export async function publishWatcherStarted(
-  client: SlackClient,
-  destinationChannel: string,
-  serviceNames: string[],
-): Promise<void> {
-  await client.chat.postMessage({
-    channel: destinationChannel,
-    text: buildWatcherStartedMessage(serviceNames),
-    blocks: buildWatcherStartedMessageBlocks(serviceNames),
-  });
 }
 
 function shouldPostThreadMessage(

@@ -17,12 +17,7 @@ import {
   findPullRequestByUrl as findPullRequestByUrlDefault,
   requireGitHubCli,
 } from "../integrations/github.ts";
-import {
-  createSlackApp,
-  publishWatcherStarted,
-  publishWatcherEvent,
-  type SlackClient,
-} from "../slack/app.ts";
+import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/app.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
@@ -60,6 +55,7 @@ export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Pr
 }
 
 export async function startWatcher(config: OrchestratorConfig): Promise<void> {
+  const startedAt = new Date();
   const unresolvedConfig = resolveWatcherConfig(config, { requireSlack: true });
   const runtimeConfig = await resolveLinearWorkflowStatuses(unresolvedConfig);
   await requireGitHubCli();
@@ -103,6 +99,10 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       symphoniesDirectory: resolve(rootDirectory, "symphonies"),
       defaultAssignees: runtimeConfig.defaultAssignees,
     },
+    statusSummary: {
+      serviceNames: runtimeConfig.services.map(({ name }) => name),
+      startedAt,
+    },
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
     onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
@@ -125,16 +125,6 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
 
   try {
     await app.start();
-    try {
-      await publishWatcherStarted(
-        client,
-        slackConfig.channelId,
-        runtimeConfig.services.map(({ name }) => name),
-      );
-    } catch (error) {
-      console.error("Failed to post watcher startup notification:", error);
-    }
-
     while (true) {
       await runOnce({
         config: runtimeConfig,

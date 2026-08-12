@@ -1,44 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { publishWatcherEvent, publishWatcherStarted } from "./app.ts";
+import { publishWatcherEvent } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 
 describe("Slack event publishing", () => {
-  it("posts one top-level channel message when the watcher starts", async () => {
-    const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-
-    await publishWatcherStarted(fakeClient(calls), "C123", ["service-a", "service-b", "service-c"]);
-
-    assert.deepEqual(calls, [
-      {
-        method: "postMessage",
-        args: {
-          channel: "C123",
-          text: [
-            "Watcher started | monitoring 3 services",
-            "- service-a",
-            "- service-b",
-            "- service-c",
-          ].join("\n"),
-          blocks: [
-            {
-              type: "section",
-              text: { type: "mrkdwn", text: "*Watcher started*" },
-            },
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: "*Services*\n• service-a\n• service-b\n• service-c",
-              },
-            },
-          ],
-        },
-      },
-    ]);
-  });
-
   it("updates one parent while suppressing routine lifecycle thread noise", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

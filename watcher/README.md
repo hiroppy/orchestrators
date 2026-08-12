@@ -200,7 +200,7 @@ configured creator and additional mention targets can be previewed with
 `mentions` when using the preview helper; the CLI uses non-notifying
 placeholders. Use `thread reaction`, `thread reaction-limit`, and `thread next`
 for task-thread notifications, `post closed` for the top-level task-closed
-notification, and `post watcher-started` for the watcher startup notification.
+notification, and `assignees status` for the status summary.
 Thread previews are posted as
 new parent messages so their formatting can be inspected without existing
 watcher threads.

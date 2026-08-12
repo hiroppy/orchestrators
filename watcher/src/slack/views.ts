@@ -348,30 +348,43 @@ export function buildTaskClosedMessageBlocks(
   ]);
 }
 
-export function buildWatcherStartedMessage(serviceNames: string[]): string {
-  const serviceLabel = serviceNames.length === 1 ? "service" : "services";
-  const heading = `Watcher started | monitoring ${serviceNames.length} ${serviceLabel}`;
-  return [heading, ...serviceNames.map((name) => `- ${name}`)].join("\n");
+export interface StatusSummaryContext {
+  serviceNames: string[];
+  startedAt: Date;
 }
 
-export function buildWatcherStartedMessageBlocks(serviceNames: string[]): SectionBlock[] {
-  const services = serviceNames.map((name) => `• ${escapeSlack(name)}`).join("\n");
-  return [buildTextSection("*Watcher started*"), buildTextSection(`*Services*\n${services}`)];
-}
-
-export function buildStatusSummary(tasks: Task[], slackLinks: ReadonlyMap<string, string>): string {
-  return STATUS_SUMMARY_STATUSES.map((status) => statusSectionText(tasks, status, slackLinks)).join(
-    "\n\n",
+export function buildStatusSummary(
+  tasks: Task[],
+  slackLinks: ReadonlyMap<string, string>,
+  context?: StatusSummaryContext,
+): string {
+  const statusSections = STATUS_SUMMARY_STATUSES.map((status) =>
+    statusSectionText(tasks, status, slackLinks),
   );
+  return (context ? [serviceStatusText(context), ...statusSections] : statusSections).join("\n\n");
 }
 
 export function buildStatusSummaryBlocks(
   tasks: Task[],
   slackLinks: ReadonlyMap<string, string>,
+  context?: StatusSummaryContext,
 ): SectionBlock[] {
-  return STATUS_SUMMARY_STATUSES.map((status) =>
+  const statusBlocks = STATUS_SUMMARY_STATUSES.map((status) =>
     buildTextSection(statusSectionText(tasks, status, slackLinks)),
   );
+  return context ? [buildTextSection(serviceStatusText(context)), ...statusBlocks] : statusBlocks;
+}
+
+function serviceStatusText({ serviceNames, startedAt }: StatusSummaryContext): string {
+  const services = serviceNames.map((name) => `• ${escapeSlack(name)}`);
+  const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
+  const localizedStartedAt = `<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
+  return [
+    `*Running services (${serviceNames.length})*`,
+    ...(services.length > 0 ? services : ["• None"]),
+    "",
+    `*Started at*\n${localizedStartedAt}`,
+  ].join("\n");
 }
 
 function statusSectionText(

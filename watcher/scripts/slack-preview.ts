@@ -25,8 +25,6 @@ import {
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
-  buildWatcherStartedMessage,
-  buildWatcherStartedMessageBlocks,
   type TaskCard,
 } from "../src/slack/views.ts";
 
@@ -50,7 +48,6 @@ export const SLACK_PREVIEW_TYPES = [
   "reaction-limit",
   "closed",
   "next",
-  "watcher-started",
   "status",
 ] as const;
 
@@ -133,11 +130,6 @@ export function resolveSlackPreviewCase(
   }
   if (category === "thread" && type === "closed") {
     throw new Error(`Slack preview type closed is only available for post previews.\n${usage}`);
-  }
-  if (category === "thread" && type === "watcher-started") {
-    throw new Error(
-      `Slack preview type watcher-started is only available for post previews.\n${usage}`,
-    );
   }
   if (extraValue !== undefined) {
     throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
@@ -236,13 +228,6 @@ export function buildSlackPreviewMessage(
       blocks: buildRelatedIssuesMessageBlocks(issues),
     };
   }
-  if (type === "watcher-started") {
-    const serviceNames = ["mf-dashboard", "tmux-agent-sidebar", "iiba", "orchestrators"];
-    return {
-      text: buildWatcherStartedMessage(serviceNames),
-      blocks: buildWatcherStartedMessageBlocks(serviceNames),
-    };
-  }
   if (type === "status") {
     const tasks = previewStatusTasks(now);
     const slackLinks = new Map(
@@ -251,9 +236,13 @@ export function buildSlackPreviewMessage(
         `https://example.slack.com/archives/C123/p${task.issueIdentifier.replace(/\D/g, "")}`,
       ]),
     );
+    const statusSummary = {
+      serviceNames: ["service-a", "service-b"],
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    };
     return {
-      text: buildStatusSummary(tasks, slackLinks),
-      blocks: buildStatusSummaryBlocks(tasks, slackLinks),
+      text: buildStatusSummary(tasks, slackLinks, statusSummary),
+      blocks: buildStatusSummaryBlocks(tasks, slackLinks, statusSummary),
     };
   }
 
