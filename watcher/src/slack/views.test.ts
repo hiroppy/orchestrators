@@ -417,4 +417,24 @@ describe("Slack rendering", () => {
     assert.match(serviceText, /…/);
     assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
   });
+
+  it("keeps the status summary within Slack's message block limit", () => {
+    const blocks = buildStatusSummaryBlocks([], new Map(), {
+      serviceNames: Array.from(
+        { length: 100 },
+        (_, index) => `service-${index}-${"x".repeat(3_000)}`,
+      ),
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
+    const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
+
+    assert.equal(blocks.length, 50);
+    assert.equal(
+      serviceBlocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    assert.match(serviceText, /• … \d+ more/);
+    assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
+  });
 });

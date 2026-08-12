@@ -15,8 +15,10 @@ const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ERROR_LENGTH = 180;
 const MAX_FIELD_LENGTH = 2_000;
 const MAX_SECTION_TEXT_LENGTH = 3_000;
+const MAX_MESSAGE_BLOCKS = 50;
 const MAX_RELATED_ISSUE_BLOCKS = 48;
 export const STATUS_SUMMARY_STATUSES = ["Todo", "In Progress", "In Review"] as const;
+const MAX_SERVICE_STATUS_BLOCKS = MAX_MESSAGE_BLOCKS - STATUS_SUMMARY_STATUSES.length;
 type MrkdwnText = { type: "mrkdwn"; text: string };
 interface SectionBlock extends Record<string, unknown> {
   type: "section";
@@ -389,22 +391,36 @@ function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext
   );
   const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
   const localizedStartedAt = `<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
-  const lines = [
-    ...(services.length > 0 ? services : ["• None"]),
-    "",
-    `*Started at*\n${localizedStartedAt}`,
-  ];
+  const hasServices = services.length > 0;
+  const serviceLines = hasServices ? services : ["• None"];
   const sections: string[] = [];
   let section = `*Running services (${serviceNames.length})*`;
+  let visibleServiceCount = 0;
 
-  for (const line of lines) {
+  for (const line of serviceLines) {
     const next = `${section}\n${line}`;
     if (next.length <= MAX_SECTION_TEXT_LENGTH) {
       section = next;
+      if (hasServices) visibleServiceCount += 1;
       continue;
     }
+    if (sections.length >= MAX_SERVICE_STATUS_BLOCKS - 2) break;
     sections.push(section);
     section = line;
+    if (hasServices) visibleServiceCount += 1;
+  }
+
+  const omittedServiceCount = serviceNames.length - visibleServiceCount;
+  const footer = [
+    ...(omittedServiceCount > 0 ? [`• … ${omittedServiceCount} more`] : []),
+    "",
+    `*Started at*\n${localizedStartedAt}`,
+  ].join("\n");
+  if (`${section}\n${footer}`.length <= MAX_SECTION_TEXT_LENGTH) {
+    section = `${section}\n${footer}`;
+  } else {
+    sections.push(section);
+    section = footer;
   }
   sections.push(section);
   return sections;
