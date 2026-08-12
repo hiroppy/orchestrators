@@ -437,4 +437,20 @@ describe("Slack rendering", () => {
     assert.match(serviceText, /• … \d+ more/);
     assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
   });
+
+  it("keeps fallback text within Slack's message text limit", () => {
+    const summary = buildStatusSummary([], new Map(), {
+      serviceNames: Array.from(
+        { length: 100 },
+        (_, index) => `service-${index}-${"x".repeat(3_000)}`,
+      ),
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+
+    assert.ok(summary.length <= 40_000);
+    assert.match(summary, /• … \d+ more/);
+    assert.match(summary, /\*Started at\*\n<!date\^1786500000\^/);
+    assert.match(summary, /\*Todo \(0\)\*\n• None/);
+    assert.match(summary, /\*In Review \(0\)\*\n• None$/);
+  });
 });

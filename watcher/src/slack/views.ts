@@ -15,6 +15,7 @@ const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ERROR_LENGTH = 180;
 const MAX_FIELD_LENGTH = 2_000;
 const MAX_SECTION_TEXT_LENGTH = 3_000;
+const MAX_MESSAGE_TEXT_LENGTH = 40_000;
 const MAX_MESSAGE_BLOCKS = 50;
 const MAX_RELATED_ISSUE_BLOCKS = 48;
 export const STATUS_SUMMARY_STATUSES = ["Todo", "In Progress", "In Review"] as const;
@@ -364,7 +365,11 @@ export function buildStatusSummary(
   const statusSections = STATUS_SUMMARY_STATUSES.map((status) =>
     statusSectionText(tasks, status, slackLinks),
   );
-  return (context ? [serviceStatusText(context), ...statusSections] : statusSections).join("\n\n");
+  if (!context) return statusSections.join("\n\n");
+
+  const statusText = statusSections.join("\n\n");
+  const serviceTextLimit = Math.max(0, MAX_MESSAGE_TEXT_LENGTH - statusText.length - 2);
+  return [serviceStatusText(context, serviceTextLimit), statusText].join("\n\n");
 }
 
 export function buildStatusSummaryBlocks(
@@ -381,16 +386,39 @@ export function buildStatusSummaryBlocks(
   return [...serviceBlocks, ...statusBlocks];
 }
 
-function serviceStatusText(context: StatusSummaryContext): string {
-  return serviceStatusSections(context).join("\n");
+function serviceStatusText(
+  { serviceNames, startedAt }: StatusSummaryContext,
+  maxLength: number,
+): string {
+  const heading = `*Running services (${serviceNames.length})*`;
+  const serviceLines = serviceNames.map(
+    (name) => `• ${truncate(escapeSlack(name), MAX_SECTION_TEXT_LENGTH - 2)}`,
+  );
+  const visibleServiceLines: string[] = [];
+  const render = () => {
+    const omittedServiceCount = serviceLines.length - visibleServiceLines.length;
+    return [
+      heading,
+      ...(serviceLines.length === 0 ? ["• None"] : visibleServiceLines),
+      ...(omittedServiceCount > 0 ? [`• … ${omittedServiceCount} more`] : []),
+      "",
+      startedAtText(startedAt),
+    ].join("\n");
+  };
+
+  for (const line of serviceLines) {
+    visibleServiceLines.push(line);
+    if (render().length <= maxLength) continue;
+    visibleServiceLines.pop();
+    break;
+  }
+  return render();
 }
 
 function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext): string[] {
   const services = serviceNames.map(
     (name) => `• ${truncate(escapeSlack(name), MAX_SECTION_TEXT_LENGTH - 2)}`,
   );
-  const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
-  const localizedStartedAt = `<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
   const hasServices = services.length > 0;
   const serviceLines = hasServices ? services : ["• None"];
   const sections: string[] = [];
@@ -414,7 +442,7 @@ function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext
   const footer = [
     ...(omittedServiceCount > 0 ? [`• … ${omittedServiceCount} more`] : []),
     "",
-    `*Started at*\n${localizedStartedAt}`,
+    startedAtText(startedAt),
   ].join("\n");
   if (`${section}\n${footer}`.length <= MAX_SECTION_TEXT_LENGTH) {
     section = `${section}\n${footer}`;
@@ -424,6 +452,11 @@ function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext
   }
   sections.push(section);
   return sections;
+}
+
+function startedAtText(startedAt: Date): string {
+  const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
+  return `*Started at*\n<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
 }
 
 function statusSectionText(
