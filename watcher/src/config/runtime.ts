@@ -10,6 +10,7 @@ import type {
   SlackConfig,
   StatusHookConfig,
 } from "../domain/types.ts";
+import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
@@ -230,11 +231,7 @@ function resolveDefaultAssignees(assignees: string[] | undefined): string[] {
   if (assignees === undefined) return [];
   if (
     !Array.isArray(assignees) ||
-    assignees.some(
-      (assignee) =>
-        typeof assignee !== "string" ||
-        !/^(?:<@[A-Z0-9]+>|<!subteam\^[A-Z0-9]+(?:\|[^>]+)?>)$/i.test(assignee),
-    )
+    assignees.some((assignee) => !isSlackAssigneeMention(assignee))
   ) {
     throw new Error("slack.defaultAssignees must contain only Slack user or user group mentions.");
   }

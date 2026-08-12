@@ -18,6 +18,7 @@ import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistenc
 import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
+import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./notifications.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
@@ -254,10 +255,8 @@ export async function publishWatcherEvent(
         options.defaultAssignees ?? [],
         event.creatorMention,
       )) {
-        store.assignTask(
-          taskId,
-          assignee.startsWith("<@") ? assignee.slice(2, -1) : assignee.slice(1, -1),
-        );
+        const assigneeId = slackAssigneeIdFromMention(assignee);
+        if (assigneeId) store.assignTask(taskId, assigneeId);
       }
     }
     let task = persistedTask;

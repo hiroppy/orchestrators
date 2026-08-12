@@ -11,6 +11,7 @@ import {
 } from "../integrations/linear.ts";
 import { findPullRequestByUrl } from "../integrations/github.ts";
 import type { PullRequest, ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/types.ts";
+import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
 import { postSlackOperationError } from "./errors.ts";
@@ -265,9 +266,7 @@ export async function handleTakePrAction(
         pullRequest: validation.pullRequest,
       });
       for (const assignee of new Set(initialAssignees)) {
-        const assigneeId =
-          assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1] ??
-          assignee.match(/^<(!subteam\^[A-Z0-9]+)(?:\|[^>]+)?>$/i)?.[1];
+        const assigneeId = slackAssigneeIdFromMention(assignee);
         if (assigneeId) store.assignTask(task.id, assigneeId);
       }
     }

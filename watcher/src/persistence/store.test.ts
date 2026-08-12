@@ -226,9 +226,9 @@ describe("WatcherStore", () => {
       assert.equal(store.assignTask("service-a:ENG-62", "U456"), true);
       assert.equal(store.assignTask("service-a:ENG-62", "!subteam^S123"), true);
       assert.deepEqual(store.getTaskAssignees("service-a:ENG-62"), [
+        "<!subteam^S123>",
         "<@U123>",
         "<@U456>",
-        "<!subteam^S123>",
       ]);
       assert.deepEqual(store.getTaskAssignees("service-a:ENG-63"), []);
     });

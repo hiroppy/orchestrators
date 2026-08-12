@@ -94,7 +94,7 @@ describe("Slack event notifications", () => {
           creatorMention: "<@UCREATOR>",
         },
         notification,
-        { defaultAssignees: ["<!subteam^SREVIEWERS>"] },
+        { defaultAssignees: ["<!SUBTEAM^SREVIEWERS|reviewers>"] },
       );
       await publishWatcherEvent(
         client,

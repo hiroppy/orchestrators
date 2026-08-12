@@ -550,7 +550,7 @@ describe("take-pr Slack flow", () => {
       const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
       let pullRequestLookups = 0;
       const takePrOptions = options({
-        defaultAssignees: ["<!subteam^SDEFAULT>"],
+        defaultAssignees: ["<!subteam^SDEFAULT|reviewers>"],
         findPullRequest: async () => ({
           ...pullRequest,
           url: ++pullRequestLookups === 1 ? pullRequest.url : canonicalPullRequestUrl,

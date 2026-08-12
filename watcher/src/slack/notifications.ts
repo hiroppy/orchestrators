@@ -1,6 +1,7 @@
 import type { ResolvedNotificationConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
+import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
 
 export function initialTaskAssignees(
   defaultAssignees: string[],
@@ -48,8 +49,4 @@ function enteredNotificationStatus(
     notification.statuses.some((status) => normalizeStatus(status) === normalizedCurrent) &&
     normalizeStatus(previousStatus) !== normalizedCurrent
   );
-}
-
-function isSlackAssigneeMention(value: string | null | undefined): value is string {
-  return /^(?:<@[A-Z0-9]+>|<!subteam\^[A-Z0-9]+(?:\|[^>]+)?>)$/i.test(value ?? "");
 }
