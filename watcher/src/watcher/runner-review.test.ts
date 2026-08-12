@@ -14,7 +14,7 @@ describe("watcher review reactions", () => {
   it("resets the requeue count after reaching the limit", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
-      let failLinearFetchOnce = false;
+      let linearFetchFailuresRemaining = 0;
       let hasReviewReaction = true;
       let failWorkspacePullRequestLookupOnce = false;
       let failReactionLookupOnce = false;
@@ -22,8 +22,8 @@ describe("watcher review reactions", () => {
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
-        if (failLinearFetchOnce) {
-          failLinearFetchOnce = false;
+        if (linearFetchFailuresRemaining > 0) {
+          linearFetchFailuresRemaining -= 1;
           return new Response("temporary failure", { status: 500 });
         }
         const attachments = omitLinearPullRequestOnce
@@ -246,7 +246,7 @@ describe("watcher review reactions", () => {
 
       hasReviewReaction = true;
       linearState = "In Review";
-      failLinearFetchOnce = true;
+      linearFetchFailuresRemaining = 2;
       // Phase 3: card recovery succeeds, but failed enrichment on a snapshot diff stays pending.
       await run("In Progress");
       assert.equal(

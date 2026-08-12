@@ -147,6 +147,12 @@ describe("Slack mention commands", () => {
           logger: { error: (error: unknown) => assert.fail(String(error)) },
         },
         store,
+        undefined,
+        undefined,
+        {
+          serviceNames: ["service-a", "service-b"],
+          startedAt: new Date(2026, 7, 12, 11, 0),
+        },
       );
 
       assert.deepEqual(calls[0], {
@@ -160,6 +166,10 @@ describe("Slack mention commands", () => {
       assert.equal(
         calls[1].args.text,
         [
+          "*Running services (Started at 08/12 11:00)*",
+          "• service-a",
+          "• service-b",
+          "",
           "*Todo (1)*",
           "• [service-a] ENG-60: Plan the change",
           "  <https://example.slack.com/archives/C123/p10000|Slack> | <https://linear.app/example/issue/ENG-60/plan|Linear>",
@@ -175,7 +185,7 @@ describe("Slack mention commands", () => {
       const blocks = calls[1].args.blocks as Array<{ type: string }>;
       assert.deepEqual(
         blocks.map(({ type }) => type),
-        ["section", "section", "section"],
+        ["section", "section", "section", "section"],
       );
       assert.match(JSON.stringify(blocks), /Slack.*Linear.*ENG-61/s);
     });

@@ -150,7 +150,6 @@ describe("Slack preview", () => {
       { category: "thread", type: "reaction-limit" },
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
-      { category: "post", type: "watcher-started" },
       { category: "assignees", type: "status" },
     ] as const;
     const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
@@ -176,15 +175,13 @@ describe("Slack preview", () => {
       false,
     );
     assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125.*PREVIEW-126/);
-    assert.deepEqual(
-      messages[4].blocks.map(({ type }) => type),
-      ["section", "section"],
-    );
-    assert.doesNotMatch(JSON.stringify(messages[4].blocks), /Monitoring/);
-    assert.match(JSON.stringify(messages[4].blocks), /Services.*mf-dashboard/s);
     assert.equal(
-      messages[5].text,
+      messages[4].text,
       [
+        "*Running services (Started at 08/12 11:00)*",
+        "• service-a",
+        "• service-b",
+        "",
         "*Todo (2)*",
         "• [preview-service] PREVIEW-120: Plan the Slack status command",
         "  <https://example.slack.com/archives/C123/p120|Slack> | <https://linear.app/example/issue/PREVIEW-120/plan-the-slack-status-command|Linear>",
@@ -205,8 +202,8 @@ describe("Slack preview", () => {
       ].join("\n"),
     );
     assert.deepEqual(
-      messages[5].blocks?.map(({ type }) => type),
-      ["section", "section", "section"],
+      messages[4].blocks?.map(({ type }) => type),
+      ["section", "section", "section", "section"],
     );
   });
 
@@ -281,7 +278,6 @@ describe("Slack preview", () => {
       "reaction-limit",
       "closed",
       "next",
-      "watcher-started",
       "status",
     ]);
     assert.throws(
@@ -315,10 +311,6 @@ describe("Slack preview", () => {
     assert.throws(
       () => resolveSlackPreviewCase("thread", "closed"),
       /closed is only available for post previews/,
-    );
-    assert.throws(
-      () => resolveSlackPreviewCase("thread", "watcher-started"),
-      /watcher-started is only available for post previews/,
     );
   });
 

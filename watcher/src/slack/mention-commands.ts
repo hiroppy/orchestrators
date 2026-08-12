@@ -11,6 +11,7 @@ import {
   buildTaskCard,
   replaceTaskCardAssignees,
   STATUS_SUMMARY_STATUSES,
+  type StatusSummaryContext,
   type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
@@ -35,6 +36,7 @@ export async function handleAppMention(
   store: WatcherStore,
   botUserId?: string,
   takePrOptions?: TakePrOptions,
+  statusSummaryContext?: StatusSummaryContext,
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
@@ -49,6 +51,7 @@ export async function handleAppMention(
       store,
       args: mention.args,
       takePrOptions,
+      statusSummaryContext,
     });
   } catch (error) {
     logger.error(error);
@@ -336,6 +339,7 @@ async function handleStatusCommand({
   logger,
   store,
   args,
+  statusSummaryContext,
 }: MentionCommandContext): Promise<void> {
   if (args.length > 0) return;
 
@@ -361,8 +365,8 @@ async function handleStatusCommand({
 
   await client.chat.postMessage({
     channel: event.channel,
-    text: buildStatusSummary(tasks, slackLinks),
-    blocks: buildStatusSummaryBlocks(tasks, slackLinks),
+    text: buildStatusSummary(tasks, slackLinks, statusSummaryContext),
+    blocks: buildStatusSummaryBlocks(tasks, slackLinks, statusSummaryContext),
     unfurl_links: false,
     unfurl_media: false,
   });
@@ -411,4 +415,5 @@ interface MentionCommandContext {
   store: WatcherStore;
   args: string[];
   takePrOptions?: TakePrOptions;
+  statusSummaryContext?: StatusSummaryContext;
 }

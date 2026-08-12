@@ -5,9 +5,12 @@ import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
+  buildStatusSummary,
+  buildStatusSummaryBlocks,
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  STATUS_SUMMARY_STATUSES,
 } from "./views.ts";
 
 describe("Slack rendering", () => {
@@ -381,5 +384,97 @@ describe("Slack rendering", () => {
     assert.ok(cardAssigneesField);
     assert.ok(cardAssigneesField.text.length <= 2_000);
     assert.doesNotMatch(JSON.stringify(card), /<@U/);
+  });
+
+  it("shows an empty running service list with the watcher start time", () => {
+    const summary = buildStatusSummary([], new Map(), {
+      serviceNames: [],
+      startedAt: new Date(2026, 7, 12, 11, 0),
+    });
+
+    assert.match(summary, /^\*Running services \(Started at 08\/12 11:00\)\*\n• None/);
+    assert.match(summary, /\*Todo \(0\)\*\n• None/);
+  });
+
+  it("keeps large service lists and names within Slack's section limit", () => {
+    const blocks = buildStatusSummaryBlocks([], new Map(), {
+      serviceNames: [
+        ...Array.from({ length: 100 }, (_, index) => `service-${index}-${"x".repeat(40)}`),
+        "<&>".repeat(2_000),
+      ],
+      startedAt: new Date(2026, 7, 12, 11, 0),
+    });
+    const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
+    const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
+
+    assert.ok(serviceBlocks.length > 1);
+    assert.equal(
+      serviceBlocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    assert.match(serviceText, /^\*Running services \(Started at 08\/12 11:00\)\*/);
+    assert.match(serviceText, /…/);
+  });
+
+  it("keeps the status summary within Slack's message block limit", () => {
+    const blocks = buildStatusSummaryBlocks([], new Map(), {
+      serviceNames: Array.from(
+        { length: 100 },
+        (_, index) => `service-${index}-${"x".repeat(3_000)}`,
+      ),
+      startedAt: new Date(2026, 7, 12, 11, 0),
+    });
+    const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
+    const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
+
+    assert.equal(blocks.length, 50);
+    assert.equal(
+      serviceBlocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    assert.match(serviceText, /• … \d+ more/);
+    assert.match(serviceText, /^\*Running services \(Started at 08\/12 11:00\)/);
+  });
+
+  it("keeps fallback text within Slack's message text limit", () => {
+    const summary = buildStatusSummary([], new Map(), {
+      serviceNames: Array.from(
+        { length: 100 },
+        (_, index) => `service-${index}-${"x".repeat(3_000)}`,
+      ),
+      startedAt: new Date(2026, 7, 12, 11, 0),
+    });
+
+    assert.ok(summary.length <= 40_000);
+    assert.match(summary, /• … \d+ more/);
+    assert.match(summary, /^\*Running services \(Started at 08\/12 11:00\)/);
+    assert.match(summary, /\*Todo \(0\)\*\n• None/);
+    assert.match(summary, /\*In Review \(0\)\*\n• None$/);
+  });
+
+  it("bounds long task lists in fallback text and section blocks", () => {
+    const tasks = Array.from({ length: 90 }, (_, index) => ({
+      ...task,
+      id: `service-a:ENG-${index}`,
+      issueIdentifier: `ENG-${index}`,
+      title: `Task ${index} ${"x".repeat(2_000)}`,
+      status: STATUS_SUMMARY_STATUSES[index % STATUS_SUMMARY_STATUSES.length],
+    }));
+    const context = {
+      serviceNames: ["service-a"],
+      startedAt: new Date(2026, 7, 12, 11, 0),
+    };
+    const summary = buildStatusSummary(tasks, new Map(), context);
+    const blocks = buildStatusSummaryBlocks(tasks, new Map(), context);
+
+    assert.ok(summary.length <= 40_000);
+    assert.equal(
+      blocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    for (const status of STATUS_SUMMARY_STATUSES) {
+      assert.match(summary, new RegExp(`\\*${status} \\(30\\)\\*`));
+    }
+    assert.equal(summary.match(/• … \d+ more/g)?.length, STATUS_SUMMARY_STATUSES.length);
   });
 });

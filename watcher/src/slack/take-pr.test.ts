@@ -151,7 +151,7 @@ describe("take-pr Slack flow", () => {
       assert.equal(request?.id, "request123");
       assert.equal(store.takePendingTakePrRequest("request123"), undefined);
       store.restorePendingTakePrRequest(request!);
-      assert.equal(store.getPendingTakePrRequest("request123")?.id, "request123");
+      assert.equal(store.getPendingTakePrRequest("request123", startedAt)?.id, "request123");
     });
   });
 
