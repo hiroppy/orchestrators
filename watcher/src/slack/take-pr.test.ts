@@ -567,11 +567,11 @@ describe("take-pr Slack flow", () => {
           );
           assert.match(
             input.description,
-            /## Initial PR linkage action\n\nAdd a Markdown link to this Linear issue in the appropriate place in the existing pull request description so Linear recognizes the PR and exposes its diff on this issue\./,
+            /## Initial PR linkage action\n\nAdd `Fixes <Linear issue ID>` to the existing pull request description\./,
           );
           assert.match(
             input.description,
-            /Follow the repository's pull request template and conventions, preserve existing content, avoid duplicate links, and verify that the PR appears in this issue's Diffs after updating the description\./,
+            /Follow the repository's pull request template and conventions when choosing where to add it, preserve existing content, and avoid duplicate issue references\./,
           );
           assert.equal(input.pullRequestTitle, "Fix the widget");
           assert.equal(input.pullRequestUrl, canonicalPullRequestUrl);
