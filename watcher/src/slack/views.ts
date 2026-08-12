@@ -14,6 +14,7 @@ import {
 const MAX_THREAD_BODY_LENGTH = 2_500;
 const MAX_ERROR_LENGTH = 180;
 const MAX_FIELD_LENGTH = 2_000;
+const MAX_SECTION_TEXT_LENGTH = 3_000;
 const MAX_RELATED_ISSUE_BLOCKS = 48;
 export const STATUS_SUMMARY_STATUSES = ["Todo", "In Progress", "In Review"] as const;
 type MrkdwnText = { type: "mrkdwn"; text: string };
@@ -372,19 +373,41 @@ export function buildStatusSummaryBlocks(
   const statusBlocks = STATUS_SUMMARY_STATUSES.map((status) =>
     buildTextSection(statusSectionText(tasks, status, slackLinks)),
   );
-  return context ? [buildTextSection(serviceStatusText(context)), ...statusBlocks] : statusBlocks;
+  const serviceBlocks = context
+    ? serviceStatusSections(context).map((text) => buildTextSection(text))
+    : [];
+  return [...serviceBlocks, ...statusBlocks];
 }
 
-function serviceStatusText({ serviceNames, startedAt }: StatusSummaryContext): string {
-  const services = serviceNames.map((name) => `• ${escapeSlack(name)}`);
+function serviceStatusText(context: StatusSummaryContext): string {
+  return serviceStatusSections(context).join("\n");
+}
+
+function serviceStatusSections({ serviceNames, startedAt }: StatusSummaryContext): string[] {
+  const services = serviceNames.map(
+    (name) => `• ${truncate(escapeSlack(name), MAX_SECTION_TEXT_LENGTH - 2)}`,
+  );
   const startedAtSeconds = Math.floor(startedAt.getTime() / 1_000);
   const localizedStartedAt = `<!date^${startedAtSeconds}^{date_short_pretty} {time}|${startedAt.toISOString()}>`;
-  return [
-    `*Running services (${serviceNames.length})*`,
+  const lines = [
     ...(services.length > 0 ? services : ["• None"]),
     "",
     `*Started at*\n${localizedStartedAt}`,
-  ].join("\n");
+  ];
+  const sections: string[] = [];
+  let section = `*Running services (${serviceNames.length})*`;
+
+  for (const line of lines) {
+    const next = `${section}\n${line}`;
+    if (next.length <= MAX_SECTION_TEXT_LENGTH) {
+      section = next;
+      continue;
+    }
+    sections.push(section);
+    section = line;
+  }
+  sections.push(section);
+  return sections;
 }
 
 function statusSectionText(

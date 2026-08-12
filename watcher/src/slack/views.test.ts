@@ -6,9 +6,11 @@ import {
   buildStatusChangedMessage,
   buildStatusChangedMessageBlocks,
   buildStatusSummary,
+  buildStatusSummaryBlocks,
   buildTaskCard,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  STATUS_SUMMARY_STATUSES,
 } from "./views.ts";
 
 describe("Slack rendering", () => {
@@ -393,5 +395,26 @@ describe("Slack rendering", () => {
     assert.match(summary, /^\*Running services \(0\)\*\n• None/);
     assert.match(summary, /\*Started at\*\n<!date\^1786500000\^/);
     assert.match(summary, /\*Todo \(0\)\*\n• None/);
+  });
+
+  it("keeps large service lists and names within Slack's section limit", () => {
+    const blocks = buildStatusSummaryBlocks([], new Map(), {
+      serviceNames: [
+        ...Array.from({ length: 100 }, (_, index) => `service-${index}-${"x".repeat(40)}`),
+        "<&>".repeat(2_000),
+      ],
+      startedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const serviceBlocks = blocks.slice(0, -STATUS_SUMMARY_STATUSES.length);
+    const serviceText = serviceBlocks.map((block) => block.text?.text ?? "").join("\n");
+
+    assert.ok(serviceBlocks.length > 1);
+    assert.equal(
+      serviceBlocks.every((block) => (block.text?.text.length ?? 0) <= 3_000),
+      true,
+    );
+    assert.match(serviceText, /^\*Running services \(101\)\*/);
+    assert.match(serviceText, /…/);
+    assert.match(serviceText, /\*Started at\*\n<!date\^1786500000\^/);
   });
 });

@@ -212,10 +212,9 @@ destination channel. It does not require the root `config.ts` or
 
 ## Message behavior
 
-- After the continuous watcher connects to Slack, it attempts to post one
-  top-level startup notification listing the enabled services. A notification
-  failure is logged without stopping the polling loop. Dry runs do not connect
-  to Slack or post this notification.
+- After the continuous watcher connects to Slack, it does not post a startup
+  notification. The `status` command shows the enabled services and watcher
+  start time above the tracked task groups.
 - A task's first emitted event creates its database record and posts one
   top-level card with `chat.postMessage`. The returned channel and timestamp
   are stored after a successful post. Once those identifiers are stored, later
