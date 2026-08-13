@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
+import { requeueReviewTask } from "./review-requeue.ts";
 import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
 import {
   dataUrl,
@@ -12,6 +13,107 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher review reactions", () => {
+  it("does not announce a review requeue before Linear accepts it", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        statusHooks: [],
+        defaultAssignees: [],
+        reviewReaction: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+          reaction: "👀",
+          maxRequeues: 3,
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await assert.rejects(
+        requeueReviewTask({
+          config,
+          store,
+          slackClient: fakeSlackClient(calls),
+          watcherChannelId: "C123",
+          event: {
+            type: "updated",
+            service: "service-a",
+            issueIdentifier: "ENG-62",
+            resolvedState: "In Review",
+          },
+          decision: { shouldRequeue: true, reachesLimit: false },
+          updateLinearStatus: async () => {
+            throw new Error("temporary Linear failure");
+          },
+        }),
+        /temporary Linear failure/,
+      );
+
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("review reaction detected")).length,
+        0,
+      );
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.getLatestEvent(task.id, REVIEW_REQUEUE_ATTEMPT_EVENT), undefined);
+    });
+  });
+
+  it("keeps a completed review requeue when its Slack notification fails", async (context) => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        statusHooks: [],
+        defaultAssignees: [],
+        reviewReaction: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+          reaction: "👀",
+          maxRequeues: 3,
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const errors: string[] = [];
+      context.mock.method(console, "error", (...args) => errors.push(args.join(" ")));
+
+      await requeueReviewTask({
+        config,
+        store,
+        slackClient: fakeSlackClient([], {
+          rejectPostMessage: ({ text }) => String(text).includes("review reaction detected"),
+        }),
+        watcherChannelId: "C123",
+        event: {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+        },
+        decision: { shouldRequeue: true, reachesLimit: false },
+        updateLinearStatus: async () => {},
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "In Progress");
+      assert.ok(store.getLatestEvent(task.id, REVIEW_REQUEUE_ATTEMPT_EVENT));
+      assert.match(errors.join("\n"), /Failed to announce review requeue/);
+    });
+  });
+
   it("limits requeues for the same pull request head", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";

@@ -46,19 +46,6 @@ export async function requeueReviewTask({
 
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const task = store.getTask(taskId)!;
-  if (!decision.reachesLimit) {
-    await slackClient.chat.postMessage({
-      channel: task.parentChannelId!,
-      thread_ts: task.parentMessageTs!,
-      text: buildReviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
-      blocks: buildReviewRequeueMessageBlocks(
-        review.reaction,
-        task.status,
-        review.inProgressStatus,
-      ),
-    });
-  }
-
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
   });
@@ -126,7 +113,21 @@ export async function requeueReviewTask({
   }
 
   store.addEvents([attemptEvent, requeueEvent]);
-  await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
+  try {
+    await slackClient.chat.postMessage({
+      channel: task.parentChannelId!,
+      thread_ts: task.parentMessageTs!,
+      text: buildReviewRequeueMessage(review.reaction, fromStatus, review.inProgressStatus),
+      blocks: buildReviewRequeueMessageBlocks(review.reaction, fromStatus, review.inProgressStatus),
+    });
+  } catch (error) {
+    console.error(`Failed to announce review requeue for ${task.issueIdentifier}:`, error);
+  }
+  try {
+    await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
+  } catch (error) {
+    console.error(`Failed to refresh requeued task card for ${task.issueIdentifier}:`, error);
+  }
 }
 
 async function refreshRequeuedTaskCard(

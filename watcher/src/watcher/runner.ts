@@ -125,18 +125,43 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
 
   try {
     await app.start();
-    while (true) {
-      await runOnce({
-        config: runtimeConfig,
-        store,
-        slackClient: client,
-        slackChannelId: slackConfig.channelId,
-      });
-      await sleep(runtimeConfig.pollIntervalMs);
-    }
+    await runWatcherPollingLoop(
+      () =>
+        runOnce({
+          config: runtimeConfig,
+          store,
+          slackClient: client,
+          slackChannelId: slackConfig.channelId,
+        }),
+      runtimeConfig.pollIntervalMs,
+    );
   } finally {
     await app.stop();
     database.close();
+  }
+}
+
+export async function runWatcherPollingLoop(
+  poll: () => Promise<unknown>,
+  pollIntervalMs: number,
+  options: {
+    shouldContinue?: () => boolean;
+    sleep?: (ms: number) => Promise<void>;
+    reportError?: (error: unknown) => void;
+  } = {},
+): Promise<void> {
+  const shouldContinue = options.shouldContinue ?? (() => true);
+  const sleepBetweenPolls = options.sleep ?? sleep;
+  const reportError =
+    options.reportError ?? ((error) => console.error("Watcher poll failed; retrying:", error));
+
+  while (shouldContinue()) {
+    try {
+      await poll();
+    } catch (error) {
+      reportError(error);
+    }
+    if (shouldContinue()) await sleepBetweenPolls(pollIntervalMs);
   }
 }
 
