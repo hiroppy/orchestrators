@@ -26,7 +26,6 @@ import {
   countTaskEventsAfterLatest,
   countTaskEventsWithBody,
   getLatestTaskEvent,
-  getTaskEvents,
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
   hasRecordedPullRequest,
@@ -517,10 +516,6 @@ export class WatcherStore {
 
   getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
     return getLatestTaskEvent(this.db, taskId, type);
-  }
-
-  getEvents(taskId: string, type: string): TaskEvent[] {
-    return getTaskEvents(this.db, taskId, type);
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
