@@ -598,8 +598,19 @@ describe("watcher review reactions", () => {
       });
       store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
       config.reviewReaction.maxRequeues = 5;
+      store.addEvent({
+        taskId: "service-a:ENG-64",
+        type: "review_requeue_limit_pending",
+        body: JSON.stringify({
+          message: "higher limit reached",
+          event: exhaustedLegacyHead,
+          reaction: "👀",
+          maxRequeues: 5,
+        }),
+      });
+      store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
       assert.deepEqual(decideReviewReaction(config, store, exhaustedLegacyHead), {
-        shouldRequeue: true,
+        shouldRequeue: false,
         reachesLimit: false,
       });
       assert.equal(
@@ -608,7 +619,7 @@ describe("watcher review reactions", () => {
           REVIEW_REQUEUE_ATTEMPT_EVENT,
           reviewRequeueAttemptKey(exhaustedLegacyHead, "👀"),
         ),
-        3,
+        5,
       );
 
       const earlierExhaustedHead = {

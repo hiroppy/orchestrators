@@ -85,7 +85,7 @@ export function decideReviewReaction(
     const legacyLimit = store
       .getEvents(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)
       .map(({ body }) => (body ? parseLegacyReviewLimit(body) : undefined))
-      .find((limit) => limit?.attemptKey === attemptKey);
+      .findLast((limit) => limit?.attemptKey === attemptKey);
     const legacyRequeueCount = Math.min(legacyLimit?.maxRequeues ?? 0, review.maxRequeues);
     if (legacyRequeueCount > 0) {
       store.addEvents(
