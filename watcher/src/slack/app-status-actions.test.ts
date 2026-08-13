@@ -180,9 +180,44 @@ describe("Slack status actions", () => {
       assert.equal(failure?.args.thread_ts, "1.000");
       assert.equal(
         failure?.args.text,
-        "[error] Failed to update the Linear status to Rework. The status remains In Review. Reason: Linear returned HTTP 400. Please try again later.",
+        "[error] Failed to confirm the Linear status update to Rework. The watcher still shows In Review; the Linear status may have changed. Error: Linear returned HTTP 400. Please check Linear before trying again.",
       );
       assert.equal(errors.length, 1);
+    });
+  });
+
+  it("keeps unsafe Linear error details out of the task thread", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: { metadata: { event_payload: { task_id: "service-a:ENG-62" } } },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {
+          throw new Error("Linear unavailable: <!channel> secret-token");
+        },
+      );
+
+      const text = String(calls.find(({ method }) => method === "postMessage")?.args.text);
+      assert.doesNotMatch(text, /<!channel>|secret-token/);
+      assert.match(text, /See the watcher logs for error details\./);
     });
   });
 
