@@ -14,8 +14,10 @@ import {
 import { deliverPendingReviewLimitNotifications } from "./review-limit-delivery.ts";
 import {
   REVIEW_REQUEUE_EVENT,
+  REVIEW_REQUEUE_ATTEMPT_EVENT,
   REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
   type ReviewReactionDecision,
+  reviewRequeueAttemptKey,
 } from "./review-reactions.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
@@ -88,6 +90,12 @@ export async function requeueReviewTask({
     toStatus: requeuedTask.status,
     body: buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status),
   };
+  const attemptEvent = {
+    taskId: task.id,
+    type: REVIEW_REQUEUE_ATTEMPT_EVENT,
+    actor: "watcher",
+    body: reviewRequeueAttemptKey(event, review.reaction),
+  };
 
   if (decision.reachesLimit) {
     const limitMessage = buildReviewRequeueLimitMessage(
@@ -97,6 +105,7 @@ export async function requeueReviewTask({
       requeuedTask.status,
     );
     store.addEvents([
+      attemptEvent,
       requeueEvent,
       {
         taskId: task.id,
@@ -116,7 +125,7 @@ export async function requeueReviewTask({
     return;
   }
 
-  store.addEvent(requeueEvent);
+  store.addEvents([attemptEvent, requeueEvent]);
   await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
 }
 

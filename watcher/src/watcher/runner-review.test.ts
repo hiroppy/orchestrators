@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
+import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -11,7 +12,7 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher review reactions", () => {
-  it("resets the requeue count after reaching the limit", async (context) => {
+  it("limits requeues for the same pull request head", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
       let linearFetchFailuresRemaining = 0;
@@ -19,6 +20,7 @@ describe("watcher review reactions", () => {
       let failWorkspacePullRequestLookupOnce = false;
       let failReactionLookupOnce = false;
       let omitLinearPullRequestOnce = false;
+      let headRefOid = "abc123";
       const nativeFetch = globalThis.fetch;
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
@@ -70,9 +72,6 @@ describe("watcher review reactions", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      for (let count = 0; count < 3; count += 1) {
-        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
-      }
       const calls: Array<Record<string, unknown>> = [];
       const deliveryErrors: string[] = [];
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
@@ -126,6 +125,7 @@ describe("watcher review reactions", () => {
             return {
               url: "https://github.com/acme/example/pull/42",
               number: 42,
+              headRefOid,
               hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
             };
           },
@@ -137,6 +137,7 @@ describe("watcher review reactions", () => {
             return {
               url,
               number: 42,
+              headRefOid,
               hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
             };
           },
@@ -315,18 +316,67 @@ describe("watcher review reactions", () => {
         0,
       );
       assert.equal(statusUpdates.length, 3);
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-62",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(
+            {
+              type: "updated",
+              service: "service-a",
+              issueIdentifier: "ENG-62",
+              pullRequest: {
+                url: "https://github.com/acme/example/pull/42",
+                headRefOid,
+              },
+            },
+            "👀",
+          ),
+        ),
+        3,
+      );
       assert.ok(assigneeNotificationCount() > blockedMentionCallCount);
       const mentionCallCount = assigneeNotificationCount();
 
       hasReviewReaction = true;
+      config.reviewReaction.maxRequeues = 3;
       linearState = "In Progress";
       await run("In Progress");
       linearState = "In Review";
-      // Phase 7: the next reacted In Review cycle starts from zero and requeues.
+      // Phase 7: returning to In Review with the same reacted head stays capped.
       await run("In Review");
-      assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
-      assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
-      assert.equal(assigneeNotificationCount(), mentionCallCount);
+      assert.equal(statusUpdates.length, 3);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.ok(assigneeNotificationCount() > mentionCallCount);
+      const cappedMentionCount = assigneeNotificationCount();
+
+      // A new pull request head starts a separate retry budget.
+      headRefOid = "def456";
+      linearState = "In Progress";
+      await run("In Progress");
+      linearState = "In Review";
+      await run("In Review");
+      assert.equal(statusUpdates.length, 4);
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-62",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(
+            {
+              type: "updated",
+              service: "service-a",
+              issueIdentifier: "ENG-62",
+              pullRequest: {
+                url: "https://github.com/acme/example/pull/42",
+                headRefOid,
+              },
+            },
+            "👀",
+          ),
+        ),
+        1,
+      );
+      assert.equal(assigneeNotificationCount(), cappedMentionCount);
       assert.match(
         JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
         /PR#42/,
