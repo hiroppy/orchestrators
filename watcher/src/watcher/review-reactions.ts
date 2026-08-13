@@ -82,20 +82,11 @@ export function decideReviewReaction(
   const attemptKey = reviewRequeueAttemptKey(event, review.reaction);
   let requeueCount = store.countEventsWithBody(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT, attemptKey);
   if (requeueCount === 0) {
-    // Attribute pre-upgrade requeues to the currently observed head once. Future
-    // heads then have their own keyed budget, while an upgrade cannot reset a
-    // head that had already exhausted the legacy budget.
-    const legacyLimitMatchesHead = store
+    const legacyLimit = store
       .getEvents(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)
-      .some(({ body }) => body && reviewRequeueAttemptKeyFromPayload(body) === attemptKey);
-    const legacyRequeueCount = legacyLimitMatchesHead
-      ? review.maxRequeues
-      : store.countEvents(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT) === 0
-        ? Math.min(
-            store.countEventsAfterLatest(taskId, REVIEW_REQUEUE_EVENT, REVIEW_REQUEUE_LIMIT_EVENT),
-            review.maxRequeues,
-          )
-        : 0;
+      .map(({ body }) => (body ? parseLegacyReviewLimit(body) : undefined))
+      .find((limit) => limit?.attemptKey === attemptKey);
+    const legacyRequeueCount = Math.min(legacyLimit?.maxRequeues ?? 0, review.maxRequeues);
     if (legacyRequeueCount > 0) {
       store.addEvents(
         Array.from({ length: legacyRequeueCount }, () => ({
@@ -118,10 +109,16 @@ export function decideReviewReaction(
   };
 }
 
-function reviewRequeueAttemptKeyFromPayload(body: string): string | undefined {
+function parseLegacyReviewLimit(
+  body: string,
+): { attemptKey: string; maxRequeues: number } | undefined {
   try {
     const payload = parseReviewRequeuePendingPayload(body);
-    return reviewRequeueAttemptKey(payload.event, payload.reaction ?? "");
+    if (payload.reaction === undefined || payload.maxRequeues === undefined) return undefined;
+    return {
+      attemptKey: reviewRequeueAttemptKey(payload.event, payload.reaction),
+      maxRequeues: payload.maxRequeues,
+    };
   } catch {
     return undefined;
   }

@@ -482,7 +482,7 @@ describe("watcher review reactions", () => {
     });
   });
 
-  it("preserves the retry budget from legacy requeue events", async () => {
+  it("migrates only identifiable legacy review limits", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -517,7 +517,7 @@ describe("watcher review reactions", () => {
         },
       };
       assert.deepEqual(decideReviewReaction(config, store, legacyHead), {
-        shouldRequeue: false,
+        shouldRequeue: true,
         reachesLimit: false,
       });
       assert.equal(
@@ -526,7 +526,7 @@ describe("watcher review reactions", () => {
           REVIEW_REQUEUE_ATTEMPT_EVENT,
           reviewRequeueAttemptKey(legacyHead, "👀"),
         ),
-        3,
+        0,
       );
 
       assert.deepEqual(
@@ -553,11 +553,15 @@ describe("watcher review reactions", () => {
       const partialLegacyCycle = {
         ...legacyHead,
         issueIdentifier: "ENG-63",
-        pullRequest: { ...legacyHead.pullRequest, url: "https://github.com/acme/example/pull/43" },
+        pullRequest: {
+          ...legacyHead.pullRequest,
+          url: "https://github.com/acme/example/pull/43",
+          headRefOid: "new-head",
+        },
       };
       assert.deepEqual(decideReviewReaction(config, store, partialLegacyCycle), {
         shouldRequeue: true,
-        reachesLimit: true,
+        reachesLimit: false,
       });
       assert.equal(
         store.countEventsWithBody(
@@ -565,7 +569,7 @@ describe("watcher review reactions", () => {
           REVIEW_REQUEUE_ATTEMPT_EVENT,
           reviewRequeueAttemptKey(partialLegacyCycle, "👀"),
         ),
-        2,
+        0,
       );
 
       store.upsertTaskFromEvent({
@@ -593,8 +597,9 @@ describe("watcher review reactions", () => {
         }),
       });
       store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
+      config.reviewReaction.maxRequeues = 5;
       assert.deepEqual(decideReviewReaction(config, store, exhaustedLegacyHead), {
-        shouldRequeue: false,
+        shouldRequeue: true,
         reachesLimit: false,
       });
       assert.equal(
@@ -622,7 +627,7 @@ describe("watcher review reactions", () => {
       });
       store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
       assert.deepEqual(decideReviewReaction(config, store, earlierExhaustedHead), {
-        shouldRequeue: false,
+        shouldRequeue: true,
         reachesLimit: false,
       });
       assert.equal(
