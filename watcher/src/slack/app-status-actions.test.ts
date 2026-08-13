@@ -221,6 +221,41 @@ describe("Slack status actions", () => {
     });
   });
 
+  it("escapes unsafe status markup in the failure notice", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "<!channel> In Review",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: { metadata: { event_payload: { task_id: "service-a:ENG-62" } } },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {
+          throw new Error("Linear returned HTTP 400.");
+        },
+      );
+
+      const text = String(calls.find(({ method }) => method === "postMessage")?.args.text);
+      assert.doesNotMatch(text, /<!channel>/);
+      assert.match(text, /&lt;!channel&gt; In Review/);
+    });
+  });
+
   it("allows status transition handling to publish the same task without deadlocking", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

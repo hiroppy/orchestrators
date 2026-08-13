@@ -26,6 +26,7 @@ import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
 import { postSlackOperationError } from "./errors.ts";
+import { escapeSlack } from "./view-formatting.ts";
 import type { SlackClient } from "./client-types.ts";
 import {
   handleTakePrAction,
@@ -185,7 +186,7 @@ export async function handleStatusAction(
             channel: existingTask.parentChannelId,
             threadTs: existingTask.parentMessageTs,
           },
-          `Failed to confirm the Linear status update to ${selectedStatus}. The watcher still shows ${existingTask.status}; the Linear status may have changed. ${linearStatusErrorDetails(error)} Please check Linear before trying again.`,
+          `Failed to confirm the Linear status update to ${escapeSlack(selectedStatus)}. The watcher still shows ${escapeSlack(existingTask.status)}; the Linear status may have changed. ${linearStatusErrorDetails(error)} Please check Linear before trying again.`,
           logger,
         );
         throw error;
