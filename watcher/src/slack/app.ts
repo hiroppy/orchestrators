@@ -182,7 +182,7 @@ export async function handleStatusAction(
         await client.chat.postMessage({
           channel: existingTask.parentChannelId,
           thread_ts: existingTask.parentMessageTs,
-          text: `[error] Linear のステータスを ${selectedStatus} に変更できませんでした。現在のステータスは ${existingTask.status} のままです。理由: ${reason} 時間をおいて再度お試しください。`,
+          text: `[error] Failed to update the Linear status to ${selectedStatus}. The status remains ${existingTask.status}. Reason: ${reason} Please try again later.`,
         });
         throw error;
       }
