@@ -99,16 +99,20 @@ sequenceDiagram
   Note over S: Issue leaves Symphony's active work set
   W->>L: Periodically read stored nonterminal issue
   L-->>W: In Review and linked PR URL
-  W->>G: gh pr view --json reactionGroups,...
+  W->>G: gh pr view --json headRefOid,reactionGroups
   G-->>W: Current PR reaction counts
-  alt Configured reaction is present and limit is not reached
+  alt Configured reaction is present below the final allowed requeue
     W->>L: Move issue to In Progress
     W->>DB: Store status and requeue attempt
     Note over S,L: Issue becomes eligible for Symphony again
+  else Configured reaction uses the final allowed requeue
+    W->>L: Move issue to In Progress
+    W->>DB: Store status, final attempt, and limit notification state
+    Note over S,L: Issue becomes eligible for Symphony again, but this PR head is now capped
   else Reaction is absent
     W->>DB: Keep task in In Review
-  else Requeue limit is reached
-    W->>DB: Keep task capped and record notification state
+  else Same reacted PR head is already capped
+    W->>DB: Keep task in In Review
   end
 ```
 
