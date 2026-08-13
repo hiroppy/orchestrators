@@ -79,11 +79,28 @@ export function decideReviewReaction(
     };
   }
 
-  const requeueCount = store.countEventsWithBody(
-    taskId,
-    REVIEW_REQUEUE_ATTEMPT_EVENT,
-    reviewRequeueAttemptKey(event, review.reaction),
-  );
+  const attemptKey = reviewRequeueAttemptKey(event, review.reaction);
+  let requeueCount = store.countEventsWithBody(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT, attemptKey);
+  if (store.countEvents(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT) === 0) {
+    // Attribute pre-upgrade requeues to the currently observed head once. Future
+    // heads then have their own keyed budget, while an upgrade cannot reset a
+    // head that had already exhausted the legacy budget.
+    const legacyRequeueCount = Math.min(
+      store.countEvents(taskId, REVIEW_REQUEUE_EVENT),
+      review.maxRequeues,
+    );
+    if (legacyRequeueCount > 0) {
+      store.addEvents(
+        Array.from({ length: legacyRequeueCount }, () => ({
+          taskId,
+          type: REVIEW_REQUEUE_ATTEMPT_EVENT,
+          actor: "watcher",
+          body: attemptKey,
+        })),
+      );
+      requeueCount = legacyRequeueCount;
+    }
+  }
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
   }

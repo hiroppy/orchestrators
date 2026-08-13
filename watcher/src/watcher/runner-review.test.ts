@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
-import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
+import {
+  REVIEW_REQUEUE_ATTEMPT_EVENT,
+  decideReviewReaction,
+  reviewRequeueAttemptKey,
+} from "./review-reactions.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -72,9 +76,6 @@ describe("watcher review reactions", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      for (let count = 0; count < 3; count += 1) {
-        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
-      }
       const calls: Array<Record<string, unknown>> = [];
       const deliveryErrors: string[] = [];
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
@@ -359,8 +360,26 @@ describe("watcher review reactions", () => {
       await run("In Progress");
       linearState = "In Review";
       await run("In Review");
-      assert.match(JSON.stringify(calls), /review requeue limit reached \(3\/3\)/);
-      assert.doesNotMatch(JSON.stringify(calls), /review requeue limit reached \(5\/5\)/);
+      assert.equal(statusUpdates.length, 4);
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-62",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(
+            {
+              type: "updated",
+              service: "service-a",
+              issueIdentifier: "ENG-62",
+              pullRequest: {
+                url: "https://github.com/acme/example/pull/42",
+                headRefOid,
+              },
+            },
+            "👀",
+          ),
+        ),
+        1,
+      );
       assert.equal(assigneeNotificationCount(), cappedMentionCount);
       assert.match(
         JSON.stringify([...calls].reverse().find(({ method }) => method === "update")),
@@ -460,6 +479,63 @@ describe("watcher review reactions", () => {
       assert.equal(updated, false);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.match(JSON.stringify(calls), /<@U123>/);
+    });
+  });
+
+  it("preserves the retry budget from legacy requeue events", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewReaction: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+          reaction: "👀",
+          maxRequeues: 3,
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-62", type: "review_requeued" });
+      }
+
+      const legacyHead = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          headRefOid: "abc123",
+          hasConfiguredReaction: true,
+        },
+      };
+      assert.deepEqual(decideReviewReaction(config, store, legacyHead), {
+        shouldRequeue: false,
+        reachesLimit: false,
+      });
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-62",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(legacyHead, "👀"),
+        ),
+        3,
+      );
+
+      assert.deepEqual(
+        decideReviewReaction(config, store, {
+          ...legacyHead,
+          pullRequest: { ...legacyHead.pullRequest, headRefOid: "def456" },
+        }),
+        { shouldRequeue: true, reachesLimit: false },
+      );
     });
   });
 });
