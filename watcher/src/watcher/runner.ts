@@ -47,6 +47,8 @@ import {
 import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
+const POLL_FAILURE_RETRY_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
@@ -124,17 +126,25 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     },
   });
 
+  let nextPeriodicMaintenanceAt = 0;
   try {
     await app.start();
     await runWatcherPollingLoop(
-      () =>
-        runOnce({
+      async () => {
+        const runPeriodicMaintenance = performance.now() >= nextPeriodicMaintenanceAt;
+        await runOnce({
           config: runtimeConfig,
           store,
           slackClient: client,
           slackChannelId: slackConfig.channelId,
-        }),
+          runPeriodicMaintenance,
+        });
+        if (runPeriodicMaintenance) {
+          nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;
+        }
+      },
       runtimeConfig.pollIntervalMs,
+      { failureRetryIntervalMs: POLL_FAILURE_RETRY_INTERVAL_MS },
     );
   } finally {
     await app.stop();
@@ -147,6 +157,7 @@ export async function runWatcherPollingLoop(
   pollIntervalMs: number,
   options: {
     maxConsecutiveFailures?: number;
+    failureRetryIntervalMs?: number;
     shouldContinue?: () => boolean;
     sleep?: (ms: number) => Promise<void>;
     reportError?: (error: unknown) => void;
@@ -154,6 +165,7 @@ export async function runWatcherPollingLoop(
 ): Promise<void> {
   const maxConsecutiveFailures =
     options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_POLL_FAILURES;
+  const failureRetryIntervalMs = options.failureRetryIntervalMs ?? pollIntervalMs;
   const shouldContinue = options.shouldContinue ?? (() => true);
   const sleepBetweenPolls = options.sleep ?? sleep;
   const reportError =
@@ -161,6 +173,7 @@ export async function runWatcherPollingLoop(
   let consecutiveFailures = 0;
 
   while (shouldContinue()) {
+    let nextPollDelayMs = pollIntervalMs;
     try {
       await poll();
       consecutiveFailures = 0;
@@ -168,8 +181,9 @@ export async function runWatcherPollingLoop(
       consecutiveFailures += 1;
       reportError(error);
       if (consecutiveFailures >= maxConsecutiveFailures) throw error;
+      nextPollDelayMs = failureRetryIntervalMs;
     }
-    if (shouldContinue()) await sleepBetweenPolls(pollIntervalMs);
+    if (shouldContinue()) await sleepBetweenPolls(nextPollDelayMs);
   }
 }
 
@@ -214,6 +228,7 @@ interface RunOnceOptions {
   findPullRequest?: typeof findPullRequestDefault;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
+  runPeriodicMaintenance?: boolean;
 }
 
 export async function runOnce({
@@ -224,14 +239,17 @@ export async function runOnce({
   findPullRequest = findPullRequestDefault,
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
+  runPeriodicMaintenance = true,
 }: RunOnceOptions) {
-  await deliverPendingStatusHooksSafely({
-    hooks: config.statusHooks ?? [],
-    store,
-    slackClient,
-    watcherChannelId: slackChannelId,
-  });
-  await deliverPendingReviewLimitNotifications(store, slackClient);
+  if (runPeriodicMaintenance) {
+    await deliverPendingStatusHooksSafely({
+      hooks: config.statusHooks ?? [],
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+    });
+    await deliverPendingReviewLimitNotifications(store, slackClient);
+  }
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(
       REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
@@ -278,19 +296,21 @@ export async function runOnce({
   }
 
   store.replaceSnapshots(current);
-  await reconcileLinearStatuses({
-    config,
-    store,
-    slackClient,
-    slackChannelId,
-    skipTaskIds: new Set([
-      ...processedTaskIds,
-      ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
-    ]),
-    findPullRequestByUrl,
-    updateLinearStatus,
-    reviewReconciliationTaskIds,
-  });
+  if (runPeriodicMaintenance) {
+    await reconcileLinearStatuses({
+      config,
+      store,
+      slackClient,
+      slackChannelId,
+      skipTaskIds: new Set([
+        ...processedTaskIds,
+        ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
+      ]),
+      findPullRequestByUrl,
+      updateLinearStatus,
+      reviewReconciliationTaskIds,
+    });
+  }
   return { events, current };
 }
 

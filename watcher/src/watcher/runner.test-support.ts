@@ -33,7 +33,7 @@ export function baseConfig() {
 
 export function runtimeConfig<T extends object>(config: T) {
   return {
-    pollIntervalMs: 30_000,
+    pollIntervalMs: 3_000,
     endedTaskRetry: {
       maxAttempts: 2,
       delayMs: 5_000,

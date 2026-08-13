@@ -89,7 +89,6 @@ export interface StatusHookConfig {
 }
 
 export interface WatcherSettings {
-  pollIntervalMs?: number;
   endedTaskRetry?: {
     maxAttempts?: number;
     delayMs?: number;

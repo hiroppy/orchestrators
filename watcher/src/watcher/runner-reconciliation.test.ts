@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { reconcileSlackStatusTransition, runOnce } from "./runner.ts";
 import { collectSnapshots } from "./snapshots.ts";
+import { createPendingStatusHookEvent } from "./status-hooks.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -93,6 +94,7 @@ describe("watcher reconciliation and snapshots", () => {
           },
         });
       });
+      let hookAttempts = 0;
       const config = runtimeConfig({
         services: [
           {
@@ -106,6 +108,15 @@ describe("watcher reconciliation and snapshots", () => {
           statuses: ["In Review"],
           events: [],
         },
+        statusHooks: [
+          {
+            id: "capture-attempt",
+            status: "In Review",
+            run: () => {
+              hookAttempts += 1;
+            },
+          },
+        ],
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const task = store.upsertTaskFromEvent({
@@ -116,9 +127,29 @@ describe("watcher reconciliation and snapshots", () => {
         state: "In Review",
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const pendingHook = createPendingStatusHookEvent(
+        config.statusHooks,
+        task,
+        "In Progress",
+        "In Review",
+      );
+      assert.ok(pendingHook);
+      store.addEvent(pendingHook);
 
       const calls: Array<Record<string, unknown>> = [];
       let pullRequestLookups = 0;
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        runPeriodicMaintenance: false,
+      });
+
+      assert.equal(linearFetches, 0);
+      assert.equal(hookAttempts, 0);
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+
       await runOnce({
         config,
         store,
@@ -134,6 +165,7 @@ describe("watcher reconciliation and snapshots", () => {
         },
       });
 
+      assert.equal(hookAttempts, 1);
       assert.equal(store.getTask(task.id)?.status, "Done");
       assert.equal(calls.filter(({ method }) => method === "update").length, 1);
       assert.equal(

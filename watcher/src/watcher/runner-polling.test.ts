@@ -14,6 +14,7 @@ describe("watcher polling", () => {
   it("continues polling after a transient poll failure", async () => {
     const attempts: number[] = [];
     const errors: unknown[] = [];
+    const delays: number[] = [];
 
     await runWatcherPollingLoop(
       async () => {
@@ -22,13 +23,17 @@ describe("watcher polling", () => {
       },
       1_000,
       {
+        failureRetryIntervalMs: 30_000,
         shouldContinue: () => attempts.length < 2,
-        sleep: async () => {},
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
         reportError: (error) => errors.push(error),
       },
     );
 
     assert.deepEqual(attempts, [1, 2]);
+    assert.deepEqual(delays, [30_000]);
     assert.match(String(errors[0]), /temporary Slack failure/);
   });
 

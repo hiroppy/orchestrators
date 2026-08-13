@@ -12,7 +12,7 @@ import type {
 } from "../domain/types.ts";
 import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
 
-const DEFAULT_POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
@@ -89,7 +89,6 @@ export function resolveWatcherConfig(
     url: observabilityUrl(instance.port),
     linearTeam: instance.linearTeam,
   }));
-  const pollIntervalMs = Number(config.watcher?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   const endedTaskRetry = {
     maxAttempts: Number(
       config.watcher?.endedTaskRetry?.maxAttempts ?? DEFAULT_ENDED_TASK_MAX_ATTEMPTS,
@@ -97,7 +96,6 @@ export function resolveWatcherConfig(
     delayMs: Number(config.watcher?.endedTaskRetry?.delayMs ?? DEFAULT_ENDED_TASK_RETRY_DELAY_MS),
   };
 
-  validatePollInterval(pollIntervalMs);
   validateEndedTaskRetry(endedTaskRetry);
   const reviewReaction = resolveReviewReactionConfig(config.watcher?.reviewReaction);
   const statusHooks = resolveStatusHooks(config.watcher?.statusHooks);
@@ -105,7 +103,7 @@ export function resolveWatcherConfig(
   return {
     services,
     linearTeams: referencedLinearTeams(config.linearTeams, instances),
-    pollIntervalMs,
+    pollIntervalMs: POLL_INTERVAL_MS,
     endedTaskRetry,
     reviewReaction,
     statusHooks,
@@ -315,12 +313,6 @@ function validateLinearTeam(teamId: string, team: LinearTeamConfig): void {
   }
   if (!team.teamId?.trim()) {
     throw new Error(`config.linearTeams.${teamId}.teamId must be a non-empty string.`);
-  }
-}
-
-function validatePollInterval(pollIntervalMs: number): void {
-  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 5_000) {
-    throw new Error("watcher.pollIntervalMs must be at least 5000.");
   }
 }
 
