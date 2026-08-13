@@ -140,6 +140,122 @@ describe("Slack status actions", () => {
     });
   });
 
+  it("reports a Linear status update failure in the task thread", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      calls.length = 0;
+      const errors: unknown[] = [];
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: {
+                event_payload: { task_id: "service-a:ENG-62" },
+              },
+            },
+          },
+          client,
+          logger: { error: (error) => errors.push(error) },
+        },
+        store,
+        async () => {
+          throw new Error("Linear returned HTTP 400.");
+        },
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(calls.filter(({ method }) => method === "update").length, 0);
+      const failure = calls.find(({ method }) => method === "postMessage");
+      assert.equal(failure?.args.thread_ts, "1.000");
+      assert.equal(
+        failure?.args.text,
+        "[error] Failed to confirm the Linear status update to Rework. The watcher still shows In Review; the Linear status may have changed. Error: Linear returned HTTP 400. Please check Linear before trying again.",
+      );
+      assert.equal(errors.length, 1);
+    });
+  });
+
+  it("keeps unsafe Linear error details out of the task thread", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: { metadata: { event_payload: { task_id: "service-a:ENG-62" } } },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {
+          throw new Error("Linear unavailable: <!channel> secret-token");
+        },
+      );
+
+      const text = String(calls.find(({ method }) => method === "postMessage")?.args.text);
+      assert.doesNotMatch(text, /<!channel>|secret-token/);
+      assert.match(text, /See the watcher logs for error details\./);
+    });
+  });
+
+  it("escapes unsafe status markup in the failure notice", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "<!channel> In Review",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: { metadata: { event_payload: { task_id: "service-a:ENG-62" } } },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {
+          throw new Error("Linear returned HTTP 400.");
+        },
+      );
+
+      const text = String(calls.find(({ method }) => method === "postMessage")?.args.text);
+      assert.doesNotMatch(text, /<!channel>/);
+      assert.match(text, /&lt;!channel&gt; In Review/);
+    });
+  });
+
   it("allows status transition handling to publish the same task without deadlocking", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

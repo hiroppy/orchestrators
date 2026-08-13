@@ -25,6 +25,8 @@ import { withTaskCardQueue } from "./task-card-queue.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
+import { postSlackOperationError } from "./errors.ts";
+import { escapeSlack } from "./view-formatting.ts";
 import type { SlackClient } from "./client-types.ts";
 import {
   handleTakePrAction,
@@ -175,7 +177,20 @@ export async function handleStatusAction(
         },
         assigneeLabels,
       );
-      await updateLinearStatus(existingTask, selectedStatus);
+      try {
+        await updateLinearStatus(existingTask, selectedStatus);
+      } catch (error) {
+        await postSlackOperationError(
+          client,
+          {
+            channel: existingTask.parentChannelId,
+            threadTs: existingTask.parentMessageTs,
+          },
+          `Failed to confirm the Linear status update to ${escapeSlack(selectedStatus)}. The watcher still shows ${escapeSlack(existingTask.status)}; the Linear status may have changed. ${linearStatusErrorDetails(error)} Please check Linear before trying again.`,
+          logger,
+        );
+        throw error;
+      }
       await client.chat.update({
         channel: existingTask.parentChannelId,
         ts: existingTask.parentMessageTs,
@@ -222,6 +237,13 @@ export async function handleStatusAction(
   } catch (error) {
     logger.error(error);
   }
+}
+
+function linearStatusErrorDetails(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Linear returned HTTP \d{3}\.$/.test(message)
+    ? `Error: ${message}`
+    : "See the watcher logs for error details.";
 }
 
 export async function publishWatcherEvent(
