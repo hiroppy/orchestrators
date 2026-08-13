@@ -82,22 +82,7 @@ export function decideReviewReaction(
   const attemptKey = reviewRequeueAttemptKey(event, review.reaction);
   let requeueCount = store.countEventsWithBody(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT, attemptKey);
   if (requeueCount === 0) {
-    const legacyLimit = store
-      .getEvents(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)
-      .map(({ body }) => (body ? parseLegacyReviewLimit(body) : undefined))
-      .findLast((limit) => limit?.attemptKey === attemptKey);
-    const legacyRequeueCount = legacyLimit?.maxRequeues ?? 0;
-    if (legacyRequeueCount > 0) {
-      store.addEvents(
-        Array.from({ length: legacyRequeueCount }, () => ({
-          taskId,
-          type: REVIEW_REQUEUE_ATTEMPT_EVENT,
-          actor: "watcher",
-          body: attemptKey,
-        })),
-      );
-      requeueCount = legacyRequeueCount;
-    }
+    requeueCount = migrateLegacyReviewAttempts(store, taskId, attemptKey);
   }
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
@@ -107,6 +92,29 @@ export function decideReviewReaction(
     shouldRequeue: true,
     reachesLimit: requeueCount + 1 === review.maxRequeues,
   };
+}
+
+function migrateLegacyReviewAttempts(
+  store: WatcherStore,
+  taskId: string,
+  attemptKey: string,
+): number {
+  const legacyLimit = store
+    .getEvents(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)
+    .map(({ body }) => (body ? parseLegacyReviewLimit(body) : undefined))
+    .findLast((limit) => limit?.attemptKey === attemptKey);
+  const requeueCount = legacyLimit?.maxRequeues ?? 0;
+  if (requeueCount === 0) return 0;
+
+  store.addEvents(
+    Array.from({ length: requeueCount }, () => ({
+      taskId,
+      type: REVIEW_REQUEUE_ATTEMPT_EVENT,
+      actor: "watcher",
+      body: attemptKey,
+    })),
+  );
+  return requeueCount;
 }
 
 function parseLegacyReviewLimit(
