@@ -39,7 +39,10 @@ For sections that do not apply, write "N/A — <reason>" instead of leaving them
 
 ### Out-of-Scope Risks
 
-<!-- Document significant risks that are intentionally not covered and explain why. -->
+<!--
+List behavior intentionally not changed by this PR, especially adjacent concerns
+that may appear during review. Explain why each item belongs in a separate PR.
+-->
 
 -
 

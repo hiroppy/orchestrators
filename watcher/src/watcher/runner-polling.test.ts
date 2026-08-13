@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { runOnce } from "./runner.ts";
+import { runOnce, runWatcherPollingLoop } from "./runner.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -11,6 +11,50 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher polling", () => {
+  it("continues polling after a transient poll failure", async () => {
+    const attempts: number[] = [];
+    const errors: unknown[] = [];
+
+    await runWatcherPollingLoop(
+      async () => {
+        attempts.push(attempts.length + 1);
+        if (attempts.length === 1) throw new Error("temporary Slack failure");
+      },
+      1_000,
+      {
+        shouldContinue: () => attempts.length < 2,
+        sleep: async () => {},
+        reportError: (error) => errors.push(error),
+      },
+    );
+
+    assert.deepEqual(attempts, [1, 2]);
+    assert.match(String(errors[0]), /temporary Slack failure/);
+  });
+
+  it("stops after repeated poll failures", async () => {
+    let attempts = 0;
+    const errors: unknown[] = [];
+
+    await assert.rejects(
+      runWatcherPollingLoop(
+        async () => {
+          attempts += 1;
+          throw new Error("persistent database failure");
+        },
+        1_000,
+        {
+          sleep: async () => {},
+          reportError: (error) => errors.push(error),
+        },
+      ),
+      /persistent database failure/,
+    );
+
+    assert.equal(attempts, 3);
+    assert.equal(errors.length, 3);
+  });
+
   it("uses the Linear team referenced by the service", async (context) => {
     await withStore(async (store) => {
       const current = {

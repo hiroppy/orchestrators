@@ -47,6 +47,7 @@ import {
 import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const DEFAULT_MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -125,18 +126,50 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
 
   try {
     await app.start();
-    while (true) {
-      await runOnce({
-        config: runtimeConfig,
-        store,
-        slackClient: client,
-        slackChannelId: slackConfig.channelId,
-      });
-      await sleep(runtimeConfig.pollIntervalMs);
-    }
+    await runWatcherPollingLoop(
+      () =>
+        runOnce({
+          config: runtimeConfig,
+          store,
+          slackClient: client,
+          slackChannelId: slackConfig.channelId,
+        }),
+      runtimeConfig.pollIntervalMs,
+    );
   } finally {
     await app.stop();
     database.close();
+  }
+}
+
+export async function runWatcherPollingLoop(
+  poll: () => Promise<unknown>,
+  pollIntervalMs: number,
+  options: {
+    maxConsecutiveFailures?: number;
+    shouldContinue?: () => boolean;
+    sleep?: (ms: number) => Promise<void>;
+    reportError?: (error: unknown) => void;
+  } = {},
+): Promise<void> {
+  const maxConsecutiveFailures =
+    options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_POLL_FAILURES;
+  const shouldContinue = options.shouldContinue ?? (() => true);
+  const sleepBetweenPolls = options.sleep ?? sleep;
+  const reportError =
+    options.reportError ?? ((error) => console.error("Watcher poll failed; retrying:", error));
+  let consecutiveFailures = 0;
+
+  while (shouldContinue()) {
+    try {
+      await poll();
+      consecutiveFailures = 0;
+    } catch (error) {
+      consecutiveFailures += 1;
+      reportError(error);
+      if (consecutiveFailures >= maxConsecutiveFailures) throw error;
+    }
+    if (shouldContinue()) await sleepBetweenPolls(pollIntervalMs);
   }
 }
 
