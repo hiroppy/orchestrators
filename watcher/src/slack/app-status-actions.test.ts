@@ -170,7 +170,7 @@ describe("Slack status actions", () => {
         },
         store,
         async () => {
-          throw new Error("Linear update failed");
+          throw new Error("Linear returned HTTP 400.");
         },
       );
 
@@ -180,7 +180,7 @@ describe("Slack status actions", () => {
       assert.equal(failure?.args.thread_ts, "1.000");
       assert.equal(
         failure?.args.text,
-        "[error] Linear のステータスを Rework に変更できませんでした。現在のステータスは In Review のままです。時間をおいて再度お試しください。",
+        "[error] Linear のステータスを Rework に変更できませんでした。現在のステータスは In Review のままです。理由: Linear returned HTTP 400. 時間をおいて再度お試しください。",
       );
       assert.equal(errors.length, 1);
     });

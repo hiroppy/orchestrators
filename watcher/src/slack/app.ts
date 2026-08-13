@@ -178,10 +178,11 @@ export async function handleStatusAction(
       try {
         await updateLinearStatus(existingTask, selectedStatus);
       } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
         await client.chat.postMessage({
           channel: existingTask.parentChannelId,
           thread_ts: existingTask.parentMessageTs,
-          text: `[error] Linear のステータスを ${selectedStatus} に変更できませんでした。現在のステータスは ${existingTask.status} のままです。時間をおいて再度お試しください。`,
+          text: `[error] Linear のステータスを ${selectedStatus} に変更できませんでした。現在のステータスは ${existingTask.status} のままです。理由: ${reason} 時間をおいて再度お試しください。`,
         });
         throw error;
       }
