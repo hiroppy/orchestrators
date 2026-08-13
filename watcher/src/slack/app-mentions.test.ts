@@ -33,10 +33,10 @@ describe("Slack mention commands", () => {
           "*Available commands*",
           "• `@Project Bot status`",
           "  Show tracked Todo, In Progress, and In Review tasks.",
-          "• `@Project Bot assign @user`",
-          "  Add a user to notifications for a tracked task. Run this in the task thread.",
-          "• `@Project Bot unassign @user`",
-          "  Remove a user from notifications for a tracked task. Run this in the task thread.",
+          "• `@Project Bot assign @user-or-group`",
+          "  Add a user or user group to notifications for a tracked task. Run this in the task thread.",
+          "• `@Project Bot unassign @user-or-group`",
+          "  Remove a user or user group from notifications for a tracked task. Run this in the task thread.",
           "• `@Project Bot take-pr <GitHub PR URL>`",
           "  Create a Linear issue for an existing open pull request.",
           "• `@Project Bot help`",
@@ -458,7 +458,7 @@ describe("Slack mention commands", () => {
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       for (const call of calls.slice(1)) {
-        assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user`");
+        assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user-or-group`");
         assert.equal(call.args.thread_ts, "10.000");
       }
     });
@@ -601,6 +601,47 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("assigns and unassigns a user group", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+
+      for (const [ts, command] of [
+        ["20.000", "assign"],
+        ["21.000", "unassign"],
+      ] as const) {
+        await handleAppMention(
+          {
+            event: {
+              channel: "C123",
+              thread_ts: "10.000",
+              ts,
+              user: "UREQUESTER",
+              text: `<@UBOT> ${command} <!subteam^SREVIEWERS|dev-team>`,
+            },
+            client,
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
+          },
+          store,
+        );
+
+        assert.deepEqual(
+          store.getTaskAssignees(task.id),
+          command === "assign" ? ["<!subteam^SREVIEWERS>"] : [],
+        );
+      }
+
+      assert.equal(calls.filter(({ method }) => method === "addReaction").length, 2);
+    });
+  });
+
   it("rejects unassign outside tracked threads and with invalid users", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
@@ -652,7 +693,7 @@ describe("Slack mention commands", () => {
       assert.equal(calls[0].args.thread_ts, undefined);
       assert.match(String(calls[1].args.text), /tracked task thread/);
       assert.equal(calls[1].args.thread_ts, "99.000");
-      assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user`");
+      assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user-or-group`");
     });
   });
 
