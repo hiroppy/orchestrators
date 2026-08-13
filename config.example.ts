@@ -2,7 +2,6 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
-    pollIntervalMs: 30_000,
     // Requeues a Linear issue from review when a linked GitHub PR has this reaction.
     // Remove this block to disable reaction-based requeueing.
     reviewReaction: {

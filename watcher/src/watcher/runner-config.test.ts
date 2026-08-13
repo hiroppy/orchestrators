@@ -360,7 +360,7 @@ describe("watcher configuration", () => {
     );
   });
 
-  it("validates port, polling, and retry boundaries", () => {
+  it("validates port and retry boundaries", () => {
     assert.throws(
       () =>
         resolveWatcherConfig(
@@ -373,18 +373,6 @@ describe("watcher configuration", () => {
           { requireSlack: false },
         ),
       /port must be an integer from 1 to 65535/,
-    );
-
-    assert.throws(
-      () =>
-        resolveWatcherConfig(
-          {
-            ...baseConfig(),
-            watcher: { pollIntervalMs: 4_999 },
-          },
-          { requireSlack: false },
-        ),
-      /pollIntervalMs must be at least 5000/,
     );
 
     assert.throws(
@@ -419,7 +407,6 @@ describe("watcher configuration", () => {
       {
         ...baseConfig(),
         watcher: {
-          pollIntervalMs: 5_000,
           endedTaskRetry: { maxAttempts: 1, delayMs: 0 },
         },
         instances: {
@@ -429,6 +416,7 @@ describe("watcher configuration", () => {
       { requireSlack: false },
     );
     assert.equal(config.services[0].url, "http://127.0.0.1:65535/api/v1/state");
+    assert.equal(config.pollIntervalMs, 3_000);
   });
 
   it("rejects instances that reference an unknown Linear team", () => {

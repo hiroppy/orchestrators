@@ -17,9 +17,6 @@ instance:
 
 ```ts
 export default defineConfig({
-  watcher: {
-    pollIntervalMs: 30_000,
-  },
   linearTeams: {
     "workspace-a-eng": {
       apiKey: process.env.LINEAR_API_KEY_WORKSPACE_A_ENG ?? "",
@@ -41,7 +38,7 @@ The instance key is its Symphony directory and service name. Its observability
 URL is `http://127.0.0.1:<port>/api/v1/state`. `enabled` defaults to `true`;
 only set it to `false` when the instance should not be started or watched.
 
-`watcher.pollIntervalMs` defaults to `30_000` and must be at least `5_000`.
+The watcher polls each instance's internal observability API every three seconds.
 Terminal task observations are retried twice with a five-second delay by
 default. Override those checks only when needed:
 
