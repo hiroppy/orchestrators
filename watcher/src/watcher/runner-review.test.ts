@@ -605,6 +605,34 @@ describe("watcher review reactions", () => {
         ),
         3,
       );
+
+      const earlierExhaustedHead = {
+        ...exhaustedLegacyHead,
+        pullRequest: { ...exhaustedLegacyHead.pullRequest, headRefOid: "earlier-head" },
+      };
+      store.addEvent({
+        taskId: "service-a:ENG-64",
+        type: "review_requeue_limit_pending",
+        body: JSON.stringify({
+          message: "earlier limit reached",
+          event: earlierExhaustedHead,
+          reaction: "👀",
+          maxRequeues: 3,
+        }),
+      });
+      store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
+      assert.deepEqual(decideReviewReaction(config, store, earlierExhaustedHead), {
+        shouldRequeue: false,
+        reachesLimit: false,
+      });
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-64",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(earlierExhaustedHead, "👀"),
+        ),
+        3,
+      );
     });
   });
 });

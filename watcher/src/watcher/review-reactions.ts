@@ -81,23 +81,21 @@ export function decideReviewReaction(
 
   const attemptKey = reviewRequeueAttemptKey(event, review.reaction);
   let requeueCount = store.countEventsWithBody(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT, attemptKey);
-  if (store.countEvents(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT) === 0) {
+  if (requeueCount === 0) {
     // Attribute pre-upgrade requeues to the currently observed head once. Future
     // heads then have their own keyed budget, while an upgrade cannot reset a
     // head that had already exhausted the legacy budget.
-    const latestLimitPayload = store.getLatestEvent(
-      taskId,
-      REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
-    )?.body;
-    const latestLimitMatchesHead = latestLimitPayload
-      ? reviewRequeueAttemptKeyFromPayload(latestLimitPayload) === attemptKey
-      : false;
-    const legacyRequeueCount = latestLimitMatchesHead
+    const legacyLimitMatchesHead = store
+      .getEvents(taskId, REVIEW_REQUEUE_LIMIT_PENDING_EVENT)
+      .some(({ body }) => body && reviewRequeueAttemptKeyFromPayload(body) === attemptKey);
+    const legacyRequeueCount = legacyLimitMatchesHead
       ? review.maxRequeues
-      : Math.min(
-          store.countEventsAfterLatest(taskId, REVIEW_REQUEUE_EVENT, REVIEW_REQUEUE_LIMIT_EVENT),
-          review.maxRequeues,
-        );
+      : store.countEvents(taskId, REVIEW_REQUEUE_ATTEMPT_EVENT) === 0
+        ? Math.min(
+            store.countEventsAfterLatest(taskId, REVIEW_REQUEUE_EVENT, REVIEW_REQUEUE_LIMIT_EVENT),
+            review.maxRequeues,
+          )
+        : 0;
     if (legacyRequeueCount > 0) {
       store.addEvents(
         Array.from({ length: legacyRequeueCount }, () => ({

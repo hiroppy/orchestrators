@@ -106,6 +106,20 @@ export function getLatestTaskEvent(
   return row ? eventFromRow(row) : undefined;
 }
 
+export function getTaskEvents(db: WatcherDatabase, taskId: string, type: string): TaskEvent[] {
+  const fromStatuses = alias(statuses, "event_from_status");
+  const toStatuses = alias(statuses, "event_to_status");
+  return db
+    .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+    .from(taskEvents)
+    .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+    .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+    .orderBy(asc(taskEvents.id))
+    .all()
+    .map(eventFromRow);
+}
+
 export function getTaskIdsWithIncompleteEvent(
   db: WatcherDatabase,
   pendingType: string,
