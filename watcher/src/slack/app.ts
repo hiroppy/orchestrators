@@ -25,6 +25,7 @@ import { withTaskCardQueue } from "./task-card-queue.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
 import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
+import { postSlackOperationError } from "./errors.ts";
 import type { SlackClient } from "./client-types.ts";
 import {
   handleTakePrAction,
@@ -179,11 +180,15 @@ export async function handleStatusAction(
         await updateLinearStatus(existingTask, selectedStatus);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        await client.chat.postMessage({
-          channel: existingTask.parentChannelId,
-          thread_ts: existingTask.parentMessageTs,
-          text: `[error] Failed to update the Linear status to ${selectedStatus}. The status remains ${existingTask.status}. Reason: ${reason} Please try again later.`,
-        });
+        await postSlackOperationError(
+          client,
+          {
+            channel: existingTask.parentChannelId,
+            threadTs: existingTask.parentMessageTs,
+          },
+          `Failed to update the Linear status to ${selectedStatus}. The status remains ${existingTask.status}. Reason: ${reason} Please try again later.`,
+          logger,
+        );
         throw error;
       }
       await client.chat.update({
