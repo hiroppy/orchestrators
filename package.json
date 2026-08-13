@@ -19,12 +19,12 @@
     "orchestrator-config": "workspace:*"
   },
   "devDependencies": {
-    "knip": "^6.29.0",
-    "oxfmt": "^0.61.0",
-    "oxlint": "^1.76.0"
+    "knip": "6.29.0",
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": "v26.7.0"
   },
   "packageManager": "pnpm@11.17.0"
 }
