@@ -609,6 +609,7 @@ describe("watcher review reactions", () => {
         }),
       });
       store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
+      config.reviewReaction.maxRequeues = 3;
       assert.deepEqual(decideReviewReaction(config, store, exhaustedLegacyHead), {
         shouldRequeue: false,
         reachesLimit: false,
@@ -621,6 +622,11 @@ describe("watcher review reactions", () => {
         ),
         5,
       );
+      config.reviewReaction.maxRequeues = 5;
+      assert.deepEqual(decideReviewReaction(config, store, exhaustedLegacyHead), {
+        shouldRequeue: false,
+        reachesLimit: false,
+      });
 
       const earlierExhaustedHead = {
         ...exhaustedLegacyHead,
