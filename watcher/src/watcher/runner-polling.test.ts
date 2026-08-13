@@ -32,6 +32,29 @@ describe("watcher polling", () => {
     assert.match(String(errors[0]), /temporary Slack failure/);
   });
 
+  it("stops after repeated poll failures", async () => {
+    let attempts = 0;
+    const errors: unknown[] = [];
+
+    await assert.rejects(
+      runWatcherPollingLoop(
+        async () => {
+          attempts += 1;
+          throw new Error("persistent database failure");
+        },
+        1_000,
+        {
+          sleep: async () => {},
+          reportError: (error) => errors.push(error),
+        },
+      ),
+      /persistent database failure/,
+    );
+
+    assert.equal(attempts, 3);
+    assert.equal(errors.length, 3);
+  });
+
   it("uses the Linear team referenced by the service", async (context) => {
     await withStore(async (store) => {
       const current = {
