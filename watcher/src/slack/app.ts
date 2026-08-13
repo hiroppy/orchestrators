@@ -175,7 +175,16 @@ export async function handleStatusAction(
         },
         assigneeLabels,
       );
-      await updateLinearStatus(existingTask, selectedStatus);
+      try {
+        await updateLinearStatus(existingTask, selectedStatus);
+      } catch (error) {
+        await client.chat.postMessage({
+          channel: existingTask.parentChannelId,
+          thread_ts: existingTask.parentMessageTs,
+          text: `[error] Linear のステータスを ${selectedStatus} に変更できませんでした。現在のステータスは ${existingTask.status} のままです。時間をおいて再度お試しください。`,
+        });
+        throw error;
+      }
       await client.chat.update({
         channel: existingTask.parentChannelId,
         ts: existingTask.parentMessageTs,
