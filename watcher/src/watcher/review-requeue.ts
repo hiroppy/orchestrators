@@ -34,6 +34,8 @@ interface RequeueReviewTaskOptions {
 
 const REVIEW_REQUEUE_CARD_PENDING_EVENT = "review_requeue_card_pending";
 const REVIEW_REQUEUE_CARD_COMPLETED_EVENT = "review_requeue_card_completed";
+const REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT = "review_requeue_announcement_pending";
+const REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT = "review_requeue_announcement_completed";
 
 export async function requeueReviewTask({
   config,
@@ -126,18 +128,60 @@ export async function requeueReviewTask({
       toStatus: requeuedTask.status,
       body: JSON.stringify(withoutCreatorDetails(event)),
     },
+    {
+      taskId: task.id,
+      type: REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT,
+      actor: "watcher",
+      fromStatus,
+      toStatus: requeuedTask.status,
+    },
   ]);
-  try {
-    await slackClient.chat.postMessage({
-      channel: task.parentChannelId!,
-      thread_ts: task.parentMessageTs!,
-      text: buildReviewRequeueMessage(review.reaction, fromStatus, review.inProgressStatus),
-      blocks: buildReviewRequeueMessageBlocks(review.reaction, fromStatus, review.inProgressStatus),
-    });
-  } catch (error) {
-    console.error(`Failed to announce review requeue for ${task.issueIdentifier}:`, error);
-  }
+  await deliverPendingReviewRequeueAnnouncements(store, slackClient, review.reaction, task.id);
   await deliverPendingReviewCardRefreshes(store, slackClient, requeuedTask.id);
+}
+
+export async function deliverPendingReviewRequeueAnnouncements(
+  store: WatcherStore,
+  slackClient: WebClient,
+  reaction: string,
+  onlyTaskId?: string,
+): Promise<void> {
+  const taskIds = onlyTaskId
+    ? [onlyTaskId]
+    : store.getTaskIdsWithIncompleteEvent(
+        REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT,
+        REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT,
+      );
+  for (const taskId of taskIds) {
+    try {
+      const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT);
+      const task = store.getTask(taskId);
+      if (
+        !pending?.fromStatus ||
+        !pending.toStatus ||
+        !task?.parentChannelId ||
+        !task.parentMessageTs
+      )
+        continue;
+      const message = buildReviewRequeueMessage(reaction, pending.fromStatus, pending.toStatus);
+      await slackClient.chat.postMessage({
+        channel: task.parentChannelId,
+        thread_ts: task.parentMessageTs,
+        text: message,
+        blocks: buildReviewRequeueMessageBlocks(reaction, pending.fromStatus, pending.toStatus),
+      });
+      store.addEvent({
+        taskId,
+        type: REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT,
+        actor: "watcher",
+        fromStatus: pending.fromStatus,
+        toStatus: pending.toStatus,
+        body: String(pending.id),
+      });
+    } catch (error) {
+      console.error(`Failed to announce review requeue for ${taskId}:`, error);
+    }
+  }
 }
 
 export async function deliverPendingReviewCardRefreshes(

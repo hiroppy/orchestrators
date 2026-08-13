@@ -45,7 +45,11 @@ import {
   deliverPendingReviewLimitNotifications,
   markReviewRequeueReconciled,
 } from "./review-limit-delivery.ts";
-import { deliverPendingReviewCardRefreshes, requeueReviewTask } from "./review-requeue.ts";
+import {
+  deliverPendingReviewCardRefreshes,
+  deliverPendingReviewRequeueAnnouncements,
+  requeueReviewTask,
+} from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -225,6 +229,13 @@ export async function runOnce({
     watcherChannelId: slackChannelId,
   });
   await deliverPendingReviewLimitNotifications(store, slackClient);
+  if (config.reviewReaction) {
+    await deliverPendingReviewRequeueAnnouncements(
+      store,
+      slackClient,
+      config.reviewReaction.reaction,
+    );
+  }
   await deliverPendingReviewCardRefreshes(store, slackClient);
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(

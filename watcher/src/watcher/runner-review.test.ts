@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
-import { deliverPendingReviewCardRefreshes, requeueReviewTask } from "./review-requeue.ts";
+import {
+  deliverPendingReviewCardRefreshes,
+  deliverPendingReviewRequeueAnnouncements,
+  requeueReviewTask,
+} from "./review-requeue.ts";
 import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
 import {
   dataUrl,
@@ -113,6 +117,60 @@ describe("watcher review reactions", () => {
       const recoveryCalls: Array<Record<string, unknown>> = [];
       await deliverPendingReviewCardRefreshes(store, fakeSlackClient(recoveryCalls));
       assert.equal(recoveryCalls.filter(({ method }) => method === "update").length, 1);
+    });
+  });
+
+  it("retries a failed review requeue announcement exactly once", async (context) => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        statusHooks: [],
+        defaultAssignees: [],
+        reviewReaction: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+          reaction: "👀",
+          maxRequeues: 3,
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const errors: string[] = [];
+      context.mock.method(console, "error", (...args) => errors.push(args.join(" ")));
+
+      await requeueReviewTask({
+        config,
+        store,
+        slackClient: fakeSlackClient([], { rejectPostMessage: () => true }),
+        watcherChannelId: "C123",
+        event: {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+        },
+        decision: { shouldRequeue: true, reachesLimit: false },
+        updateLinearStatus: async () => {},
+      });
+
+      const recoveryCalls: Array<Record<string, unknown>> = [];
+      const recoveryClient = fakeSlackClient(recoveryCalls);
+      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient, "👀");
+      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient, "👀");
+
+      assert.equal(
+        recoveryCalls.filter(({ text }) => String(text).includes("review reaction detected"))
+          .length,
+        1,
+      );
+      assert.match(errors.join("\n"), /Failed to announce review requeue/);
     });
   });
 
