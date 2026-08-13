@@ -360,17 +360,18 @@ export async function publishWatcherEvent(
     const notificationContext = { ...threadContext, assignees: notificationAssignees };
     const threadBody = buildThreadMessage(threadEvent, notificationContext);
     const threadBlocks = buildThreadMessageBlocks(threadEvent, notificationContext);
-    if (shouldPostThreadMessage(statusChanged, isNewPullRequest, Boolean(notificationAssignees))) {
-      store.addEvent({
-        taskId: task.id,
-        type: WATCHER_THREAD_MESSAGE_PENDING_EVENT,
-        actor: "watcher",
-        fromStatus: previousTask?.status,
-        toStatus: task.status,
-        body: JSON.stringify({ text: threadBody, blocks: threadBlocks }),
-      });
-      await deliverPendingWatcherThreadMessages(client, store, task.id);
-    }
+    const reply = shouldPostThreadMessage(
+      statusChanged,
+      isNewPullRequest,
+      Boolean(notificationAssignees),
+    )
+      ? await client.chat.postMessage({
+          channel: task.parentChannelId!,
+          thread_ts: task.parentMessageTs!,
+          text: threadBody,
+          ...(threadBlocks ? { blocks: threadBlocks } : {}),
+        })
+      : undefined;
     await options.afterPublish?.(task);
     store.addEvent({
       taskId: task.id,
@@ -379,56 +380,9 @@ export async function publishWatcherEvent(
       fromStatus: previousTask?.status,
       toStatus: task.status,
       body: threadBody,
+      slackThreadTs: reply?.ts,
     });
   });
-}
-
-const WATCHER_THREAD_MESSAGE_PENDING_EVENT = "watcher_thread_message_pending";
-const WATCHER_THREAD_MESSAGE_COMPLETED_EVENT = "watcher_thread_message_completed";
-
-export async function deliverPendingWatcherThreadMessages(
-  client: SlackClient,
-  store: WatcherStore,
-  onlyTaskId?: string,
-): Promise<void> {
-  const taskIds = onlyTaskId
-    ? [onlyTaskId]
-    : store.getTaskIdsWithIncompleteEvent(
-        WATCHER_THREAD_MESSAGE_PENDING_EVENT,
-        WATCHER_THREAD_MESSAGE_COMPLETED_EVENT,
-      );
-  for (const taskId of taskIds) {
-    try {
-      const pending = store.getLatestEvent(taskId, WATCHER_THREAD_MESSAGE_PENDING_EVENT);
-      const task = store.getTask(taskId);
-      if (!pending?.body || !task?.parentChannelId || !task.parentMessageTs) continue;
-      const payload = JSON.parse(pending.body) as { text?: unknown; blocks?: unknown };
-      if (typeof payload.text !== "string") continue;
-      const reply = await client.chat.postMessage({
-        channel: task.parentChannelId,
-        thread_ts: task.parentMessageTs,
-        text: payload.text,
-        ...(Array.isArray(payload.blocks) ? { blocks: payload.blocks } : {}),
-        client_msg_id: watcherThreadClientMessageId(pending.id),
-      });
-      store.addEvent({
-        taskId,
-        type: WATCHER_THREAD_MESSAGE_COMPLETED_EVENT,
-        actor: "watcher",
-        fromStatus: pending.fromStatus,
-        toStatus: pending.toStatus,
-        body: String(pending.id),
-        slackThreadTs: reply.ts,
-      });
-    } catch (error) {
-      console.error(`Failed to deliver watcher thread message for ${taskId}:`, error);
-    }
-  }
-}
-
-function watcherThreadClientMessageId(eventId: number): string {
-  const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
-  return `00000000-0000-4000-8002-${suffix}`;
 }
 
 async function postTaskClosedMessage(

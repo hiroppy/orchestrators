@@ -1,4 +1,4 @@
-import type { ChatPostMessageArguments, WebClient } from "@slack/web-api";
+import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
@@ -32,11 +32,6 @@ interface RequeueReviewTaskOptions {
   updateLinearStatus: typeof updateLinearIssueStatus;
 }
 
-const REVIEW_REQUEUE_CARD_PENDING_EVENT = "review_requeue_card_pending";
-const REVIEW_REQUEUE_CARD_COMPLETED_EVENT = "review_requeue_card_completed";
-const REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT = "review_requeue_announcement_pending";
-const REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT = "review_requeue_announcement_completed";
-
 export async function requeueReviewTask({
   config,
   store,
@@ -51,6 +46,19 @@ export async function requeueReviewTask({
 
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const task = store.getTask(taskId)!;
+  if (!decision.reachesLimit) {
+    await slackClient.chat.postMessage({
+      channel: task.parentChannelId!,
+      thread_ts: task.parentMessageTs!,
+      text: buildReviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
+      blocks: buildReviewRequeueMessageBlocks(
+        review.reaction,
+        task.status,
+        review.inProgressStatus,
+      ),
+    });
+  }
+
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
   });
@@ -117,118 +125,8 @@ export async function requeueReviewTask({
     return;
   }
 
-  store.addEvents([
-    attemptEvent,
-    requeueEvent,
-    {
-      taskId: task.id,
-      type: REVIEW_REQUEUE_CARD_PENDING_EVENT,
-      actor: "watcher",
-      fromStatus,
-      toStatus: requeuedTask.status,
-      body: JSON.stringify(withoutCreatorDetails(event)),
-    },
-    {
-      taskId: task.id,
-      type: REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT,
-      actor: "watcher",
-      fromStatus,
-      toStatus: requeuedTask.status,
-      body: JSON.stringify({ reaction: review.reaction }),
-    },
-  ]);
-  await deliverPendingReviewRequeueAnnouncements(store, slackClient, task.id);
-  await deliverPendingReviewCardRefreshes(store, slackClient, requeuedTask.id);
-}
-
-export async function deliverPendingReviewRequeueAnnouncements(
-  store: WatcherStore,
-  slackClient: WebClient,
-  onlyTaskId?: string,
-): Promise<void> {
-  const taskIds = onlyTaskId
-    ? [onlyTaskId]
-    : store.getTaskIdsWithIncompleteEvent(
-        REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT,
-        REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT,
-      );
-  for (const taskId of taskIds) {
-    try {
-      const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT);
-      const task = store.getTask(taskId);
-      if (
-        !pending?.body ||
-        !pending.fromStatus ||
-        !pending.toStatus ||
-        !task?.parentChannelId ||
-        !task.parentMessageTs
-      )
-        continue;
-      const { reaction } = JSON.parse(pending.body) as { reaction?: unknown };
-      if (typeof reaction !== "string") continue;
-      const message = buildReviewRequeueMessage(reaction, pending.fromStatus, pending.toStatus);
-      const announcement: ChatPostMessageArguments & { client_msg_id: string } = {
-        channel: task.parentChannelId,
-        thread_ts: task.parentMessageTs,
-        text: message,
-        blocks: buildReviewRequeueMessageBlocks(reaction, pending.fromStatus, pending.toStatus),
-        client_msg_id: slackClientMessageId(pending.id),
-      };
-      await slackClient.chat.postMessage(announcement);
-      store.addEvent({
-        taskId,
-        type: REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT,
-        actor: "watcher",
-        fromStatus: pending.fromStatus,
-        toStatus: pending.toStatus,
-        body: String(pending.id),
-      });
-    } catch (error) {
-      console.error(`Failed to announce review requeue for ${taskId}:`, error);
-    }
-  }
-}
-
-function slackClientMessageId(eventId: number): string {
-  const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
-  return `00000000-0000-4000-8001-${suffix}`;
-}
-
-export async function deliverPendingReviewCardRefreshes(
-  store: WatcherStore,
-  slackClient: WebClient,
-  onlyTaskId?: string,
-): Promise<void> {
-  const taskIds = onlyTaskId
-    ? [onlyTaskId]
-    : store.getTaskIdsWithIncompleteEvent(
-        REVIEW_REQUEUE_CARD_PENDING_EVENT,
-        REVIEW_REQUEUE_CARD_COMPLETED_EVENT,
-      );
-  for (const taskId of taskIds) {
-    try {
-      const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_CARD_PENDING_EVENT);
-      const task = store.getTask(taskId);
-      if (!pending?.body || !pending.fromStatus || !task) continue;
-      await refreshRequeuedTaskCard(
-        store,
-        slackClient,
-        JSON.parse(pending.body) as WatcherEvent,
-        taskId,
-        pending.fromStatus,
-      );
-      store.addEvent({
-        taskId,
-        type: REVIEW_REQUEUE_CARD_COMPLETED_EVENT,
-        actor: "watcher",
-        fromStatus: pending.fromStatus,
-        toStatus: task.status,
-        body: String(pending.id),
-      });
-    } catch (error) {
-      console.error(`Failed to refresh requeued task card for ${taskId}:`, error);
-    }
-  }
+  store.addEvents([attemptEvent, requeueEvent]);
+  await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
 }
 
 async function refreshRequeuedTaskCard(
