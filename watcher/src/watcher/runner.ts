@@ -47,6 +47,7 @@ import {
 import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const LINEAR_RECONCILIATION_INTERVAL_MS = 30_000;
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -123,15 +124,21 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     },
   });
 
+  let nextLinearReconciliationAt = 0;
   try {
     await app.start();
     while (true) {
+      const runLinearReconciliation = performance.now() >= nextLinearReconciliationAt;
       await runOnce({
         config: runtimeConfig,
         store,
         slackClient: client,
         slackChannelId: slackConfig.channelId,
+        runLinearReconciliation,
       });
+      if (runLinearReconciliation) {
+        nextLinearReconciliationAt = performance.now() + LINEAR_RECONCILIATION_INTERVAL_MS;
+      }
       await sleep(runtimeConfig.pollIntervalMs);
     }
   } finally {
@@ -181,6 +188,7 @@ interface RunOnceOptions {
   findPullRequest?: typeof findPullRequestDefault;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
+  runLinearReconciliation?: boolean;
 }
 
 export async function runOnce({
@@ -191,6 +199,7 @@ export async function runOnce({
   findPullRequest = findPullRequestDefault,
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
+  runLinearReconciliation = true,
 }: RunOnceOptions) {
   await deliverPendingStatusHooksSafely({
     hooks: config.statusHooks ?? [],
@@ -245,19 +254,21 @@ export async function runOnce({
   }
 
   store.replaceSnapshots(current);
-  await reconcileLinearStatuses({
-    config,
-    store,
-    slackClient,
-    slackChannelId,
-    skipTaskIds: new Set([
-      ...processedTaskIds,
-      ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
-    ]),
-    findPullRequestByUrl,
-    updateLinearStatus,
-    reviewReconciliationTaskIds,
-  });
+  if (runLinearReconciliation) {
+    await reconcileLinearStatuses({
+      config,
+      store,
+      slackClient,
+      slackChannelId,
+      skipTaskIds: new Set([
+        ...processedTaskIds,
+        ...taskIdsInSnapshots(current).filter((taskId) => !reviewReconciliationTaskIds.has(taskId)),
+      ]),
+      findPullRequestByUrl,
+      updateLinearStatus,
+      reviewReconciliationTaskIds,
+    });
+  }
   return { events, current };
 }
 

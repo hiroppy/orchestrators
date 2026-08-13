@@ -124,6 +124,17 @@ describe("watcher reconciliation and snapshots", () => {
         store,
         slackClient: fakeSlackClient(calls),
         slackChannelId: "C123",
+        runLinearReconciliation: false,
+      });
+
+      assert.equal(linearFetches, 0);
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
         findPullRequestByUrl: async (url) => {
           pullRequestLookups += 1;
           return {
