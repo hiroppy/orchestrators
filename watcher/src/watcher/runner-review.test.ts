@@ -567,6 +567,44 @@ describe("watcher review reactions", () => {
         ),
         2,
       );
+
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-64",
+        state: "In Review",
+      });
+      const exhaustedLegacyHead = {
+        ...legacyHead,
+        issueIdentifier: "ENG-64",
+        pullRequest: { ...legacyHead.pullRequest, url: "https://github.com/acme/example/pull/44" },
+      };
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeued" });
+      }
+      store.addEvent({
+        taskId: "service-a:ENG-64",
+        type: "review_requeue_limit_pending",
+        body: JSON.stringify({
+          message: "limit reached",
+          event: exhaustedLegacyHead,
+          reaction: "👀",
+          maxRequeues: 3,
+        }),
+      });
+      store.addEvent({ taskId: "service-a:ENG-64", type: "review_requeue_limit_reached" });
+      assert.deepEqual(decideReviewReaction(config, store, exhaustedLegacyHead), {
+        shouldRequeue: false,
+        reachesLimit: false,
+      });
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-64",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(exhaustedLegacyHead, "👀"),
+        ),
+        3,
+      );
     });
   });
 });
