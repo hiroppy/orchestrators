@@ -5,6 +5,7 @@ import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { notificationIsEligible } from "../slack/notifications.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
+export const REVIEW_REQUEUE_ATTEMPT_EVENT = "review_requeue_attempt";
 export const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 export const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
 export const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";
@@ -78,12 +79,11 @@ export function decideReviewReaction(
     };
   }
 
-  let requeueCount = store.countEventsAfterLatest(
+  const requeueCount = store.countEventsWithBody(
     taskId,
-    REVIEW_REQUEUE_EVENT,
-    REVIEW_REQUEUE_LIMIT_EVENT,
+    REVIEW_REQUEUE_ATTEMPT_EVENT,
+    reviewRequeueAttemptKey(event, review.reaction),
   );
-  if (review.maxRequeues > 0) requeueCount %= review.maxRequeues;
   if (requeueCount >= review.maxRequeues) {
     return { shouldRequeue: false, reachesLimit: false };
   }
@@ -92,6 +92,15 @@ export function decideReviewReaction(
     shouldRequeue: true,
     reachesLimit: requeueCount + 1 === review.maxRequeues,
   };
+}
+
+export function reviewRequeueAttemptKey(event: WatcherEvent, reaction: string): string {
+  const pullRequest = event.pullRequest;
+  return JSON.stringify({
+    pullRequestUrl: pullRequest?.url ?? null,
+    headRefOid: pullRequest?.headRefOid ?? null,
+    reaction,
+  });
 }
 
 export function reviewReactionForStatus(
