@@ -13,40 +13,40 @@ importers:
         version: link:config
     devDependencies:
       knip:
-        specifier: ^6.29.0
+        specifier: 6.29.0
         version: 6.29.0
       oxfmt:
-        specifier: ^0.61.0
+        specifier: 0.61.0
         version: 0.61.0
       oxlint:
-        specifier: ^1.76.0
+        specifier: 1.76.0
         version: 1.76.0
 
   config:
     dependencies:
       '@slack/web-api':
-        specifier: ^8.0.0
+        specifier: 8.0.0
         version: 8.0.0
 
   watcher:
     dependencies:
       '@slack/bolt':
-        specifier: ^5.0.0
+        specifier: 5.0.0
         version: 5.0.0(@types/express@5.0.6)(undici@7.29.0)
       '@slack/web-api':
-        specifier: ^8.0.0
+        specifier: 8.0.0
         version: 8.0.0
       better-sqlite3:
-        specifier: ^13.0.1
+        specifier: 13.0.1
         version: 13.0.1
       drizzle-orm:
-        specifier: ^0.45.2
+        specifier: 0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.1)
       orchestrator-config:
         specifier: workspace:*
         version: link:../config
       yaml:
-        specifier: ^2.9.0
+        specifier: 2.9.0
         version: 2.9.0
     devDependencies:
       '@types/better-sqlite3':
@@ -56,7 +56,7 @@ importers:
         specifier: 26.1.2
         version: 26.1.2
       drizzle-kit:
-        specifier: ^0.31.10
+        specifier: 0.31.10
         version: 0.31.10
       typescript:
         specifier: 7.0.2
