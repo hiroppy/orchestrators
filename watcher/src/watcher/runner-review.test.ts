@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
-import { requeueReviewTask } from "./review-requeue.ts";
+import { deliverPendingReviewCardRefreshes, requeueReviewTask } from "./review-requeue.ts";
 import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
 import {
   dataUrl,
@@ -66,7 +66,7 @@ describe("watcher review reactions", () => {
     });
   });
 
-  it("keeps a completed review requeue when its Slack notification fails", async (context) => {
+  it("retries a failed card refresh after completing a review requeue", async (context) => {
     await withStore(async (store) => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -94,9 +94,7 @@ describe("watcher review reactions", () => {
       await requeueReviewTask({
         config,
         store,
-        slackClient: fakeSlackClient([], {
-          rejectPostMessage: ({ text }) => String(text).includes("review reaction detected"),
-        }),
+        slackClient: fakeSlackClient([], { rejectUpdate: () => true }),
         watcherChannelId: "C123",
         event: {
           type: "updated",
@@ -110,7 +108,11 @@ describe("watcher review reactions", () => {
 
       assert.equal(store.getTask(task.id)?.status, "In Progress");
       assert.ok(store.getLatestEvent(task.id, REVIEW_REQUEUE_ATTEMPT_EVENT));
-      assert.match(errors.join("\n"), /Failed to announce review requeue/);
+      assert.match(errors.join("\n"), /Failed to refresh requeued task card/);
+
+      const recoveryCalls: Array<Record<string, unknown>> = [];
+      await deliverPendingReviewCardRefreshes(store, fakeSlackClient(recoveryCalls));
+      assert.equal(recoveryCalls.filter(({ method }) => method === "update").length, 1);
     });
   });
 

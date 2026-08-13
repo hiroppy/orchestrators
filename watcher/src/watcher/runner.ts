@@ -21,6 +21,7 @@ import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
+  Snapshot,
   SnapshotsByService,
   Task,
   WatcherEvent,
@@ -44,7 +45,7 @@ import {
   deliverPendingReviewLimitNotifications,
   markReviewRequeueReconciled,
 } from "./review-limit-delivery.ts";
-import { requeueReviewTask } from "./review-requeue.ts";
+import { deliverPendingReviewCardRefreshes, requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -224,6 +225,7 @@ export async function runOnce({
     watcherChannelId: slackChannelId,
   });
   await deliverPendingReviewLimitNotifications(store, slackClient);
+  await deliverPendingReviewCardRefreshes(store, slackClient);
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(
       REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
@@ -235,6 +237,7 @@ export async function runOnce({
   const current = await collectSnapshots(config.services, previous);
   const events = diffSnapshots(previous, current, config);
   const processedTaskIds = new Set<string>();
+  const completedTaskIds = new Set<string>();
   const preparedEvents = [];
 
   for (const event of events) {
@@ -264,6 +267,8 @@ export async function runOnce({
       reviewDecision,
       updateLinearStatus,
     });
+    completedTaskIds.add(taskIdFor(source.service, source.issueIdentifier));
+    store.replaceSnapshots(checkpointSnapshots(previous, current, completedTaskIds));
     if (enrichment.isAuthoritative) {
       markReviewRequeueReconciled(store, taskIdFor(source.service, source.issueIdentifier));
     }
@@ -461,6 +466,32 @@ function taskIdsInSnapshots(snapshots: SnapshotsByService): string[] {
     }
   }
   return ids;
+}
+
+function checkpointSnapshots(
+  previous: SnapshotsByService,
+  current: SnapshotsByService,
+  completedTaskIds: ReadonlySet<string>,
+): SnapshotsByService {
+  const checkpoint: SnapshotsByService = {};
+  for (const service of new Set([...Object.keys(previous), ...Object.keys(current)])) {
+    const rows = { running: [], retrying: [], blocked: [] } as Snapshot;
+    for (const bucket of ["running", "retrying", "blocked"] as const) {
+      const currentRows = normalizeSnapshot(current[service])[bucket];
+      rows[bucket] = [
+        ...normalizeSnapshot(previous[service])[bucket].filter((row) => {
+          const identifier = row.issue_identifier ?? row.issueIdentifier;
+          return !identifier || !completedTaskIds.has(taskIdFor(service, identifier));
+        }),
+        ...currentRows.filter((row) => {
+          const identifier = row.issue_identifier ?? row.issueIdentifier;
+          return identifier && completedTaskIds.has(taskIdFor(service, identifier));
+        }),
+      ];
+    }
+    checkpoint[service] = rows;
+  }
+  return checkpoint;
 }
 
 function sleep(ms: number): Promise<void> {

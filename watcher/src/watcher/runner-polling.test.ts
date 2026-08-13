@@ -32,6 +32,50 @@ describe("watcher polling", () => {
     assert.match(String(errors[0]), /temporary Slack failure/);
   });
 
+  it("checkpoints successful events before a later event fails", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [
+          { name: "service-a", url: dataUrl({}), linearTeam: "workspace-a-eng" },
+          { name: "service-b", url: dataUrl({}), linearTeam: "workspace-a-eng" },
+        ],
+        linearTeams: linearTeams(),
+        statusHooks: [],
+        defaultAssignees: [],
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      let parentPosts = 0;
+
+      await assert.rejects(
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([], {
+            rejectPostMessage: ({ thread_ts: threadTs }) => {
+              if (threadTs) return false;
+              parentPosts += 1;
+              return parentPosts === 2;
+            },
+          }),
+          slackChannelId: "C123",
+        }),
+        /Simulated Slack failure/,
+      );
+
+      const retryCalls: Array<Record<string, unknown>> = [];
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(retryCalls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(retryCalls.filter(({ method }) => method === "postMessage").length, 1);
+      assert.match(JSON.stringify(retryCalls), /watcher:service-b/);
+      assert.doesNotMatch(JSON.stringify(retryCalls), /watcher:service-a/);
+    });
+  });
+
   it("uses the Linear team referenced by the service", async (context) => {
     await withStore(async (store) => {
       const current = {
