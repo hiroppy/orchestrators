@@ -140,7 +140,8 @@ export default defineConfig({
 ```
 
 See [`watcher/README.md`](watcher/README.md) for runtime behavior and optional
-configuration.
+configuration. See [`docs/architecture.md`](docs/architecture.md) for the complete data flow,
+polling boundaries, and review-reaction lifecycle.
 
 </details>
 

@@ -1,5 +1,8 @@
 # Orchestrator Slack Watcher
 
+See [`../docs/architecture.md`](../docs/architecture.md) for the relationship between Symphony,
+the watcher, Linear, GitHub, Slack, and the review-reaction lifecycle.
+
 ## Configuration
 
 The repository root `config.ts` is gitignored. Credentials can also be read from
