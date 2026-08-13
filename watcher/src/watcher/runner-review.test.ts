@@ -536,6 +536,37 @@ describe("watcher review reactions", () => {
         }),
         { shouldRequeue: true, reachesLimit: false },
       );
+
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        state: "In Review",
+      });
+      for (let count = 0; count < 3; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-63", type: "review_requeued" });
+      }
+      store.addEvent({ taskId: "service-a:ENG-63", type: "review_requeue_limit_reached" });
+      for (let count = 0; count < 2; count += 1) {
+        store.addEvent({ taskId: "service-a:ENG-63", type: "review_requeued" });
+      }
+      const partialLegacyCycle = {
+        ...legacyHead,
+        issueIdentifier: "ENG-63",
+        pullRequest: { ...legacyHead.pullRequest, url: "https://github.com/acme/example/pull/43" },
+      };
+      assert.deepEqual(decideReviewReaction(config, store, partialLegacyCycle), {
+        shouldRequeue: true,
+        reachesLimit: true,
+      });
+      assert.equal(
+        store.countEventsWithBody(
+          "service-a:ENG-63",
+          REVIEW_REQUEUE_ATTEMPT_EVENT,
+          reviewRequeueAttemptKey(partialLegacyCycle, "👀"),
+        ),
+        2,
+      );
     });
   });
 });

@@ -86,7 +86,7 @@ export function decideReviewReaction(
     // heads then have their own keyed budget, while an upgrade cannot reset a
     // head that had already exhausted the legacy budget.
     const legacyRequeueCount = Math.min(
-      store.countEvents(taskId, REVIEW_REQUEUE_EVENT),
+      store.countEventsAfterLatest(taskId, REVIEW_REQUEUE_EVENT, REVIEW_REQUEUE_LIMIT_EVENT),
       review.maxRequeues,
     );
     if (legacyRequeueCount > 0) {
