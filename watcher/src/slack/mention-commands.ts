@@ -1,4 +1,5 @@
 import type { WatcherStore } from "../persistence/store.ts";
+import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
@@ -160,17 +161,19 @@ async function handleAssignCommand({
     return;
   }
 
-  const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
-  if (!slackUserId) {
+  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`assign @user\``,
+      `Usage: ${event.botMention} \`assign @user-or-group\``,
     );
     return;
   }
   const assignees = store.getTaskAssignees(task.id);
-  const slackMention = `<@${slackUserId}>`;
+  const slackMention = slackAssigneeId.startsWith("!subteam^")
+    ? `<${slackAssigneeId}>`
+    : `<@${slackAssigneeId}>`;
   const alreadyAssigned = assignees.includes(slackMention);
   if (!alreadyAssigned && [...assignees, slackMention].join(" ").length > MAX_ASSIGNEES_LENGTH) {
     await postSlackOperationError(
@@ -183,7 +186,7 @@ async function handleAssignCommand({
 
   if (!alreadyAssigned) {
     try {
-      store.assignTask(task.id, slackUserId);
+      store.assignTask(task.id, slackAssigneeId);
     } catch (error) {
       logger.error(error);
       await postSlackOperationError(
@@ -237,16 +240,16 @@ async function handleUnassignCommand({
     return;
   }
 
-  const slackUserId = args.length === 1 ? slackUserIdFromMention(args[0]) : undefined;
-  if (!slackUserId) {
+  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`unassign @user\``,
+      `Usage: ${event.botMention} \`unassign @user-or-group\``,
     );
     return;
   }
-  store.unassignTask(task.id, slackUserId);
+  store.unassignTask(task.id, slackAssigneeId);
   try {
     await refreshTaskAssignees(client, store, task, logger);
   } catch (error) {
@@ -368,10 +371,6 @@ async function handleHelpCommand({
     text: buildHelpMessage(botName),
     blocks: buildHelpMessageBlocks(botName),
   });
-}
-
-function slackUserIdFromMention(value: string | undefined): string | undefined {
-  return value?.match(/^<@([A-Z0-9]+)>$/i)?.[1];
 }
 
 interface AppMentionEvent {
