@@ -47,7 +47,7 @@ import {
 import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const LINEAR_RECONCILIATION_INTERVAL_MS = 30_000;
+const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -124,20 +124,20 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     },
   });
 
-  let nextLinearReconciliationAt = 0;
+  let nextPeriodicMaintenanceAt = 0;
   try {
     await app.start();
     while (true) {
-      const runLinearReconciliation = performance.now() >= nextLinearReconciliationAt;
+      const runPeriodicMaintenance = performance.now() >= nextPeriodicMaintenanceAt;
       await runOnce({
         config: runtimeConfig,
         store,
         slackClient: client,
         slackChannelId: slackConfig.channelId,
-        runLinearReconciliation,
+        runPeriodicMaintenance,
       });
-      if (runLinearReconciliation) {
-        nextLinearReconciliationAt = performance.now() + LINEAR_RECONCILIATION_INTERVAL_MS;
+      if (runPeriodicMaintenance) {
+        nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;
       }
       await sleep(runtimeConfig.pollIntervalMs);
     }
@@ -188,7 +188,7 @@ interface RunOnceOptions {
   findPullRequest?: typeof findPullRequestDefault;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
-  runLinearReconciliation?: boolean;
+  runPeriodicMaintenance?: boolean;
 }
 
 export async function runOnce({
@@ -199,15 +199,17 @@ export async function runOnce({
   findPullRequest = findPullRequestDefault,
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
-  runLinearReconciliation = true,
+  runPeriodicMaintenance = true,
 }: RunOnceOptions) {
-  await deliverPendingStatusHooksSafely({
-    hooks: config.statusHooks ?? [],
-    store,
-    slackClient,
-    watcherChannelId: slackChannelId,
-  });
-  await deliverPendingReviewLimitNotifications(store, slackClient);
+  if (runPeriodicMaintenance) {
+    await deliverPendingStatusHooksSafely({
+      hooks: config.statusHooks ?? [],
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+    });
+    await deliverPendingReviewLimitNotifications(store, slackClient);
+  }
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(
       REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
@@ -254,7 +256,7 @@ export async function runOnce({
   }
 
   store.replaceSnapshots(current);
-  if (runLinearReconciliation) {
+  if (runPeriodicMaintenance) {
     await reconcileLinearStatuses({
       config,
       store,

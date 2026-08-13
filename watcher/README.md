@@ -38,8 +38,9 @@ The instance key is its Symphony directory and service name. Its observability
 URL is `http://127.0.0.1:<port>/api/v1/state`. `enabled` defaults to `true`;
 only set it to `false` when the instance should not be started or watched.
 
-The watcher polls each instance's internal observability API every three seconds and
-reconciles stored tasks with Linear every 30 seconds.
+The watcher polls each instance's internal observability API every three seconds. Periodic
+maintenance, including Linear reconciliation and failed status-hook retries, runs every 30
+seconds.
 Terminal task observations are retried twice with a five-second delay by
 default. Override those checks only when needed:
 
