@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { publishWatcherEvent } from "./app.ts";
+import { deliverPendingWatcherThreadMessages, publishWatcherEvent } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 
 describe("Slack event publishing", () => {
@@ -204,16 +204,22 @@ describe("Slack event publishing", () => {
         },
       };
 
-      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      await publishWatcherEvent(client, store, "C123", event, undefined, options);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
-      assert.deepEqual(deliveries, []);
+      assert.deepEqual(deliveries, ["In Review"]);
 
       failThread = false;
-      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      await deliverPendingWatcherThreadMessages(client, store);
+      await deliverPendingWatcherThreadMessages(client, store);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
+      assert.equal(
+        calls.filter(({ method, args }) => method === "postMessage" && args.thread_ts === "1.000")
+          .length,
+        1,
+      );
     });
   });
 

@@ -1,4 +1,4 @@
-import type { WebClient } from "@slack/web-api";
+import type { ChatPostMessageArguments, WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
@@ -134,16 +134,16 @@ export async function requeueReviewTask({
       actor: "watcher",
       fromStatus,
       toStatus: requeuedTask.status,
+      body: JSON.stringify({ reaction: review.reaction }),
     },
   ]);
-  await deliverPendingReviewRequeueAnnouncements(store, slackClient, review.reaction, task.id);
+  await deliverPendingReviewRequeueAnnouncements(store, slackClient, task.id);
   await deliverPendingReviewCardRefreshes(store, slackClient, requeuedTask.id);
 }
 
 export async function deliverPendingReviewRequeueAnnouncements(
   store: WatcherStore,
   slackClient: WebClient,
-  reaction: string,
   onlyTaskId?: string,
 ): Promise<void> {
   const taskIds = onlyTaskId
@@ -157,19 +157,24 @@ export async function deliverPendingReviewRequeueAnnouncements(
       const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_ANNOUNCEMENT_PENDING_EVENT);
       const task = store.getTask(taskId);
       if (
-        !pending?.fromStatus ||
+        !pending?.body ||
+        !pending.fromStatus ||
         !pending.toStatus ||
         !task?.parentChannelId ||
         !task.parentMessageTs
       )
         continue;
+      const { reaction } = JSON.parse(pending.body) as { reaction?: unknown };
+      if (typeof reaction !== "string") continue;
       const message = buildReviewRequeueMessage(reaction, pending.fromStatus, pending.toStatus);
-      await slackClient.chat.postMessage({
+      const announcement: ChatPostMessageArguments & { client_msg_id: string } = {
         channel: task.parentChannelId,
         thread_ts: task.parentMessageTs,
         text: message,
         blocks: buildReviewRequeueMessageBlocks(reaction, pending.fromStatus, pending.toStatus),
-      });
+        client_msg_id: slackClientMessageId(pending.id),
+      };
+      await slackClient.chat.postMessage(announcement);
       store.addEvent({
         taskId,
         type: REVIEW_REQUEUE_ANNOUNCEMENT_COMPLETED_EVENT,
@@ -182,6 +187,11 @@ export async function deliverPendingReviewRequeueAnnouncements(
       console.error(`Failed to announce review requeue for ${taskId}:`, error);
     }
   }
+}
+
+function slackClientMessageId(eventId: number): string {
+  const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4000-8001-${suffix}`;
 }
 
 export async function deliverPendingReviewCardRefreshes(

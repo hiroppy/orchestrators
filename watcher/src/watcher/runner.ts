@@ -17,7 +17,12 @@ import {
   findPullRequestByUrl as findPullRequestByUrlDefault,
   requireGitHubCli,
 } from "../integrations/github.ts";
-import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/app.ts";
+import {
+  createSlackApp,
+  deliverPendingWatcherThreadMessages,
+  publishWatcherEvent,
+  type SlackClient,
+} from "../slack/app.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
@@ -229,13 +234,8 @@ export async function runOnce({
     watcherChannelId: slackChannelId,
   });
   await deliverPendingReviewLimitNotifications(store, slackClient);
-  if (config.reviewReaction) {
-    await deliverPendingReviewRequeueAnnouncements(
-      store,
-      slackClient,
-      config.reviewReaction.reaction,
-    );
-  }
+  await deliverPendingWatcherThreadMessages(slackClient, store);
+  await deliverPendingReviewRequeueAnnouncements(store, slackClient);
   await deliverPendingReviewCardRefreshes(store, slackClient);
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(

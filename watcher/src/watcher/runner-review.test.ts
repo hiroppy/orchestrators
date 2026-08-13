@@ -162,12 +162,18 @@ describe("watcher review reactions", () => {
 
       const recoveryCalls: Array<Record<string, unknown>> = [];
       const recoveryClient = fakeSlackClient(recoveryCalls);
-      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient, "👀");
-      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient, "👀");
+      config.reviewReaction.reaction = "👍";
+      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient);
+      await deliverPendingReviewRequeueAnnouncements(store, recoveryClient);
 
       assert.equal(
         recoveryCalls.filter(({ text }) => String(text).includes("review reaction detected"))
           .length,
+        1,
+      );
+      assert.doesNotMatch(JSON.stringify(recoveryCalls), /👍/);
+      assert.equal(
+        new Set(recoveryCalls.map(({ client_msg_id: id }) => id).filter(Boolean)).size,
         1,
       );
       assert.match(errors.join("\n"), /Failed to announce review requeue/);
