@@ -1,4 +1,5 @@
 import type { Task } from "../domain/types.ts";
+import { isLinearRateLimitError } from "../integrations/linear-client.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import { withQueue } from "./async-queue.ts";
 import { postSlackOperationError } from "./errors.ts";
@@ -99,12 +100,10 @@ async function createWorkpadReply(
     );
   } catch (error) {
     logger.error(error);
-    await postLinearReplyFailure(
-      client,
-      reply,
-      "Linear への転記中にエラーが発生しました。",
-      logger,
-    );
+    const reason = isLinearRateLimitError(error)
+      ? "Linear API のレートリミットに達しました。しばらく待ってから再度お試しください。"
+      : "Linear への転記中にエラーが発生しました。";
+    await postLinearReplyFailure(client, reply, reason, logger);
     return false;
   }
 

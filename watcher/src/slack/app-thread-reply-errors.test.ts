@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { LinearRateLimitError } from "../integrations/linear-client.ts";
 import { handleThreadReply, publishWatcherEvent } from "./app.ts";
 import { fakeClient, reactionClient, withStore } from "./app.test-support.ts";
 
@@ -130,6 +131,9 @@ describe("Slack thread reply errors", () => {
       await handleThreadReply(args, store, async () => {
         throw new Error("Linear unavailable: <!channel> secret-token");
       });
+      await handleThreadReply(args, store, async () => {
+        throw new LinearRateLimitError();
+      });
 
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
       assert.deepEqual(reactions, []);
@@ -144,8 +148,13 @@ describe("Slack thread reply errors", () => {
           thread_ts: "1.000",
           text: "[error] Linear への転記に失敗しました。理由: Linear への転記中にエラーが発生しました。",
         },
+        {
+          channel: "C123",
+          thread_ts: "1.000",
+          text: "[error] Linear への転記に失敗しました。理由: Linear API のレートリミットに達しました。しばらく待ってから再度お試しください。",
+        },
       ]);
-      assert.equal(errors.length, 1);
+      assert.equal(errors.length, 2);
       assert.match(String(errors[0]), /Linear unavailable/);
       assert.doesNotMatch(
         messages.map(({ text }) => String(text)).join("\n"),
