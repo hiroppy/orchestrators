@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
-import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
+import { deliverPendingReviewRequeueNotifications } from "./review-limit-delivery.ts";
+import {
+  REVIEW_REQUEUE_ATTEMPT_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFIED_EVENT,
+  reviewRequeueAttemptKey,
+} from "./review-reactions.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -12,6 +19,69 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher review reactions", () => {
+  it("delivers every queued requeue notification and recovers an interrupted card refresh", async () => {
+    await withStore(async (store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams(["In Progress", "In Review"]),
+      );
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
+      const pending = store.addEvents(
+        ["first", "second"].map((message) => ({
+          taskId: "service-a:ENG-62",
+          type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+          actor: "watcher",
+          fromStatus: "In Review",
+          toStatus: "In Progress",
+          body: JSON.stringify({
+            message,
+            event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
+            reaction: "👀",
+          }),
+        })),
+      );
+      const calls: Array<Record<string, unknown>> = [];
+      let rejectCardUpdateOnce = true;
+      const slackClient = fakeSlackClient(calls, {
+        rejectUpdate: () => {
+          if (!rejectCardUpdateOnce) return false;
+          rejectCardUpdateOnce = false;
+          return true;
+        },
+      });
+
+      await deliverPendingReviewRequeueNotifications(store, slackClient);
+      await deliverPendingReviewRequeueNotifications(store, slackClient);
+
+      assert.deepEqual(
+        calls.filter(({ method }) => method === "postMessage").map(({ text }) => text),
+        ["first", "second"],
+      );
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.match(store.getTask("service-a:ENG-62")?.lastRenderedSummary ?? "", /In Progress/);
+      for (const event of pending) {
+        assert.equal(
+          store.hasEvent("service-a:ENG-62", REVIEW_REQUEUE_NOTIFIED_EVENT, String(event.id)),
+          true,
+        );
+        assert.equal(
+          store.hasEvent(
+            "service-a:ENG-62",
+            REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
+            String(event.id),
+          ),
+          true,
+        );
+      }
+    });
+  });
+
   it("limits requeues for the same pull request head", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";
@@ -76,11 +146,20 @@ describe("watcher review reactions", () => {
       const deliveryErrors: string[] = [];
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
+      let rejectLinearUpdateOnce = true;
+      let rejectRequeueNotificationOnce = true;
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
       let rejectedClientMessageId: unknown;
       const slackClient = fakeSlackClient(calls, {
         rejectPostMessage: (args) => {
+          if (
+            rejectRequeueNotificationOnce &&
+            String(args.text).includes("review reaction detected")
+          ) {
+            rejectRequeueNotificationOnce = false;
+            return true;
+          }
           if (
             rejectLimitNotification &&
             String(args.text).includes("review requeue limit reached")
@@ -142,18 +221,52 @@ describe("watcher review reactions", () => {
             };
           },
           updateLinearStatus: async (_issue, status) => {
+            if (rejectLinearUpdateOnce) {
+              rejectLinearUpdateOnce = false;
+              throw new Error("Simulated Linear failure");
+            }
             statusUpdates.push(status);
             linearState = status;
           },
         });
       };
 
+      await assert.rejects(run("In Review"), /Simulated Linear failure/);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        0,
+      );
+
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.match(deliveryErrors.join("\n"), /pending review requeue notification/);
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        0,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_notification_pending",
+          "review_requeue_notification_delivered",
+        ),
+        1,
+      );
+
+      await run("In Progress");
       assert.equal(
         calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
         1,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_notification_pending",
+          "review_requeue_notification_delivered",
+        ),
+        0,
       );
       assert.match(
         JSON.stringify(
@@ -167,8 +280,6 @@ describe("watcher review reactions", () => {
         ),
         /<@U123>/,
       );
-
-      await run("In Progress");
       linearState = "In Review";
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress"]);
