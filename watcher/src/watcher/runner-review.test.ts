@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runOnce } from "./runner.ts";
-import { REVIEW_REQUEUE_ATTEMPT_EVENT, reviewRequeueAttemptKey } from "./review-reactions.ts";
+import { deliverPendingReviewRequeueNotifications } from "./review-limit-delivery.ts";
+import {
+  REVIEW_REQUEUE_ATTEMPT_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFIED_EVENT,
+  reviewRequeueAttemptKey,
+} from "./review-reactions.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -12,6 +18,50 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher review reactions", () => {
+  it("delivers every queued requeue notification", async () => {
+    await withStore(async (store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams(["In Progress", "In Review"]),
+      );
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
+      const pending = store.addEvents(
+        ["first", "second"].map((message) => ({
+          taskId: "service-a:ENG-62",
+          type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+          actor: "watcher",
+          fromStatus: "In Review",
+          toStatus: "In Progress",
+          body: JSON.stringify({
+            message,
+            event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
+            reaction: "👀",
+          }),
+        })),
+      );
+      const calls: Array<Record<string, unknown>> = [];
+
+      await deliverPendingReviewRequeueNotifications(store, fakeSlackClient(calls));
+
+      assert.deepEqual(
+        calls.filter(({ method }) => method === "postMessage").map(({ text }) => text),
+        ["first", "second"],
+      );
+      for (const event of pending) {
+        assert.equal(
+          store.hasEvent("service-a:ENG-62", REVIEW_REQUEUE_NOTIFIED_EVENT, String(event.id)),
+          true,
+        );
+      }
+    });
+  });
+
   it("limits requeues for the same pull request head", async (context) => {
     await withStore(async (store) => {
       let linearState = "In Review";

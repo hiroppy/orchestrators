@@ -1,5 +1,6 @@
 import type { WebClient } from "@slack/web-api";
 
+import type { TaskEvent } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import {
   buildReviewRequeueLimitMessageBlocks,
@@ -24,21 +25,22 @@ export async function deliverPendingReviewRequeueNotifications(
   slackClient: WebClient,
   onlyTaskId?: string,
 ): Promise<Set<string>> {
-  const taskIds = onlyTaskId
-    ? [onlyTaskId]
-    : store.getTaskIdsWithIncompleteEvent(
-        REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
-        REVIEW_REQUEUE_NOTIFIED_EVENT,
-      );
   const completedTaskIds = new Set<string>();
 
-  for (const taskId of taskIds) {
+  for (const pending of store.getUncompletedEvents(
+    REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+    REVIEW_REQUEUE_NOTIFIED_EVENT,
+    onlyTaskId,
+  )) {
     try {
-      if (await deliverPendingReviewRequeueNotification(store, slackClient, taskId)) {
-        completedTaskIds.add(taskId);
+      if (await deliverPendingReviewRequeueNotification(store, slackClient, pending)) {
+        completedTaskIds.add(pending.taskId);
       }
     } catch (error) {
-      console.error(`Failed to deliver pending review requeue notification for ${taskId}:`, error);
+      console.error(
+        `Failed to deliver pending review requeue notification for ${pending.taskId}:`,
+        error,
+      );
     }
   }
 
@@ -48,17 +50,10 @@ export async function deliverPendingReviewRequeueNotifications(
 async function deliverPendingReviewRequeueNotification(
   store: WatcherStore,
   slackClient: WebClient,
-  taskId: string,
+  pending: TaskEvent,
 ): Promise<boolean> {
-  const task = store.getTask(taskId);
-  const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT);
-  const completed = store.getLatestEvent(taskId, REVIEW_REQUEUE_NOTIFIED_EVENT);
-  if (
-    !task?.parentChannelId ||
-    !task.parentMessageTs ||
-    !pending ||
-    (completed && completed.id > pending.id)
-  ) {
+  const task = store.getTask(pending.taskId);
+  if (!task?.parentChannelId || !task.parentMessageTs) {
     return false;
   }
   if (!pending.body || !pending.fromStatus || !pending.toStatus) {
@@ -79,12 +74,12 @@ async function deliverPendingReviewRequeueNotification(
   };
   await slackClient.chat.postMessage(message);
   store.addEvent({
-    taskId,
+    taskId: pending.taskId,
     type: REVIEW_REQUEUE_NOTIFIED_EVENT,
     actor: "watcher",
     fromStatus: pending.fromStatus,
     toStatus: pending.toStatus,
-    body: payload.message,
+    body: String(pending.id),
   });
   return true;
 }
