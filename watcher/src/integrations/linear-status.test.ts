@@ -1,27 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { updateLinearIssueStatus } from "./linear.ts";
+import { fetchLinearWorkflowStates, updateLinearIssueStatus } from "./linear.ts";
 
 describe("updateLinearIssueStatus", () => {
-  it("resolves a team-scoped workflow state and updates the Linear issue", async (context) => {
+  it("reuses cached team workflow states when updating the Linear issue", async (context) => {
     const requests: Array<{ query: string; variables: Record<string, string> }> = [];
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
       requests.push(request);
 
-      if (requests.length === 1) {
+      if (request.query.includes("TeamWorkflowStates")) {
         return Response.json({
           data: {
-            issue: {
-              id: "issue-uuid",
-              team: {
-                states: {
-                  nodes: [
-                    { id: "state-progress", name: "In Progress" },
-                    { id: "state-review", name: "In Review" },
-                  ],
-                },
+            team: {
+              states: {
+                nodes: [
+                  { id: "state-progress", name: "In Progress", type: "started", position: 1 },
+                  { id: "state-review", name: "In Review", type: "started", position: 2 },
+                ],
               },
             },
           },
@@ -33,10 +30,14 @@ describe("updateLinearIssueStatus", () => {
       });
     });
 
+    await fetchLinearWorkflowStates("team-cache-test", { apiKey: "lin_test" });
     await updateLinearIssueStatus("ENG-62", "In Review", {
       apiKey: "lin_test",
+      issueId: "issue-uuid",
+      teamId: "team-cache-test",
     });
 
+    assert.equal(requests.length, 2);
     assert.deepEqual(requests[1].variables, {
       id: "issue-uuid",
       stateId: "state-review",
