@@ -18,7 +18,7 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher review reactions", () => {
-  it("delivers every queued requeue notification", async () => {
+  it("delivers every queued requeue notification and recovers an interrupted card refresh", async () => {
     await withStore(async (store) => {
       store.syncDefinitions(
         [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -46,13 +46,28 @@ describe("watcher review reactions", () => {
         })),
       );
       const calls: Array<Record<string, unknown>> = [];
+      let rejectCardUpdateOnce = true;
+      const slackClient = fakeSlackClient(calls, {
+        rejectUpdate: () => {
+          if (!rejectCardUpdateOnce) return false;
+          rejectCardUpdateOnce = false;
+          return true;
+        },
+      });
 
-      await deliverPendingReviewRequeueNotifications(store, fakeSlackClient(calls));
+      await deliverPendingReviewRequeueNotifications(store, slackClient);
+      await deliverPendingReviewRequeueNotifications(store, slackClient);
 
       assert.deepEqual(
         calls.filter(({ method }) => method === "postMessage").map(({ text }) => text),
-        ["first", "second"],
+        ["first", "second", "first"],
       );
+      const firstDeliveries = calls.filter(
+        ({ method, text }) => method === "postMessage" && text === "first",
+      );
+      assert.equal(firstDeliveries[0].client_msg_id, firstDeliveries[1].client_msg_id);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.match(store.getTask("service-a:ENG-62")?.lastRenderedSummary ?? "", /In Progress/);
       for (const event of pending) {
         assert.equal(
           store.hasEvent("service-a:ENG-62", REVIEW_REQUEUE_NOTIFIED_EVENT, String(event.id)),

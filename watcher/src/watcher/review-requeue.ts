@@ -4,12 +4,7 @@ import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear-status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
-import { withTaskCardQueue } from "../slack/task-card-queue.ts";
-import {
-  buildReviewRequeueLimitMessage,
-  buildReviewRequeueMessage,
-  buildTaskCard,
-} from "../slack/views.ts";
+import { buildReviewRequeueLimitMessage, buildReviewRequeueMessage } from "../slack/views.ts";
 import {
   deliverPendingReviewLimitNotifications,
   deliverPendingReviewRequeueNotifications,
@@ -132,35 +127,6 @@ export async function requeueReviewTask({
     },
   ]);
   await deliverPendingReviewRequeueNotifications(store, slackClient, task.id);
-  await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
-}
-
-async function refreshRequeuedTaskCard(
-  store: WatcherStore,
-  slackClient: WebClient,
-  event: WatcherEvent,
-  taskId: string,
-  fromStatus: string,
-): Promise<void> {
-  await withTaskCardQueue(taskId, async () => {
-    const task = store.getTask(taskId)!;
-    const card = buildTaskCard(
-      task,
-      store.getSelectableStatuses(task.serviceName),
-      {
-        ...event,
-        state: fromStatus,
-        resolvedState: task.status,
-      },
-      store.getTaskAssignees(task.id),
-    );
-    await slackClient.chat.update({
-      channel: task.parentChannelId!,
-      ts: task.parentMessageTs!,
-      ...card,
-    });
-    store.setRenderedSummary(task.id, JSON.stringify(card));
-  });
 }
 
 function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {

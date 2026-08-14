@@ -73,6 +73,25 @@ async function deliverPendingReviewRequeueNotification(
     client_msg_id: slackClientMessageId(pending.id),
   };
   await slackClient.chat.postMessage(message);
+  await withTaskCardQueue(task.id, async () => {
+    const updatedTask = store.getTask(task.id)!;
+    const card = buildTaskCard(
+      updatedTask,
+      store.getSelectableStatuses(updatedTask.serviceName),
+      {
+        ...payload.event,
+        state: pending.fromStatus,
+        resolvedState: updatedTask.status,
+      },
+      store.getTaskAssignees(updatedTask.id),
+    );
+    await slackClient.chat.update({
+      channel: updatedTask.parentChannelId!,
+      ts: updatedTask.parentMessageTs!,
+      ...card,
+    });
+    store.setRenderedSummary(updatedTask.id, JSON.stringify(card));
+  });
   store.addEvent({
     taskId: pending.taskId,
     type: REVIEW_REQUEUE_NOTIFIED_EVENT,
