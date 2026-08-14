@@ -23,7 +23,7 @@ export async function linearRequest<T>(
     | undefined;
   const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATELIMITED");
   if (!response.ok) {
-    if (rateLimited) {
+    if (rateLimited || response.status === 429) {
       throw new LinearRateLimitError(response.status);
     }
     throw new LinearHttpError(
