@@ -23,15 +23,18 @@ export async function linearRequest<T>(
     | undefined;
   const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATELIMITED");
   if (!response.ok) {
+    if (rateLimited || response.status === 429) {
+      throw new LinearRateLimitError(response.status);
+    }
     throw new LinearHttpError(
       `Linear returned HTTP ${response.status}.`,
-      Boolean(rateLimited) || shouldRetryResponse(response.status),
+      shouldRetryResponse(response.status),
     );
   }
 
   if (body?.errors?.length) {
     const message = `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`;
-    if (rateLimited) throw new LinearHttpError(message, true);
+    if (rateLimited) throw new LinearRateLimitError();
     throw new Error(message);
   }
   if (!body?.data) throw new Error("Linear response did not include data.");
@@ -65,7 +68,24 @@ class LinearHttpError extends Error {
   }
 }
 
+export class LinearRateLimitError extends Error {
+  readonly retryable = true;
+
+  constructor(status?: number) {
+    super(
+      status
+        ? `Linear returned HTTP ${status} because its API rate limit was exceeded.`
+        : "Linear API rate limit exceeded.",
+    );
+  }
+}
+
+export function isLinearRateLimitError(error: unknown): error is LinearRateLimitError {
+  return error instanceof LinearRateLimitError;
+}
+
 export function isTransientLinearError(error: unknown): boolean {
+  if (error instanceof LinearRateLimitError) return error.retryable;
   if (error instanceof LinearHttpError) return error.retryable;
   if (error instanceof TypeError) return true;
   return (

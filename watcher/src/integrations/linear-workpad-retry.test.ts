@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { LinearRateLimitError } from "./linear-client.ts";
 import { createLinearWorkpadReply } from "./linear.ts";
 
 describe("Linear Workpad reply recovery", () => {
@@ -88,6 +89,25 @@ describe("Linear Workpad reply recovery", () => {
 
     assert.equal(created, true);
     assert.equal(mutationCount, 2);
+  });
+
+  it("reports an exhausted HTTP 429 response as a Linear rate limit", async (context) => {
+    let requestCount = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requestCount += 1;
+      return new Response(null, { status: 429 });
+    });
+
+    await assert.rejects(
+      createLinearWorkpadReply("ENG-62", "Retry this reply.", {
+        apiKey: "lin_test",
+        idempotencyKey: "C123:2.000",
+        maxAttempts: 2,
+        retryDelayMs: 0,
+      }),
+      LinearRateLimitError,
+    );
+    assert.equal(requestCount, 2);
   });
 
   it("rejects failed comment mutations", async (context) => {
