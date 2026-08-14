@@ -151,7 +151,7 @@ describe("Slack thread reply errors", () => {
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記に失敗しました。理由: Linear API のレートリミットに達しました。しばらく待ってから再度お試しください。",
+          text: "[error] Linear への転記に失敗しました。理由: The Linear API rate limit was reached. Please try again later.",
         },
       ]);
       assert.equal(errors.length, 2);

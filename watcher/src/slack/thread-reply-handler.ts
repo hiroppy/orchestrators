@@ -101,7 +101,7 @@ async function createWorkpadReply(
   } catch (error) {
     logger.error(error);
     const reason = isLinearRateLimitError(error)
-      ? "Linear API のレートリミットに達しました。しばらく待ってから再度お試しください。"
+      ? "The Linear API rate limit was reached. Please try again later."
       : "Linear への転記中にエラーが発生しました。";
     await postLinearReplyFailure(client, reply, reason, logger);
     return false;
