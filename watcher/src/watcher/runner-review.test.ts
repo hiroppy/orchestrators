@@ -77,11 +77,19 @@ describe("watcher review reactions", () => {
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
       let rejectLinearUpdateOnce = true;
+      let rejectRequeueNotificationOnce = true;
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
       let rejectedClientMessageId: unknown;
       const slackClient = fakeSlackClient(calls, {
         rejectPostMessage: (args) => {
+          if (
+            rejectRequeueNotificationOnce &&
+            String(args.text).includes("review reaction detected")
+          ) {
+            rejectRequeueNotificationOnce = false;
+            return true;
+          }
           if (
             rejectLimitNotification &&
             String(args.text).includes("review requeue limit reached")
@@ -163,9 +171,32 @@ describe("watcher review reactions", () => {
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.match(deliveryErrors.join("\n"), /pending review requeue notification/);
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        0,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_notification_pending",
+          "review_requeue_notified",
+        ),
+        1,
+      );
+
+      await run("In Progress");
       assert.equal(
         calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
         1,
+      );
+      assert.equal(
+        store.countEventsAfterLatest(
+          "service-a:ENG-62",
+          "review_requeue_notification_pending",
+          "review_requeue_notified",
+        ),
+        0,
       );
       assert.match(
         JSON.stringify(
@@ -179,8 +210,6 @@ describe("watcher review reactions", () => {
         ),
         /<@U123>/,
       );
-
-      await run("In Progress");
       linearState = "In Review";
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress", "In Progress"]);

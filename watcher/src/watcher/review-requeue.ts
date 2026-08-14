@@ -8,14 +8,17 @@ import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   buildReviewRequeueLimitMessage,
   buildReviewRequeueMessage,
-  buildReviewRequeueMessageBlocks,
   buildTaskCard,
 } from "../slack/views.ts";
-import { deliverPendingReviewLimitNotifications } from "./review-limit-delivery.ts";
+import {
+  deliverPendingReviewLimitNotifications,
+  deliverPendingReviewRequeueNotifications,
+} from "./review-limit-delivery.ts";
 import {
   REVIEW_REQUEUE_EVENT,
   REVIEW_REQUEUE_ATTEMPT_EVENT,
   REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   type ReviewReactionDecision,
   reviewRequeueAttemptKey,
 } from "./review-reactions.ts";
@@ -61,14 +64,6 @@ export async function requeueReviewTask({
         event.pullRequest,
       ),
   );
-  if (!decision.reachesLimit) {
-    await slackClient.chat.postMessage({
-      channel: task.parentChannelId!,
-      thread_ts: task.parentMessageTs!,
-      text: buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status),
-      blocks: buildReviewRequeueMessageBlocks(review.reaction, fromStatus, requeuedTask.status),
-    });
-  }
   await deliverPendingStatusHooksSafely({
     hooks: config.statusHooks ?? [],
     store,
@@ -120,7 +115,23 @@ export async function requeueReviewTask({
     return;
   }
 
-  store.addEvents([attemptEvent, requeueEvent]);
+  store.addEvents([
+    attemptEvent,
+    requeueEvent,
+    {
+      taskId: task.id,
+      type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+      actor: "watcher",
+      fromStatus,
+      toStatus: requeuedTask.status,
+      body: JSON.stringify({
+        message: requeueEvent.body,
+        event: withoutCreatorDetails(event),
+        reaction: review.reaction,
+      }),
+    },
+  ]);
+  await deliverPendingReviewRequeueNotifications(store, slackClient, task.id);
   await refreshRequeuedTaskCard(store, slackClient, event, requeuedTask.id, fromStatus);
 }
 

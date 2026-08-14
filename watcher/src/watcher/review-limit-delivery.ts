@@ -1,7 +1,11 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { WatcherStore } from "../persistence/store.ts";
-import { buildReviewRequeueLimitMessageBlocks, buildTaskCard } from "../slack/views.ts";
+import {
+  buildReviewRequeueLimitMessageBlocks,
+  buildReviewRequeueMessageBlocks,
+  buildTaskCard,
+} from "../slack/views.ts";
 import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   hasPendingEvent,
@@ -9,9 +13,81 @@ import {
   REVIEW_REQUEUE_LIMIT_EVENT,
   REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
   REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFIED_EVENT,
   REVIEW_REQUEUE_RECONCILED_EVENT,
   REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
 } from "./review-reactions.ts";
+
+export async function deliverPendingReviewRequeueNotifications(
+  store: WatcherStore,
+  slackClient: WebClient,
+  onlyTaskId?: string,
+): Promise<Set<string>> {
+  const taskIds = onlyTaskId
+    ? [onlyTaskId]
+    : store.getTaskIdsWithIncompleteEvent(
+        REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+        REVIEW_REQUEUE_NOTIFIED_EVENT,
+      );
+  const completedTaskIds = new Set<string>();
+
+  for (const taskId of taskIds) {
+    try {
+      if (await deliverPendingReviewRequeueNotification(store, slackClient, taskId)) {
+        completedTaskIds.add(taskId);
+      }
+    } catch (error) {
+      console.error(`Failed to deliver pending review requeue notification for ${taskId}:`, error);
+    }
+  }
+
+  return completedTaskIds;
+}
+
+async function deliverPendingReviewRequeueNotification(
+  store: WatcherStore,
+  slackClient: WebClient,
+  taskId: string,
+): Promise<boolean> {
+  const task = store.getTask(taskId);
+  const pending = store.getLatestEvent(taskId, REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT);
+  const completed = store.getLatestEvent(taskId, REVIEW_REQUEUE_NOTIFIED_EVENT);
+  if (
+    !task?.parentChannelId ||
+    !task.parentMessageTs ||
+    !pending ||
+    (completed && completed.id > pending.id)
+  ) {
+    return false;
+  }
+  if (!pending.body || !pending.fromStatus || !pending.toStatus) {
+    throw new Error(`Invalid pending review requeue notification event for ${task.id}`);
+  }
+  const payload = parseReviewRequeuePendingPayload(pending.body);
+
+  const message = {
+    channel: task.parentChannelId,
+    thread_ts: task.parentMessageTs,
+    text: payload.message,
+    blocks: buildReviewRequeueMessageBlocks(
+      payload.reaction ?? reviewReactionFromMessage(payload.message),
+      pending.fromStatus,
+      pending.toStatus,
+    ),
+    client_msg_id: slackClientMessageId(pending.id),
+  };
+  await slackClient.chat.postMessage(message);
+  store.addEvent({
+    taskId,
+    type: REVIEW_REQUEUE_NOTIFIED_EVENT,
+    actor: "watcher",
+    fromStatus: pending.fromStatus,
+    toStatus: pending.toStatus,
+    body: payload.message,
+  });
+  return true;
+}
 
 export async function deliverPendingReviewLimitNotifications(
   store: WatcherStore,
