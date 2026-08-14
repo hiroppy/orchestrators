@@ -13,9 +13,14 @@ describe("fetchLinearWorkflowStates", () => {
           team: {
             states: {
               nodes: [
-                { name: "Done", type: "completed", position: 1 },
-                { name: "In Progress", type: "started", position: 1 },
-                { name: "Todo", type: "unstarted", position: 1 },
+                { id: "state-done", name: "Done", type: "completed", position: 1 },
+                {
+                  id: "state-progress",
+                  name: "In Progress",
+                  type: "started",
+                  position: 1,
+                },
+                { id: "state-todo", name: "Todo", type: "unstarted", position: 1 },
               ],
             },
           },

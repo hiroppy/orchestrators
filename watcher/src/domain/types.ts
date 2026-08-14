@@ -72,6 +72,7 @@ export interface RelatedIssue {
 export interface WatcherEvent {
   type: EventType;
   service: string;
+  linearIssueId?: string;
   issueIdentifier: string;
   issueUrl?: string;
   state?: string;

@@ -1,6 +1,7 @@
 export const ISSUE_STATE_QUERY = `
   query OrchestratorWatcherIssueState($id: String!, $includeCreator: Boolean!) {
     issue(id: $id) {
+      id
       identifier
       title
       creator @include(if: $includeCreator) {
@@ -130,10 +131,11 @@ export const TEAM_WORKFLOW_STATES_QUERY = `
   query OrchestratorWatcherTeamWorkflowStates($id: String!) {
     team(id: $id) {
       states {
-        nodes {
-          name
-          type
-          position
+          nodes {
+            id
+            name
+            type
+            position
         }
       }
     }

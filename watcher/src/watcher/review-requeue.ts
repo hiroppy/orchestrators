@@ -44,8 +44,11 @@ export async function requeueReviewTask({
 
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const task = store.getTask(taskId)!;
+  const team = linearTeamForService(config, task.serviceName);
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
-    apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
+    apiKey: team?.apiKey,
+    issueId: event.linearIssueId,
+    teamId: team?.teamId,
   });
   const { task: requeuedTask, fromStatus } = store.updateTaskStatusAtomically(
     task.id,

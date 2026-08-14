@@ -49,6 +49,7 @@ interface FetchLinearOptions extends LinearRequestOptions {
 }
 
 interface LinearIssueState {
+  id?: string;
   identifier: string;
   title: string | null;
   state: string | null;
@@ -74,6 +75,7 @@ interface LinearIssueResponse {
   errors?: Array<{ message?: string; extensions?: { code?: string } }>;
   data?: {
     issue?: {
+      id?: string;
       identifier: string;
       title?: string | null;
       creator?: { name?: string | null; email?: string | null } | null;
@@ -320,6 +322,7 @@ export async function fetchLinearIssueState(
       const relatedIssues = findNextRelatedIssues(issue.relations?.nodes);
 
       return {
+        ...(issue.id ? { id: issue.id } : {}),
         identifier: issue.identifier,
         title: issue.title ?? null,
         state: issue.state?.name ?? null,

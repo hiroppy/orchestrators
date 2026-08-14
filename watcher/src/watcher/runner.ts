@@ -76,8 +76,10 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     botToken: slackConfig.botToken,
     appToken: slackConfig.appToken,
     updateLinearStatus: async (task, status) => {
+      const team = linearTeamForService(runtimeConfig, task.serviceName);
       await updateLinearIssueStatus(task.issueIdentifier, status, {
-        apiKey: linearTeamForService(runtimeConfig, task.serviceName)?.apiKey,
+        apiKey: team?.apiKey,
+        teamId: team?.teamId,
       });
     },
     createLinearWorkpadReply: async (task, reply, idempotencyKey) =>
@@ -385,6 +387,7 @@ async function reconcileLinearStatuses({
     const event: WatcherEvent = {
       type: "updated",
       service: task.serviceName,
+      linearIssueId: linearIssue.id,
       issueIdentifier: task.issueIdentifier,
       issueTitle: linearIssue.title,
       creatorName: linearIssue.creatorName,
