@@ -7,7 +7,7 @@ import {
 } from "./linear-queries.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const WORKFLOW_STATE_CACHE_TTL_MS = 5 * 60 * 1_000;
+const WORKFLOW_STATE_CACHE_TTL_MS = 60 * 60 * 1_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
 interface LinearRequestOptions {

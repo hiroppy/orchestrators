@@ -147,7 +147,7 @@ describe("updateLinearIssueStatus", () => {
     });
 
     await fetchLinearWorkflowStates("team-renamed-state-test", { apiKey: "lin_test" });
-    now = 10 * 60 * 1_000;
+    now = 2 * 60 * 60 * 1_000;
     await assert.rejects(
       updateLinearIssueStatus("ENG-62", "In Review", {
         apiKey: "lin_test",
