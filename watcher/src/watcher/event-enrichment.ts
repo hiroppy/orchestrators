@@ -47,6 +47,7 @@ export async function enrichEvent(
   return {
     event: compactObject({
       ...event,
+      linearIssueId: linearIssue?.id,
       issueTitle: linearIssue?.title,
       creatorName: linearIssue?.creatorName,
       creatorEmail: linearIssue?.creatorEmail,

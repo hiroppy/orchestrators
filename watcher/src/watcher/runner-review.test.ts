@@ -105,6 +105,7 @@ describe("watcher review reactions", () => {
         return Response.json({
           data: {
             issue: {
+              id: "issue-uuid",
               identifier: "ENG-62",
               title: "Review the pull request",
               creator: { name: "Creator", email: "creator@example.com" },
@@ -146,6 +147,7 @@ describe("watcher review reactions", () => {
       const deliveryErrors: string[] = [];
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
+      const statusUpdateIssueIds: Array<string | undefined> = [];
       let rejectLinearUpdateOnce = true;
       let rejectRequeueNotificationOnce = true;
       let rejectLimitNotification = true;
@@ -220,7 +222,8 @@ describe("watcher review reactions", () => {
               hasConfiguredReaction: hasReviewReaction && options.reaction === "👀",
             };
           },
-          updateLinearStatus: async (_issue, status) => {
+          updateLinearStatus: async (_issue, status, options) => {
+            statusUpdateIssueIds.push(options.issueId);
             if (rejectLinearUpdateOnce) {
               rejectLinearUpdateOnce = false;
               throw new Error("Simulated Linear failure");
@@ -232,6 +235,7 @@ describe("watcher review reactions", () => {
       };
 
       await assert.rejects(run("In Review"), /Simulated Linear failure/);
+      assert.deepEqual(statusUpdateIssueIds, ["issue-uuid"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(
         calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
