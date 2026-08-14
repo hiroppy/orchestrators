@@ -14,6 +14,7 @@ import {
   REVIEW_REQUEUE_LIMIT_EVENT,
   REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT,
   REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   REVIEW_REQUEUE_NOTIFIED_EVENT,
   REVIEW_REQUEUE_RECONCILED_EVENT,
@@ -29,7 +30,7 @@ export async function deliverPendingReviewRequeueNotifications(
 
   for (const pending of store.getUncompletedEvents(
     REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
-    REVIEW_REQUEUE_NOTIFIED_EVENT,
+    REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
     onlyTaskId,
   )) {
     try {
@@ -61,18 +62,29 @@ async function deliverPendingReviewRequeueNotification(
   }
   const payload = parseReviewRequeuePendingPayload(pending.body);
 
-  const message = {
-    channel: task.parentChannelId,
-    thread_ts: task.parentMessageTs,
-    text: payload.message,
-    blocks: buildReviewRequeueMessageBlocks(
-      payload.reaction ?? reviewReactionFromMessage(payload.message),
-      pending.fromStatus,
-      pending.toStatus,
-    ),
-    client_msg_id: slackClientMessageId(pending.id),
-  };
-  await slackClient.chat.postMessage(message);
+  const completionKey = String(pending.id);
+  if (!store.hasEvent(task.id, REVIEW_REQUEUE_NOTIFIED_EVENT, completionKey)) {
+    const message = {
+      channel: task.parentChannelId,
+      thread_ts: task.parentMessageTs,
+      text: payload.message,
+      blocks: buildReviewRequeueMessageBlocks(
+        payload.reaction ?? reviewReactionFromMessage(payload.message),
+        pending.fromStatus,
+        pending.toStatus,
+      ),
+      client_msg_id: slackClientMessageId(pending.id),
+    };
+    await slackClient.chat.postMessage(message);
+    store.addEvent({
+      taskId: pending.taskId,
+      type: REVIEW_REQUEUE_NOTIFIED_EVENT,
+      actor: "watcher",
+      fromStatus: pending.fromStatus,
+      toStatus: pending.toStatus,
+      body: completionKey,
+    });
+  }
   await withTaskCardQueue(task.id, async () => {
     const updatedTask = store.getTask(task.id)!;
     const card = buildTaskCard(
@@ -94,11 +106,11 @@ async function deliverPendingReviewRequeueNotification(
   });
   store.addEvent({
     taskId: pending.taskId,
-    type: REVIEW_REQUEUE_NOTIFIED_EVENT,
+    type: REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
     actor: "watcher",
     fromStatus: pending.fromStatus,
     toStatus: pending.toStatus,
-    body: String(pending.id),
+    body: completionKey,
   });
   return true;
 }

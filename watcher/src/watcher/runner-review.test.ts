@@ -5,6 +5,7 @@ import { runOnce } from "./runner.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-limit-delivery.ts";
 import {
   REVIEW_REQUEUE_ATTEMPT_EVENT,
+  REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   REVIEW_REQUEUE_NOTIFIED_EVENT,
   reviewRequeueAttemptKey,
@@ -60,17 +61,21 @@ describe("watcher review reactions", () => {
 
       assert.deepEqual(
         calls.filter(({ method }) => method === "postMessage").map(({ text }) => text),
-        ["first", "second", "first"],
+        ["first", "second"],
       );
-      const firstDeliveries = calls.filter(
-        ({ method, text }) => method === "postMessage" && text === "first",
-      );
-      assert.equal(firstDeliveries[0].client_msg_id, firstDeliveries[1].client_msg_id);
       assert.equal(calls.filter(({ method }) => method === "update").length, 2);
       assert.match(store.getTask("service-a:ENG-62")?.lastRenderedSummary ?? "", /In Progress/);
       for (const event of pending) {
         assert.equal(
           store.hasEvent("service-a:ENG-62", REVIEW_REQUEUE_NOTIFIED_EVENT, String(event.id)),
+          true,
+        );
+        assert.equal(
+          store.hasEvent(
+            "service-a:ENG-62",
+            REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
+            String(event.id),
+          ),
           true,
         );
       }
@@ -245,7 +250,7 @@ describe("watcher review reactions", () => {
         store.countEventsAfterLatest(
           "service-a:ENG-62",
           "review_requeue_notification_pending",
-          "review_requeue_notified",
+          "review_requeue_notification_delivered",
         ),
         1,
       );
@@ -259,7 +264,7 @@ describe("watcher review reactions", () => {
         store.countEventsAfterLatest(
           "service-a:ENG-62",
           "review_requeue_notification_pending",
-          "review_requeue_notified",
+          "review_requeue_notification_delivered",
         ),
         0,
       );
