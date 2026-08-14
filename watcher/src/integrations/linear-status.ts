@@ -1,5 +1,5 @@
 import { normalizeStatus } from "../domain/status.ts";
-import { linearRequest } from "./linear-client.ts";
+import { isTransientLinearError, linearRequest } from "./linear-client.ts";
 import {
   ISSUE_STATUS_TARGET_QUERY,
   ISSUE_STATUS_UPDATE_MUTATION,
@@ -16,14 +16,17 @@ interface LinearRequestOptions {
   timeoutMs?: number;
 }
 
-interface WorkflowState {
+interface CachedWorkflowState {
   id: string;
   name: string;
+}
+
+interface WorkflowState extends CachedWorkflowState {
   type: string;
   position: number;
 }
 
-const workflowStatesByTeam = new Map<string, WorkflowState[]>();
+const workflowStatesByTeam = new Map<string, CachedWorkflowState[]>();
 
 export async function fetchLinearWorkflowStates(
   teamId: string,
@@ -49,7 +52,10 @@ export async function fetchLinearWorkflowStates(
   if (states.length === 0) {
     throw new Error(`Linear team has no workflow states: ${teamId}`);
   }
-  workflowStatesByTeam.set(teamId, workflowStates);
+  workflowStatesByTeam.set(
+    teamId,
+    workflowStates.map(({ id, name }) => ({ id, name })),
+  );
   return states;
 }
 
@@ -66,23 +72,40 @@ export async function updateLinearIssueStatus(
         .get(teamId)
         ?.find(({ name }) => normalizeStatus(name) === normalizedStatus)
     : undefined;
-  const target =
-    cachedState && issueId
-      ? { issueId, states: [cachedState] }
-      : await fetchIssueStatusTarget(apiKey, issueIdentifier, timeoutMs);
+  if (cachedState && issueId) {
+    try {
+      await mutateIssueStatus(apiKey, issueId, cachedState.id, issueIdentifier, timeoutMs);
+      return;
+    } catch (error) {
+      if (isTransientLinearError(error)) throw error;
+    }
+  }
+
+  const target = await fetchIssueStatusTarget(apiKey, issueIdentifier, timeoutMs);
+  if (teamId) workflowStatesByTeam.set(teamId, target.states);
   const state = target.states.find(({ name }) => normalizeStatus(name) === normalizedStatus);
   if (!state) {
     throw new Error(`Linear status not found for ${issueIdentifier}: ${statusName}`);
   }
 
+  await mutateIssueStatus(apiKey, target.issueId, state.id, issueIdentifier, timeoutMs);
+}
+
+async function mutateIssueStatus(
+  apiKey: string,
+  issueId: string,
+  stateId: string,
+  issueIdentifier: string,
+  timeoutMs: number,
+): Promise<void> {
   const updated = await linearRequest<{
     issueUpdate?: { success?: boolean };
   }>(
     apiKey,
     ISSUE_STATUS_UPDATE_MUTATION,
     {
-      id: target.issueId,
-      stateId: state.id,
+      id: issueId,
+      stateId,
     },
     timeoutMs,
   );

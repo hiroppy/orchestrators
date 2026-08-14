@@ -44,6 +44,104 @@ describe("updateLinearIssueStatus", () => {
     });
   });
 
+  it("refreshes a stale cached state and retries the mutation once", async (context) => {
+    const requests: Array<{ query: string; variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+
+      if (request.query.includes("TeamWorkflowStates")) {
+        return Response.json({
+          data: {
+            team: {
+              states: {
+                nodes: [
+                  { id: "state-review-stale", name: "In Review", type: "started", position: 1 },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (requests.length === 2) {
+        return Response.json({ errors: [{ message: "Workflow state not found" }] });
+      }
+      if (request.query.includes("IssueStatusTarget")) {
+        return Response.json({
+          data: {
+            issue: {
+              id: "issue-current",
+              team: {
+                states: {
+                  nodes: [{ id: "state-review-current", name: "In Review" }],
+                },
+              },
+            },
+          },
+        });
+      }
+      return Response.json({ data: { issueUpdate: { success: true } } });
+    });
+
+    await fetchLinearWorkflowStates("team-stale-cache-test", { apiKey: "lin_test" });
+    await updateLinearIssueStatus("ENG-62", "In Review", {
+      apiKey: "lin_test",
+      issueId: "issue-stale",
+      teamId: "team-stale-cache-test",
+    });
+    await updateLinearIssueStatus("ENG-63", "In Review", {
+      apiKey: "lin_test",
+      issueId: "issue-next",
+      teamId: "team-stale-cache-test",
+    });
+
+    assert.equal(requests.length, 5);
+    assert.deepEqual(
+      requests.map(({ variables }) => variables),
+      [
+        { id: "team-stale-cache-test" },
+        { id: "issue-stale", stateId: "state-review-stale" },
+        { id: "ENG-62" },
+        { id: "issue-current", stateId: "state-review-current" },
+        { id: "issue-next", stateId: "state-review-current" },
+      ],
+    );
+  });
+
+  it("does not amplify a transient cached mutation failure", async (context) => {
+    const requests: Array<{ query: string }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      if (request.query.includes("TeamWorkflowStates")) {
+        return Response.json({
+          data: {
+            team: {
+              states: {
+                nodes: [{ id: "state-review", name: "In Review", type: "started", position: 1 }],
+              },
+            },
+          },
+        });
+      }
+      return Response.json(
+        { errors: [{ message: "Rate limited", extensions: { code: "RATELIMITED" } }] },
+        { status: 400 },
+      );
+    });
+
+    await fetchLinearWorkflowStates("team-rate-limit-test", { apiKey: "lin_test" });
+    await assert.rejects(
+      updateLinearIssueStatus("ENG-62", "In Review", {
+        apiKey: "lin_test",
+        issueId: "issue-uuid",
+        teamId: "team-rate-limit-test",
+      }),
+      /HTTP 400/,
+    );
+    assert.equal(requests.length, 2);
+  });
+
   it("fails without mutating when the status does not exist in the issue team", async (context) => {
     context.mock.method(globalThis, "fetch", async () =>
       Response.json({
