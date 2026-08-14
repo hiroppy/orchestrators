@@ -46,19 +46,6 @@ export async function requeueReviewTask({
 
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const task = store.getTask(taskId)!;
-  if (!decision.reachesLimit) {
-    await slackClient.chat.postMessage({
-      channel: task.parentChannelId!,
-      thread_ts: task.parentMessageTs!,
-      text: buildReviewRequeueMessage(review.reaction, task.status, review.inProgressStatus),
-      blocks: buildReviewRequeueMessageBlocks(
-        review.reaction,
-        task.status,
-        review.inProgressStatus,
-      ),
-    });
-  }
-
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
   });
@@ -74,6 +61,14 @@ export async function requeueReviewTask({
         event.pullRequest,
       ),
   );
+  if (!decision.reachesLimit) {
+    await slackClient.chat.postMessage({
+      channel: task.parentChannelId!,
+      thread_ts: task.parentMessageTs!,
+      text: buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status),
+      blocks: buildReviewRequeueMessageBlocks(review.reaction, fromStatus, requeuedTask.status),
+    });
+  }
   await deliverPendingStatusHooksSafely({
     hooks: config.statusHooks ?? [],
     store,

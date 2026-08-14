@@ -76,6 +76,7 @@ describe("watcher review reactions", () => {
       const deliveryErrors: string[] = [];
       context.mock.method(console, "error", (...args) => deliveryErrors.push(args.join(" ")));
       const statusUpdates: string[] = [];
+      let rejectLinearUpdateOnce = true;
       let rejectLimitNotification = true;
       let rejectLimitCardUpdate = false;
       let rejectedClientMessageId: unknown;
@@ -142,11 +143,22 @@ describe("watcher review reactions", () => {
             };
           },
           updateLinearStatus: async (_issue, status) => {
+            if (rejectLinearUpdateOnce) {
+              rejectLinearUpdateOnce = false;
+              throw new Error("Simulated Linear failure");
+            }
             statusUpdates.push(status);
             linearState = status;
           },
         });
       };
+
+      await assert.rejects(run("In Review"), /Simulated Linear failure/);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(
+        calls.filter(({ text }) => String(text).includes("👀 review reaction detected")).length,
+        0,
+      );
 
       await run("In Review");
       assert.deepEqual(statusUpdates, ["In Progress"]);
