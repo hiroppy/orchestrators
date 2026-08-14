@@ -6,6 +6,9 @@ import { notificationIsEligible } from "../slack/notifications.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
 export const REVIEW_REQUEUE_ATTEMPT_EVENT = "review_requeue_attempt";
+export const REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT = "review_requeue_notification_pending";
+export const REVIEW_REQUEUE_NOTIFIED_EVENT = "review_requeue_notified";
+export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notification_delivered";
 export const REVIEW_REQUEUE_LIMIT_PENDING_EVENT = "review_requeue_limit_pending";
 export const REVIEW_REQUEUE_LIMIT_NOTIFIED_EVENT = "review_requeue_limit_notified";
 export const REVIEW_REQUEUE_LIMIT_EVENT = "review_requeue_limit_reached";

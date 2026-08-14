@@ -42,6 +42,7 @@ import {
 } from "./review-reactions.ts";
 import {
   deliverPendingReviewLimitNotifications,
+  deliverPendingReviewRequeueNotifications,
   markReviewRequeueReconciled,
 } from "./review-limit-delivery.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
@@ -249,6 +250,7 @@ export async function runOnce({
       watcherChannelId: slackChannelId,
     });
     await deliverPendingReviewLimitNotifications(store, slackClient);
+    await deliverPendingReviewRequeueNotifications(store, slackClient);
   }
   const reviewReconciliationTaskIds = new Set(
     store.getTaskIdsWithIncompleteEvent(
