@@ -44,7 +44,7 @@ describe("updateLinearIssueStatus", () => {
     });
   });
 
-  it("refreshes a stale cached state and retries the mutation once", async (context) => {
+  it("invalidates a rejected cached state and refreshes it on the next attempt", async (context) => {
     const requests: Array<{ query: string; variables: Record<string, string> }> = [];
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
@@ -84,14 +84,22 @@ describe("updateLinearIssueStatus", () => {
     });
 
     await fetchLinearWorkflowStates("team-stale-cache-test", { apiKey: "lin_test" });
-    await updateLinearIssueStatus("ENG-62", "In Review", {
-      apiKey: "lin_test",
-      issueId: "issue-stale",
-      teamId: "team-stale-cache-test",
-    });
+    await assert.rejects(
+      updateLinearIssueStatus("ENG-62", "In Review", {
+        apiKey: "lin_test",
+        issueId: "issue-stale",
+        teamId: "team-stale-cache-test",
+      }),
+      /Workflow state not found/,
+    );
     await updateLinearIssueStatus("ENG-63", "In Review", {
       apiKey: "lin_test",
       issueId: "issue-next",
+      teamId: "team-stale-cache-test",
+    });
+    await updateLinearIssueStatus("ENG-64", "In Review", {
+      apiKey: "lin_test",
+      issueId: "issue-cached",
       teamId: "team-stale-cache-test",
     });
 
@@ -101,11 +109,54 @@ describe("updateLinearIssueStatus", () => {
       [
         { id: "team-stale-cache-test" },
         { id: "issue-stale", stateId: "state-review-stale" },
-        { id: "ENG-62" },
+        { id: "ENG-63" },
         { id: "issue-current", stateId: "state-review-current" },
-        { id: "issue-next", stateId: "state-review-current" },
+        { id: "issue-cached", stateId: "state-review-current" },
       ],
     );
+  });
+
+  it("revalidates workflow state names after the cache expires", async (context) => {
+    let now = 0;
+    context.mock.method(Date, "now", () => now);
+    const requests: Array<{ query: string }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      if (request.query.includes("TeamWorkflowStates")) {
+        return Response.json({
+          data: {
+            team: {
+              states: {
+                nodes: [{ id: "state-review", name: "In Review", type: "started", position: 1 }],
+              },
+            },
+          },
+        });
+      }
+      return Response.json({
+        data: {
+          issue: {
+            id: "issue-current",
+            team: {
+              states: { nodes: [{ id: "state-renamed", name: "Reviewing" }] },
+            },
+          },
+        },
+      });
+    });
+
+    await fetchLinearWorkflowStates("team-renamed-state-test", { apiKey: "lin_test" });
+    now = 10 * 60 * 1_000;
+    await assert.rejects(
+      updateLinearIssueStatus("ENG-62", "In Review", {
+        apiKey: "lin_test",
+        issueId: "issue-uuid",
+        teamId: "team-renamed-state-test",
+      }),
+      /Linear status not found/,
+    );
+    assert.equal(requests.length, 2);
   });
 
   it("does not amplify a transient cached mutation failure", async (context) => {

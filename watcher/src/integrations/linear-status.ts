@@ -7,6 +7,7 @@ import {
 } from "./linear-queries.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const WORKFLOW_STATE_CACHE_TTL_MS = 5 * 60 * 1_000;
 const WORKFLOW_STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
 
 interface LinearRequestOptions {
@@ -26,7 +27,12 @@ interface WorkflowState extends CachedWorkflowState {
   position: number;
 }
 
-const workflowStatesByTeam = new Map<string, CachedWorkflowState[]>();
+interface WorkflowStateCacheEntry {
+  expiresAt: number;
+  states: CachedWorkflowState[];
+}
+
+const workflowStatesByTeam = new Map<string, WorkflowStateCacheEntry>();
 
 export async function fetchLinearWorkflowStates(
   teamId: string,
@@ -52,7 +58,7 @@ export async function fetchLinearWorkflowStates(
   if (states.length === 0) {
     throw new Error(`Linear team has no workflow states: ${teamId}`);
   }
-  workflowStatesByTeam.set(
+  cacheWorkflowStates(
     teamId,
     workflowStates.map(({ id, name }) => ({ id, name })),
   );
@@ -68,27 +74,43 @@ export async function updateLinearIssueStatus(
 
   const normalizedStatus = normalizeStatus(statusName);
   const cachedState = teamId
-    ? workflowStatesByTeam
-        .get(teamId)
-        ?.find(({ name }) => normalizeStatus(name) === normalizedStatus)
+    ? getCachedWorkflowStates(teamId)?.find(
+        ({ name }) => normalizeStatus(name) === normalizedStatus,
+      )
     : undefined;
   if (cachedState && issueId) {
     try {
       await mutateIssueStatus(apiKey, issueId, cachedState.id, issueIdentifier, timeoutMs);
       return;
     } catch (error) {
-      if (isTransientLinearError(error)) throw error;
+      if (teamId && !isTransientLinearError(error)) workflowStatesByTeam.delete(teamId);
+      throw error;
     }
   }
 
   const target = await fetchIssueStatusTarget(apiKey, issueIdentifier, timeoutMs);
-  if (teamId) workflowStatesByTeam.set(teamId, target.states);
+  if (teamId) cacheWorkflowStates(teamId, target.states);
   const state = target.states.find(({ name }) => normalizeStatus(name) === normalizedStatus);
   if (!state) {
     throw new Error(`Linear status not found for ${issueIdentifier}: ${statusName}`);
   }
 
   await mutateIssueStatus(apiKey, target.issueId, state.id, issueIdentifier, timeoutMs);
+}
+
+function cacheWorkflowStates(teamId: string, states: CachedWorkflowState[]): void {
+  workflowStatesByTeam.set(teamId, {
+    expiresAt: Date.now() + WORKFLOW_STATE_CACHE_TTL_MS,
+    states,
+  });
+}
+
+function getCachedWorkflowStates(teamId: string): CachedWorkflowState[] | undefined {
+  const cached = workflowStatesByTeam.get(teamId);
+  if (!cached) return undefined;
+  if (cached.expiresAt > Date.now()) return cached.states;
+  workflowStatesByTeam.delete(teamId);
+  return undefined;
 }
 
 async function mutateIssueStatus(
