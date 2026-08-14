@@ -102,7 +102,7 @@ async function createWorkpadReply(
     logger.error(error);
     const reason = isLinearRateLimitError(error)
       ? "The Linear API rate limit was reached. Please try again later."
-      : "Linear への転記中にエラーが発生しました。";
+      : "An error occurred while copying the reply to Linear.";
     await postLinearReplyFailure(client, reply, reason, logger);
     return false;
   }
@@ -111,7 +111,7 @@ async function createWorkpadReply(
     await postLinearReplyFailure(
       client,
       reply,
-      "Linear の転記先 Workpad が見つかりませんでした。",
+      "The destination Workpad could not be found in Linear.",
       logger,
     );
     return false;
@@ -131,7 +131,7 @@ async function createWorkpadReply(
     await postSlackOperationError(
       client,
       { channel: reply.channel, threadTs: reply.thread_ts },
-      "Linear への転記は成功しましたが、処理結果を記録できませんでした。",
+      "The reply was copied to Linear, but the result could not be recorded.",
       logger,
     );
     return false;
@@ -147,7 +147,7 @@ async function postLinearReplyFailure(
   await postSlackOperationError(
     client,
     { channel: reply.channel, threadTs: reply.thread_ts },
-    `Linear への転記に失敗しました。理由: ${reason}`,
+    `Failed to copy the reply to Linear. Reason: ${reason}`,
     logger,
   );
 }

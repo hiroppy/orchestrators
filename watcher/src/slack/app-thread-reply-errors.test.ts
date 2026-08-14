@@ -141,17 +141,17 @@ describe("Slack thread reply errors", () => {
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記に失敗しました。理由: Linear の転記先 Workpad が見つかりませんでした。",
+          text: "[error] Failed to copy the reply to Linear. Reason: The destination Workpad could not be found in Linear.",
         },
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記に失敗しました。理由: Linear への転記中にエラーが発生しました。",
+          text: "[error] Failed to copy the reply to Linear. Reason: An error occurred while copying the reply to Linear.",
         },
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記に失敗しました。理由: The Linear API rate limit was reached. Please try again later.",
+          text: "[error] Failed to copy the reply to Linear. Reason: The Linear API rate limit was reached. Please try again later.",
         },
       ]);
       assert.equal(errors.length, 2);
@@ -208,7 +208,7 @@ describe("Slack thread reply errors", () => {
         {
           channel: "C123",
           thread_ts: "1.000",
-          text: "[error] Linear への転記は成功しましたが、処理結果を記録できませんでした。",
+          text: "[error] The reply was copied to Linear, but the result could not be recorded.",
         },
       ]);
       assert.equal(store.countEvents("service-a:ENG-62", "workpad_replied"), 0);
