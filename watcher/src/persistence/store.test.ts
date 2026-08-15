@@ -119,7 +119,7 @@ describe("WatcherStore", () => {
         "workspace-a-eng": {
           apiKey: "lin_test",
           teamId: "team-a",
-          statuses: ["In Staging Check", "Done"],
+          statuses: ["In Staging Check", "Done", "À FAIRE"],
         },
       };
       store.syncDefinitions(
@@ -140,15 +140,23 @@ describe("WatcherStore", () => {
         resolvedState: "Done",
         resolvedStateType: "completed",
       });
+      const unicodeDemoted = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-64",
+        resolvedState: "À FAIRE",
+        resolvedStateType: "completed",
+      });
 
       const tasks = store.getTasksForLinearSync(new Set(), {
         "in staging check": "completed",
         done: "started",
+        "à faire": "started",
       });
 
       assert.deepEqual(
         tasks.map(({ id }) => id),
-        [demoted.id],
+        [demoted.id, unicodeDemoted.id],
       );
     });
   });

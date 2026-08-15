@@ -68,8 +68,9 @@ describe("Slack status actions", () => {
           assert.equal(task.issueIdentifier, "ENG-62");
           linearUpdates.push(status);
         },
-        async (task, fromStatus, toStatus) => {
+        async (task, fromStatus, toStatus, _client, previousTask) => {
           assert.equal(task.status, "Rework");
+          assert.equal(previousTask.status, "In Review");
           hookTransitions.push(`${fromStatus} -> ${toStatus}`);
         },
         (task) => {

@@ -72,6 +72,67 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("announces an overridden terminal state after a Slack status change", async (context) => {
+    await withStore(async (store) => {
+      context.mock.method(globalThis, "fetch", async () =>
+        Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Staging Check", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        }),
+      );
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "In Staging Check"]),
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        () => undefined,
+      );
+      const calls: Array<Record<string, unknown>> = [];
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: closedTask,
+        previousTask,
+      });
+
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+      );
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

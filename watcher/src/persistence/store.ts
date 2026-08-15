@@ -1,4 +1,4 @@
-import { asc, and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import {
@@ -257,15 +257,14 @@ export class WatcherStore {
     includedTaskIds: ReadonlySet<string> = new Set(),
     statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
   ): Task[] {
-    const overriddenStatuses = Object.keys(statusTypeOverrides);
-    const activeOrIncluded = or(
-      isNull(tasks.linearStateType),
-      notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-      overriddenStatuses.length > 0
-        ? inArray(sql<string>`lower(trim(${statuses.name}))`, overriddenStatuses)
-        : undefined,
-      includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
-    );
+    const rawStateFilter =
+      Object.keys(statusTypeOverrides).length > 0
+        ? undefined
+        : or(
+            isNull(tasks.linearStateType),
+            notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+            includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+          );
 
     return this.db
       .select({
@@ -278,7 +277,7 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(and(eq(services.active, true), activeOrIncluded))
+      .where(and(eq(services.active, true), rawStateFilter))
       .all()
       .map((row) => taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl))
       .filter(

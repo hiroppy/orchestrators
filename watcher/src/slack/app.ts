@@ -47,6 +47,7 @@ export type StatusTransitionHandler = (
   fromStatus: string,
   toStatus: string,
   client: SlackClient,
+  previousTask: Task,
 ) => Promise<void>;
 export type StatusTransitionEventFactory = (
   task: Task,
@@ -227,7 +228,7 @@ export async function handleStatusAction(
         body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
-      return { task, fromStatus };
+      return { task, fromStatus, previousTask: existingTask };
     });
     if (statusTransition) {
       await onStatusTransition?.(
@@ -235,6 +236,7 @@ export async function handleStatusAction(
         statusTransition.fromStatus,
         selectedStatus,
         client,
+        statusTransition.previousTask,
       );
     }
   } catch (error) {
@@ -258,6 +260,7 @@ export async function publishWatcherEvent(
   options: {
     defaultAssignees?: string[];
     statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
+    transitionPreviousTask?: Task;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -314,12 +317,13 @@ export async function publishWatcherEvent(
       assigneeLabels,
     );
     const summary = JSON.stringify(card);
+    const transitionPreviousTask = options.transitionPreviousTask ?? previousTask;
     const announceTerminalParent =
-      Boolean(previousTask?.parentMessageTs) &&
+      Boolean(transitionPreviousTask?.parentMessageTs) &&
       enteredTerminalLinearState(
-        previousTask?.linearStateType,
+        transitionPreviousTask?.linearStateType,
         task.linearStateType,
-        previousTask?.status,
+        transitionPreviousTask?.status,
         task.status,
         options.statusTypeOverrides ?? {},
       );
@@ -356,11 +360,11 @@ export async function publishWatcherEvent(
           );
         }
       } catch (error) {
-        if (announceTerminalParent && previousTask) {
+        if (announceTerminalParent && transitionPreviousTask) {
           store.restoreTaskState(
             task.id,
-            previousTask.status,
-            previousTask.linearStateType,
+            transitionPreviousTask.status,
+            transitionPreviousTask.linearStateType,
             transitionEvent?.id,
           );
         }
