@@ -100,9 +100,9 @@ index c87d048..1b2ea79 100644
      - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
      - Run the full PR feedback sweep protocol.
      - Confirm PR checks are passing (green) after the latest changes.
-+    - Use `gh pr view --json headRefOid` to record the PR's current head commit SHA, then use `gh pr checks --watch` to wait for GitHub checks. A non-zero exit, unavailable/incomplete response, or any queued, pending, or in-progress check is not success.
-+    - Treat failed, cancelled, timed-out, or action-required checks as blocking; fix them when in scope and otherwise report the blocker.
-+    - After `gh pr checks --watch` succeeds, run `gh pr view --json headRefOid` and `gh pr checks` one final time immediately before the status transition. If the SHA changed or any check is no longer complete and passing, restart the check-address-verify loop and remain in `In Progress`.
++    - Use the PR number identified by the feedback-sweep protocol in every command: record its head commit SHA with `gh pr view <PR-number> --json headRefOid`, then wait with `gh pr checks <PR-number> --watch`. A non-zero exit or unavailable/incomplete response is not success.
++    - Use `gh pr checks <PR-number> --json bucket` to classify results. Only `pass` and `skipping` are acceptable terminal buckets; `pending`, `fail`, and `cancel` block the transition. Fix blocking checks when in scope and otherwise report the blocker.
++    - Immediately before the status transition, fetch the same PR again with `gh pr view <PR-number> --json headRefOid` and `gh pr checks <PR-number> --json bucket`. If the SHA changed or any bucket is not `pass` or `skipping`, restart the check-address-verify loop and remain in `In Progress`.
      - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
      - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
      - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
