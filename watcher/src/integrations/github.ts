@@ -26,9 +26,36 @@ interface GhPullRequest {
   labels?: Array<{ name?: string }>;
 }
 
-interface GhReviewComment {
-  created_at?: string;
+interface GhReviewThreadsResponse {
+  data?: {
+    repository?: {
+      pullRequest?: {
+        reviewThreads?: {
+          nodes?: Array<{
+            isResolved?: boolean;
+            isOutdated?: boolean;
+            comments?: { nodes?: Array<{ createdAt?: string }> };
+          }>;
+        };
+      };
+    };
+  };
 }
+
+const LATEST_UNRESOLVED_REVIEW_COMMENT_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          isOutdated
+          comments(last: 1) { nodes { createdAt } }
+        }
+      }
+    }
+  }
+}`;
 
 export async function requireGitHubCli(
   execFile: typeof execFileDefault = execFileDefault,
@@ -110,13 +137,35 @@ async function fetchLatestReviewCommentAt(
   pullRequest: PullRequest,
 ): Promise<string | null> {
   if (!pullRequest.repository || !pullRequest.number) return null;
-  const endpoint = `repos/${pullRequest.repository}/pulls/${pullRequest.number}/comments?sort=created&direction=desc&per_page=1`;
-  const { stdout } = await execFile("gh", ["api", endpoint], {
-    timeout: 10_000,
-    maxBuffer: 1024 * 1024,
-  });
-  const comments = JSON.parse(stdout) as GhReviewComment[];
-  return comments[0]?.created_at ?? null;
+  const [owner, repo] = pullRequest.repository.split("/");
+  if (!owner || !repo) return null;
+  const { stdout } = await execFile(
+    "gh",
+    [
+      "api",
+      "graphql",
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `repo=${repo}`,
+      "-F",
+      `number=${pullRequest.number}`,
+      "-f",
+      `query=${LATEST_UNRESOLVED_REVIEW_COMMENT_QUERY}`,
+    ],
+    {
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  const response = JSON.parse(stdout) as GhReviewThreadsResponse;
+  return (
+    response.data?.repository?.pullRequest?.reviewThreads?.nodes
+      ?.filter(({ isResolved, isOutdated }) => !isResolved && !isOutdated)
+      .flatMap(({ comments }) => comments?.nodes ?? [])
+      .flatMap(({ createdAt }) => (createdAt ? [createdAt] : []))
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
+  );
 }
 
 function repositoryFromPullRequestUrl(url: string): string | null {

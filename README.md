@@ -22,8 +22,8 @@ see what needs attention and respond without opening each Symphony dashboard.
   work, and send replies and images from a Slack thread back to the Linear
   workpad.
 - **Automated review loops keep moving.** When a new inline review comment is
-  added to a linked pull request while its issue is in review, Orchestrators
-  requeues the Linear issue so Symphony can act on the feedback.
+  added to a current unresolved thread on a linked pull request while its issue
+  is in review, Orchestrators requeues the Linear issue so Symphony can act on the feedback.
 
 ## How it works
 

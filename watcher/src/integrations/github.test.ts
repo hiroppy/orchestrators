@@ -96,11 +96,40 @@ describe("findPullRequest", () => {
         includeLatestReviewComment: true,
         execFile: async (_command, args) => {
           if (args[0] === "api") {
-            assert.deepEqual(args, [
-              "api",
-              "repos/example/service/pulls/123/comments?sort=created&direction=desc&per_page=1",
-            ]);
-            return { stdout: JSON.stringify([{ created_at: "2026-08-15T06:02:10Z" }]) };
+            assert.equal(args[1], "graphql");
+            assert.ok(args.includes("owner=example"));
+            assert.ok(args.includes("repo=service"));
+            assert.ok(args.includes("number=123"));
+            assert.match(args.at(-1) ?? "", /reviewThreads/);
+            return {
+              stdout: JSON.stringify({
+                data: {
+                  repository: {
+                    pullRequest: {
+                      reviewThreads: {
+                        nodes: [
+                          {
+                            isResolved: true,
+                            isOutdated: false,
+                            comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                          },
+                          {
+                            isResolved: false,
+                            isOutdated: true,
+                            comments: { nodes: [{ createdAt: "2026-08-15T06:30:00Z" }] },
+                          },
+                          {
+                            isResolved: false,
+                            isOutdated: false,
+                            comments: { nodes: [{ createdAt: "2026-08-15T06:02:10Z" }] },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              }),
+            };
           }
           return {
             stdout: JSON.stringify({
@@ -116,6 +145,80 @@ describe("findPullRequest", () => {
 
     assert.equal(result?.latestReviewCommentAt, "2026-08-15T06:02:10Z");
     assert.deepEqual(result?.labels, ["stg-deploy"]);
+  });
+
+  it("ignores comments added to resolved review threads", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => ({
+          stdout:
+            args[0] === "api"
+              ? JSON.stringify({
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        reviewThreads: {
+                          nodes: [
+                            {
+                              isResolved: true,
+                              isOutdated: false,
+                              comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                })
+              : JSON.stringify({
+                  url: "https://github.com/example/service/pull/123",
+                  number: 123,
+                  headRefName: "eng-65-contact-form",
+                }),
+        }),
+      },
+    );
+
+    assert.equal(result?.latestReviewCommentAt, null);
+  });
+
+  it("ignores comments in outdated review threads", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => ({
+          stdout:
+            args[0] === "api"
+              ? JSON.stringify({
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        reviewThreads: {
+                          nodes: [
+                            {
+                              isResolved: false,
+                              isOutdated: true,
+                              comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                })
+              : JSON.stringify({
+                  url: "https://github.com/example/service/pull/123",
+                  number: 123,
+                  headRefName: "eng-65-contact-form",
+                }),
+        }),
+      },
+    );
+
+    assert.equal(result?.latestReviewCommentAt, null);
   });
 
   it("keeps the pull request when loading its latest comment fails", async () => {

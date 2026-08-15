@@ -121,10 +121,12 @@ sequenceDiagram
   end
 ```
 
-The decision compares GitHub's latest inline-comment `created_at` with the last handled comment
-timestamp in `task_events`. This catches comments that arrive between Linear entering `In Review`
-and the watcher's next poll, while an already handled comment cannot requeue the task again.
-Comment IDs and deletion state are not persisted.
+The decision compares the latest comment in a current, unresolved GitHub review thread with the
+last handled comment timestamp in `task_events`. Comments in resolved or outdated threads are
+ignored, including comments added after resolution. A resolved thread becomes eligible again only
+if it is marked unresolved and is not outdated. This catches comments that arrive between Linear
+entering `In Review` and the watcher's next poll, while an already handled comment cannot requeue
+the task again. Comment IDs are not persisted.
 
 Before updating Linear, the watcher records a pending requeue event. Periodic maintenance retries
 unfinished events, so an exit between the Linear mutation and the local transaction cannot lose the

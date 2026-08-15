@@ -73,7 +73,8 @@ error if it does not.
 ### Inline review comment requeue
 
 Set `watcher.reviewComment` to move review work back into Symphony when an
-unhandled inline review comment is observed while the issue is in review:
+unhandled inline review comment is observed in an unresolved thread while the
+issue is in review:
 
 ```ts
 {
@@ -92,6 +93,8 @@ The watcher checks inline comments only while the Linear issue is in
 the issue moves to `inProgressStatus`. The handled timestamp is stored in the
 existing event log; comment IDs and deletion state are not tracked. Omit
 `watcher.reviewComment` to disable this behavior.
+Comments in resolved or outdated review threads are ignored. A resolved thread
+becomes eligible again if it is subsequently marked unresolved and is not outdated.
 
 Comment checks run during periodic maintenance, including for tasks that remain
 in the current Symphony snapshot without producing a new snapshot event. Before
