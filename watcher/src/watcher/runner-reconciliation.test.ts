@@ -197,7 +197,7 @@ describe("watcher reconciliation and snapshots", () => {
           throw new Error("A no-op reconciliation must not fetch PR metadata");
         },
       });
-      assert.equal(linearFetches, 1);
+      assert.equal(linearFetches, 2);
       assert.equal(pullRequestLookups, 1);
     });
   });

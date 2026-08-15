@@ -9,6 +9,7 @@ import { diffSnapshots, normalizeSnapshot } from "./diff.ts";
 import {
   createLinearWorkpadReply,
   fetchLinearIssueState,
+  fetchLinearIssueStateSummaries,
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
 import { downloadSlackFile } from "../integrations/slack.ts";
@@ -337,15 +338,50 @@ async function reconcileLinearStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
   reviewReconciliationTaskIds: ReadonlySet<string>;
 }): Promise<void> {
-  for (const task of store.getTasksForLinearSync(reviewReconciliationTaskIds)) {
+  const tasks = store.getTasksForLinearSync(reviewReconciliationTaskIds).filter((task) => {
     const hasCurrentLinearState = skipTaskIds.has(task.id) && Boolean(task.linearStateType);
-    if (
+    return !(
       hasCurrentLinearState ||
       task.issueIdentifier.startsWith("watcher:") ||
       !task.parentChannelId ||
       !task.parentMessageTs
-    )
+    );
+  });
+  const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
+  for (const task of tasks) {
+    const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
+    if (!teamName || summaries.has(teamName)) continue;
+    const teamTasks = tasks.filter(
+      (candidate) =>
+        config.services.find(({ name }) => name === candidate.serviceName)?.linearTeam === teamName,
+    );
+    summaries.set(
+      teamName,
+      await fetchLinearIssueStateSummaries(
+        teamTasks.map(({ issueIdentifier }) => issueIdentifier),
+        { apiKey: config.linearTeams[teamName]?.apiKey },
+      ),
+    );
+  }
+
+  for (const task of tasks) {
+    const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
+    const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
+    if (!summary?.state) continue;
+    const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
+    const reaction = reviewReactionForStatus(config, summary.state);
+    const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
+    const enteredTerminalState = enteredTerminalLinearState(
+      task.linearStateType,
+      summary.stateType,
+    );
+    if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
+      if (summary.stateType) {
+        store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
+      }
+      markReviewRequeueReconciled(store, task.id);
       continue;
+    }
 
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
@@ -353,14 +389,18 @@ async function reconcileLinearStatuses({
       maxAttempts: 1,
     });
     if (!linearIssue?.state) continue;
-    const sameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
-    const enteredTerminalState = enteredTerminalLinearState(
+    const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
+    const detailedEnteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,
       linearIssue.stateType,
     );
-    const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
-    const reaction = reviewReactionForStatus(config, linearIssue.state);
-    if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
+    const detailedReaction = reviewReactionForStatus(config, linearIssue.state);
+    if (
+      detailedSameStatus &&
+      !detailedEnteredTerminalState &&
+      !hasPendingReconciliation &&
+      !detailedReaction
+    ) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
       }
@@ -370,13 +410,13 @@ async function reconcileLinearStatuses({
     let pullRequest =
       linearIssue.pullRequest ??
       (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
-    if (reaction && hasPendingReconciliation && !pullRequest?.url) continue;
+    if (detailedReaction && hasPendingReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
-      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, { reaction }).catch(
-        () => null,
-      );
+      const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
+        reaction: detailedReaction,
+      }).catch(() => null);
       if (
-        reaction &&
+        detailedReaction &&
         hasPendingReconciliation &&
         enrichedPullRequest?.hasConfiguredReaction === undefined
       )
