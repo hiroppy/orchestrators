@@ -426,6 +426,14 @@ describe("watcher reconciliation and snapshots", () => {
         resolvedStateType: "started",
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const secondTask = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(secondTask.id, "C123", "2.000", "{}");
 
       await runOnce({
         config,
@@ -436,6 +444,7 @@ describe("watcher reconciliation and snapshots", () => {
 
       assert.equal(linearFetches, 1);
       assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.getTask(secondTask.id)?.status, "In Review");
     });
   });
 

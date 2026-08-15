@@ -352,7 +352,7 @@ async function reconcileLinearStatuses({
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
-    if (!teamName || summaries.has(teamName)) continue;
+    if (!teamName || summaries.has(teamName) || rateLimitedTeams.has(teamName)) continue;
     const teamTasks = tasks.filter(
       (candidate) =>
         config.services.find(({ name }) => name === candidate.serviceName)?.linearTeam === teamName,
