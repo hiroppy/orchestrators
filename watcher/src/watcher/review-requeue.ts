@@ -1,7 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
-import type { WatcherEvent } from "../domain/types.ts";
+import type { TaskEvent, WatcherEvent } from "../domain/types.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear-status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { buildReviewRequeueMessage } from "../slack/views.ts";
@@ -9,6 +9,8 @@ import { deliverPendingReviewRequeueNotifications } from "./review-requeue-deliv
 import {
   REVIEW_COMMENT_HANDLED_EVENT,
   REVIEW_REQUEUE_EVENT,
+  REVIEW_REQUEUE_COMPLETED_EVENT,
+  REVIEW_REQUEUE_PENDING_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   type ReviewCommentDecision,
 } from "./review-comments.ts";
@@ -37,19 +39,95 @@ export async function requeueReviewTask({
   if (!decision.commentAt) throw new Error("Review requeue is missing its comment timestamp");
 
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier))!;
+  const pending = store.addEvent({
+    taskId: task.id,
+    type: REVIEW_REQUEUE_PENDING_EVENT,
+    actor: "watcher",
+    fromStatus: task.status,
+    toStatus: review.inProgressStatus,
+    body: JSON.stringify({ event, commentAt: decision.commentAt }),
+  });
+  await completeReviewRequeue({
+    config,
+    store,
+    slackClient,
+    watcherChannelId,
+    pending,
+    event,
+    commentAt: decision.commentAt,
+    updateLinearStatus,
+  });
+}
+
+export async function recoverPendingReviewRequeues({
+  config,
+  store,
+  slackClient,
+  watcherChannelId,
+  updateLinearStatus,
+}: {
+  config: ResolvedWatcherRuntimeConfig;
+  store: WatcherStore;
+  slackClient: WebClient;
+  watcherChannelId: string;
+  updateLinearStatus: typeof updateLinearIssueStatus;
+}): Promise<void> {
+  for (const pending of store.getUncompletedEvents(
+    REVIEW_REQUEUE_PENDING_EVENT,
+    REVIEW_REQUEUE_COMPLETED_EVENT,
+  )) {
+    const payload = JSON.parse(pending.body ?? "") as {
+      event: WatcherEvent;
+      commentAt: string;
+    };
+    await completeReviewRequeue({
+      config,
+      store,
+      slackClient,
+      watcherChannelId,
+      pending,
+      ...payload,
+      updateLinearStatus,
+    });
+  }
+}
+
+async function completeReviewRequeue({
+  config,
+  store,
+  slackClient,
+  watcherChannelId,
+  pending,
+  event,
+  commentAt,
+  updateLinearStatus,
+}: {
+  config: ResolvedWatcherRuntimeConfig;
+  store: WatcherStore;
+  slackClient: WebClient;
+  watcherChannelId: string;
+  pending: TaskEvent;
+  event: WatcherEvent;
+  commentAt: string;
+  updateLinearStatus: typeof updateLinearIssueStatus;
+}): Promise<void> {
+  const review = config.reviewComment;
+  if (!review) return;
+  const task = store.getTask(pending.taskId)!;
   const team = linearTeamForService(config, task.serviceName);
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: team?.apiKey,
     issueId: event.linearIssueId,
     teamId: team?.teamId,
   });
-  const message = buildReviewRequeueMessage(task.status, review.inProgressStatus);
+  const fromStatus = pending.fromStatus ?? task.status;
+  const message = buildReviewRequeueMessage(fromStatus, review.inProgressStatus);
   const { task: requeuedTask } = store.updateTaskStatusAtomically(
     task.id,
     review.inProgressStatus,
-    (updatedTask, fromStatus) => {
+    (updatedTask) => {
       const statusHookEvent = createPendingStatusHookEvent(
-        config.statusHooks,
+        config.statusHooks ?? [],
         updatedTask,
         fromStatus,
         updatedTask.status,
@@ -57,6 +135,14 @@ export async function requeueReviewTask({
       );
       return [
         ...(statusHookEvent ? [statusHookEvent] : []),
+        {
+          taskId: task.id,
+          type: REVIEW_REQUEUE_COMPLETED_EVENT,
+          actor: "watcher",
+          fromStatus,
+          toStatus: updatedTask.status,
+          body: String(pending.id),
+        },
         {
           taskId: task.id,
           type: REVIEW_REQUEUE_EVENT,
@@ -79,13 +165,13 @@ export async function requeueReviewTask({
           actor: "watcher",
           fromStatus,
           toStatus: updatedTask.status,
-          body: decision.commentAt,
+          body: commentAt,
         },
       ];
     },
   );
   await deliverPendingStatusHooksSafely({
-    hooks: config.statusHooks,
+    hooks: config.statusHooks ?? [],
     store,
     slackClient,
     watcherChannelId,

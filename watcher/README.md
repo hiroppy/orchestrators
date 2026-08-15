@@ -272,9 +272,8 @@ destination channel. It does not require the root `config.ts` or
   link.
 - Raw worker stdout is not posted. Thread messages are capped at 2,500
   characters, and error details shown on cards are capped at 180 characters.
-- The configured PR reaction's presence is queried only for issues in the
-  configured review status. A matching reaction suppresses the review mention
-  and requeues the issue up to the configured per-issue maximum.
+- Inline PR comments are queried only for issues in the configured review status.
+  A comment newer than the persisted handled timestamp requeues the issue once.
 - Observability and Linear requests time out instead of blocking the polling
   loop indefinitely. A temporary observability failure preserves the last
   known task snapshot and posts a service warning; recovery updates that

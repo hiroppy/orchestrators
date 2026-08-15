@@ -5,6 +5,8 @@ import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
 export const REVIEW_COMMENT_HANDLED_EVENT = "review_comment_handled";
+export const REVIEW_REQUEUE_PENDING_EVENT = "review_requeue_pending";
+export const REVIEW_REQUEUE_COMPLETED_EVENT = "review_requeue_completed";
 export const REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT = "review_requeue_notification_pending";
 export const REVIEW_REQUEUE_NOTIFIED_EVENT = "review_requeue_notified";
 export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notification_delivered";
