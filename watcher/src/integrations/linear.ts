@@ -386,9 +386,10 @@ export async function fetchLinearIssueStateSummaries(
         variables,
         options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
-      for (const issue of Object.values(data)) {
+      for (const [index, requestedIdentifier] of batch.entries()) {
+        const issue = data[`issue${index}`];
         if (!issue?.identifier) continue;
-        summaries.set(issue.identifier, {
+        summaries.set(requestedIdentifier, {
           identifier: issue.identifier,
           state: issue.state?.name ?? null,
           stateType: issue.state?.type ?? null,

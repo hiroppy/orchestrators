@@ -367,20 +367,21 @@ async function reconcileLinearStatuses({
   for (const task of tasks) {
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
-    if (!summary?.state) continue;
     const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
-    const reaction = reviewReactionForStatus(config, summary.state);
-    const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
-    const enteredTerminalState = enteredTerminalLinearState(
-      task.linearStateType,
-      summary.stateType,
-    );
-    if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
-      if (summary.stateType) {
-        store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
+    if (summary?.state) {
+      const reaction = reviewReactionForStatus(config, summary.state);
+      const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
+      const enteredTerminalState = enteredTerminalLinearState(
+        task.linearStateType,
+        summary.stateType,
+      );
+      if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
+        if (summary.stateType) {
+          store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
+        }
+        markReviewRequeueReconciled(store, task.id);
+        continue;
       }
-      markReviewRequeueReconciled(store, task.id);
-      continue;
     }
 
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {

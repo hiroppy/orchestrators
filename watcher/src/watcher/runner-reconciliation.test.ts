@@ -334,6 +334,67 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  for (const batchFailure of ["request failure", "partial response"] as const) {
+    it(`falls back to detailed reconciliation after a batch ${batchFailure}`, async (context) => {
+      await withStore(async (store) => {
+        const nativeFetch = globalThis.fetch;
+        let linearFetches = 0;
+        context.mock.method(globalThis, "fetch", async (url, options) => {
+          if (String(url).startsWith("data:")) return nativeFetch(url, options);
+          linearFetches += 1;
+          const { query } = JSON.parse(String(options?.body)) as { query: string };
+          if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+            return batchFailure === "request failure"
+              ? new Response("temporary failure", { status: 500 })
+              : Response.json({ data: {} });
+          }
+          return Response.json({
+            data: {
+              issue: {
+                identifier: "ENG-62",
+                title: "Merge the pull request",
+                state: { name: "Done", type: "completed" },
+                url: "https://linear.app/example/issue/ENG-62/example",
+                attachments: { nodes: [] },
+                relations: { nodes: [] },
+              },
+            },
+          });
+        });
+        const config = runtimeConfig({
+          services: [
+            {
+              name: "service-a",
+              url: dataUrl({ running: [], retrying: [], blocked: [] }),
+              linearTeam: "workspace-a-eng",
+            },
+          ],
+          linearTeams: linearTeams(["In Review", "Done"]),
+        });
+        store.syncDefinitions(config.services, config.linearTeams);
+        const task = store.upsertTaskFromEvent({
+          type: "ended",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+          resolvedStateType: "started",
+        });
+        store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+        await runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+        });
+
+        assert.equal(linearFetches, 2);
+        assert.equal(store.getTask(task.id)?.status, "Done");
+        assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      });
+    });
+  }
+
   it("preserves active tasks through an outage and reports recovery without false transitions", async (context) => {
     await withStore(async (store) => {
       const activeSnapshot = {

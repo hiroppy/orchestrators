@@ -362,7 +362,7 @@ describe("watcher review reactions", () => {
 
       hasReviewReaction = true;
       linearState = "In Review";
-      linearFetchFailuresRemaining = 2;
+      linearFetchFailuresRemaining = 3;
       // Phase 3: card recovery succeeds, but failed enrichment on a snapshot diff stays pending.
       await run("In Progress");
       assert.equal(

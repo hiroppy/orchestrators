@@ -47,6 +47,27 @@ describe("fetchLinearIssueStateSummaries", () => {
 
     assert.equal(requests, 2);
   });
+
+  it("keys summaries by the requested identifier when Linear returns a canonical identifier", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+      Response.json({
+        data: {
+          issue0: {
+            identifier: "NEW-1",
+            state: { name: "In Progress", type: "started" },
+          },
+        },
+      }),
+    );
+
+    const result = await fetchLinearIssueStateSummaries(["OLD-1"], { apiKey: "lin_test" });
+
+    assert.deepEqual(result.get("OLD-1"), {
+      identifier: "NEW-1",
+      state: "In Progress",
+      stateType: "started",
+    });
+  });
 });
 
 describe("fetchLinearIssueState", () => {
