@@ -114,7 +114,14 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     statusTypeOverrides: runtimeConfig.statusTypeOverrides,
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
-    onStatusTransition: async (task, _fromStatus, _toStatus, slackClient, previousTask) => {
+    onStatusTransition: async (
+      task,
+      _fromStatus,
+      _toStatus,
+      slackClient,
+      previousTask,
+      transitionEventId,
+    ) => {
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,
@@ -122,6 +129,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         slackChannelId: slackConfig.channelId,
         task,
         previousTask,
+        transitionEventId,
       });
       await deliverPendingStatusHooksSafely({
         hooks: runtimeConfig.statusHooks,
@@ -201,6 +209,7 @@ export async function reconcileSlackStatusTransition({
   slackChannelId,
   task,
   previousTask,
+  transitionEventId,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -208,6 +217,7 @@ export async function reconcileSlackStatusTransition({
   slackChannelId: string;
   task: Task;
   previousTask?: Task;
+  transitionEventId?: number;
 }): Promise<void> {
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
@@ -235,6 +245,7 @@ export async function reconcileSlackStatusTransition({
     {
       statusTypeOverrides: config.statusTypeOverrides,
       transitionPreviousTask: previousTask,
+      transitionEventId,
     },
   );
 }

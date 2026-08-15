@@ -48,6 +48,7 @@ export type StatusTransitionHandler = (
   toStatus: string,
   client: SlackClient,
   previousTask: Task,
+  transitionEventId?: number,
 ) => Promise<void>;
 export type StatusTransitionEventFactory = (
   task: Task,
@@ -200,7 +201,7 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
-      const { task, fromStatus } = store.updateTaskStatusAtomically(
+      const { task, fromStatus, transitionEvent } = store.updateTaskStatusAtomically(
         taskId,
         selectedStatus,
         (updatedTask, previousStatus) =>
@@ -228,7 +229,12 @@ export async function handleStatusAction(
         body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
-      return { task, fromStatus, previousTask: existingTask };
+      return {
+        task,
+        fromStatus,
+        previousTask: existingTask,
+        transitionEventId: transitionEvent?.id,
+      };
     });
     if (statusTransition) {
       await onStatusTransition?.(
@@ -237,6 +243,7 @@ export async function handleStatusAction(
         selectedStatus,
         client,
         statusTransition.previousTask,
+        statusTransition.transitionEventId,
       );
     }
   } catch (error) {
@@ -261,6 +268,7 @@ export async function publishWatcherEvent(
     defaultAssignees?: string[];
     statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
     transitionPreviousTask?: Task;
+    transitionEventId?: number;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -365,7 +373,7 @@ export async function publishWatcherEvent(
             task.id,
             transitionPreviousTask.status,
             transitionPreviousTask.linearStateType,
-            transitionEvent?.id,
+            transitionEvent?.id ?? options.transitionEventId,
           );
         }
         throw error;

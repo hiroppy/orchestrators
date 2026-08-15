@@ -303,6 +303,90 @@ describe("Slack status actions", () => {
     });
   });
 
+  it("rolls back the action-created hook event when an overridden closure post fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => String(args.text).startsWith("Task closed"),
+        },
+      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      const errors: unknown[] = [];
+      let pendingBeforePublish = 0;
+      let observedTransitionEventId: number | undefined;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => errors.push(error) },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          pendingBeforePublish = store.countEvents(task.id, "status_hook_pending");
+          observedTransitionEventId = transitionEventId;
+          await publishWatcherEvent(
+            client,
+            store,
+            "C123",
+            {
+              type: "updated",
+              service: task.serviceName,
+              issueIdentifier: task.issueIdentifier,
+              resolvedState: "In Review",
+              resolvedStateType: "started",
+            },
+            undefined,
+            {
+              statusTypeOverrides: { "in review": "completed" },
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+            },
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(pendingBeforePublish, 1);
+      assert.equal(typeof observedTransitionEventId, "number");
+      assert.equal(store.countEvents("service-a:ENG-62", "status_hook_pending"), 0);
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        0,
+      );
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Simulated Slack failure/);
+    });
+  });
+
   it("serializes concurrent status changes for the same task", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

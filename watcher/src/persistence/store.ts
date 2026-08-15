@@ -525,12 +525,12 @@ export class WatcherStore {
     statusName: string,
     createEvent: (task: Task, fromStatus: string) => TaskEventInput | undefined,
     now = new Date(),
-  ): { task: Task; fromStatus: string } {
+  ): { task: Task; fromStatus: string; transitionEvent: TaskEvent | undefined } {
     return this.db.transaction(() => {
       const transition = this.updateTaskStatus(taskId, statusName, now);
-      const event = createEvent(transition.task, transition.fromStatus);
-      if (event) this.addEvent(event);
-      return transition;
+      const eventInput = createEvent(transition.task, transition.fromStatus);
+      const transitionEvent = eventInput ? this.addEvent(eventInput) : undefined;
+      return { ...transition, transitionEvent };
     });
   }
 
