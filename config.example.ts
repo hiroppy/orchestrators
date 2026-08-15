@@ -2,13 +2,12 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
-    // Requeues a Linear issue from review when a linked GitHub PR has this reaction.
-    // Remove this block to disable reaction-based requeueing.
-    reviewReaction: {
+    // Requeues a Linear issue when a new inline review comment appears on its GitHub PR.
+    // Remove this block to disable comment-based requeueing.
+    reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
-      reaction: "👀", // e.g. Codex code review in progress
-      maxRequeues: 3,
+      symphonyGitHubLogins: ["your-symphony-account"],
     },
     // Put local TypeScript hooks in ./hooks and import them from config.ts.
     // A hook's returned string is posted back to the task's Slack thread.

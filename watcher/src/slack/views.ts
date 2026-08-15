@@ -294,42 +294,16 @@ export function buildStatusChangedMessageBlocks(
   ];
 }
 
-export function buildReviewRequeueMessage(
-  reaction: string,
-  fromStatus: string,
-  toStatus: string,
-): string {
-  return `${reaction} review reaction detected | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
+export function buildReviewRequeueMessage(fromStatus: string, toStatus: string): string {
+  return `Inline review comment detected | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
 }
 
 export function buildReviewRequeueMessageBlocks(
-  reaction: string,
   fromStatus: string,
   toStatus: string,
 ): SectionBlock[] {
   return buildNotificationBlocks(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`, [
-    `*Event*\n${escapeSlack(reaction)} Review reaction detected`,
-  ]);
-}
-
-export function buildReviewRequeueLimitMessage(
-  reaction: string,
-  maxRequeues: number,
-  fromStatus: string,
-  toStatus: string,
-): string {
-  return `${reaction} review requeue limit reached (${maxRequeues}/${maxRequeues}) | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
-}
-
-export function buildReviewRequeueLimitMessageBlocks(
-  reaction: string,
-  maxRequeues: number,
-  fromStatus: string,
-  toStatus: string,
-): SectionBlock[] {
-  return buildNotificationBlocks(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`, [
-    `*Event*\n${escapeSlack(reaction)} Review requeue limit reached`,
-    `*Requeues*\n${formatNumber(maxRequeues)}/${formatNumber(maxRequeues)}`,
+    "*Event*\nInline review comment detected",
   ]);
 }
 

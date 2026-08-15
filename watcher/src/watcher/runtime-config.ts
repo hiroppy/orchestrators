@@ -37,10 +37,10 @@ export async function resolveLinearWorkflowStatuses(
 
 function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
   const rules: Array<[label: string, status: string]> = [];
-  if (config.reviewReaction) {
+  if (config.reviewComment) {
     rules.push(
-      ["watcher.reviewReaction.inReviewStatus", config.reviewReaction.inReviewStatus],
-      ["watcher.reviewReaction.inProgressStatus", config.reviewReaction.inProgressStatus],
+      ["watcher.reviewComment.inReviewStatus", config.reviewComment.inReviewStatus],
+      ["watcher.reviewComment.inProgressStatus", config.reviewComment.inProgressStatus],
     );
   }
   for (const status of config.notifications?.statuses ?? []) {

@@ -31,6 +31,23 @@ watcher-specific behavior in `watcher/README.md`, Symphony workflow details in
 diagrams and examples remain consistent with the code and default
 configuration.
 
+## Data Handling
+
+This is an internal product. Do not treat ordinary PII in internal runtime
+state, logs, retry payloads, or local persistence as a concern by default, and
+do not add data-minimization complexity unless a task explicitly requires it.
+Credentials, API tokens, and other secrets remain sensitive and must never be
+committed or exposed.
+
+## Architecture Scope
+
+This is an internal tool operated with a single watcher process. Design for
+that deployment model by default. Do not add distributed coordination,
+multi-watcher locking, exactly-once guarantees, or elaborate crash-recovery
+machinery unless a concrete requirement or demonstrated failure justifies the
+complexity. Prefer simple polling and the existing event log when they satisfy
+the operational need, and document any intentionally accepted recovery gaps.
+
 ## Testing Guidelines
 
 Use `node:test` with `node:assert/strict`; name tests `*.test.ts` beside the code under test. Add focused regression tests for fixes and cover important branches, state transitions, boundaries, and integration failure paths. Before opening a PR, run `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm format:check`.

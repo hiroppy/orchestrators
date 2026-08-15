@@ -21,9 +21,9 @@ see what needs attention and respond without opening each Symphony dashboard.
   manage task assignees, turn an existing open pull request into tracked Linear
   work, and send replies and images from a Slack thread back to the Linear
   workpad.
-- **Automated review loops keep moving.** When a configured review reaction
-  (for example, Codex's 👀) appears on a linked pull request, Orchestrators
-  requeues the Linear issue so Symphony can act on the feedback.
+- **Automated review loops keep moving.** When a new inline review comment is
+  added to a current unresolved thread on a linked pull request while its issue
+  is in review, Orchestrators requeues the Linear issue so Symphony can act on the feedback.
 
 ## How it works
 
@@ -42,7 +42,7 @@ flowchart LR
   subgraph reviewCycle["Automated review"]
     direction TB
     review["Ready for human review<br/>In Review"]
-    automated{"Automated review feedback?"}
+    automated{"New inline review comment?"}
     requeue["↩ Requeue the issue<br/>In Progress"]
     review --> automated
     automated -- Yes --> requeue
@@ -69,8 +69,8 @@ flowchart LR
   verify -- Yes --> merging
 ```
 
-See [Architecture](docs/architecture.md#review-reaction-lifecycle) for polling,
-reaction limits, persistence, and recovery details.
+See [Architecture](docs/architecture.md#inline-review-comment-lifecycle) for polling,
+comment handling, persistence, and recovery details.
 
 ## Requirements
 
@@ -105,4 +105,4 @@ pnpm start:watcher
 - [`docs/workflows.md`](docs/workflows.md) — Symphony workflow profiles and
   per-instance configuration
 - [`docs/architecture.md`](docs/architecture.md) — data flow, polling
-  boundaries, and the review-reaction lifecycle
+  boundaries, and the inline-review-comment lifecycle
