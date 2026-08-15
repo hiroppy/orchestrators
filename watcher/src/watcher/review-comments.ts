@@ -26,9 +26,10 @@ export function decideReviewComment(
 ): ReviewCommentDecision {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const review = config.reviewComment;
-  const currentStatus = event.resolvedState ?? event.state ?? "";
   const isInReview = Boolean(
-    review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
+    review &&
+    event.resolvedState &&
+    normalizeStatus(event.resolvedState) === normalizeStatus(review.inReviewStatus),
   );
   const latestCommentAt = event.pullRequest?.latestReviewCommentAt ?? undefined;
   const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
