@@ -24,7 +24,7 @@ export function notificationTargetsForWatcherEvent(
   return assignees.length > 0 ? assignees : undefined;
 }
 
-export function notificationIsEligible(
+function notificationIsEligible(
   notification: ResolvedNotificationConfig | undefined,
   previousStatus: string | undefined,
   currentStatus: string,

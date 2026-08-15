@@ -28,12 +28,17 @@ export function decideReviewComment(
   const isInReview = Boolean(
     review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
   );
+  const wasAlreadyInReview = Boolean(
+    review &&
+    normalizeStatus(store.getTask(taskId)?.status) === normalizeStatus(review.inReviewStatus),
+  );
   const latestCommentAt = event.pullRequest?.latestReviewCommentAt;
   const enteredReviewAt = review
     ? store.getLatestTransitionTo(taskId, review.inReviewStatus)?.createdAt
     : undefined;
   const shouldRequeue = Boolean(
     isInReview &&
+    wasAlreadyInReview &&
     latestCommentAt &&
     enteredReviewAt &&
     Date.parse(latestCommentAt) > Date.parse(enteredReviewAt),

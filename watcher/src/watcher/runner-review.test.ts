@@ -84,6 +84,45 @@ describe("watcher inline review comments", () => {
     });
   });
 
+  it("does not reuse an old comment while the task is returning to In Review", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
+        statusHooks: [],
+        statusTypeOverrides: {},
+        defaultAssignees: [],
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "updated",
+        fromStatus: "In Progress",
+        toStatus: "In Review",
+      });
+
+      const decision = decideReviewComment(config, store, {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          latestReviewCommentAt: "2999-01-01T00:00:00.000Z",
+        },
+      });
+
+      assert.equal(decision.shouldRequeue, false);
+    });
+  });
+
   it("updates Linear and the stored task after a new inline comment", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
