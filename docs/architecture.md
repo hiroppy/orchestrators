@@ -73,13 +73,14 @@ configured review status. GitHub access is performed through `gh pr view`, which
 GitHub API.
 
 At startup, the watcher loads each enabled Linear team's workflow states for configuration
-validation and caches their name-to-ID mappings for one hour. The expiration is lazy: it does not
-cause an hourly request, but the next status update after expiration resolves the issue team's
-current states before mutating. Automated review requeues reuse both the issue UUID obtained during
-event enrichment and the cached target state ID, so their normal path sends only the update
-mutation. A transient mutation failure leaves the cache intact. A non-transient failure invalidates
-the team's cache and returns the original error without an immediate retry; a later poll then
-resolves current state metadata through the uncached path.
+validation and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
+the issue and its team's current states before mutating. Automated review requeues instead reuse
+both the issue UUID obtained during event enrichment and the cached target state ID, so their normal
+path sends only the update mutation. Cache expiration is lazy: it does not cause an hourly request,
+but the next automated requeue resolves current state metadata through the uncached path. A
+transient cached mutation failure leaves the cache intact. A non-transient failure invalidates the
+team's cache and returns the original error without an immediate retry; a later poll then resolves
+current state metadata through the uncached path.
 
 ## Review-reaction lifecycle
 
