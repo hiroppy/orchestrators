@@ -9,10 +9,9 @@ export const REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT = "review_requeue_notific
 export const REVIEW_REQUEUE_NOTIFIED_EVENT = "review_requeue_notified";
 export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notification_delivered";
 
-export interface ReviewCommentDecision {
-  shouldRequeue: boolean;
-  commentAt?: string;
-}
+export type ReviewCommentDecision =
+  | { shouldRequeue: false }
+  | { shouldRequeue: true; commentAt: string };
 
 export interface ReviewRequeuePayload {
   message: string;
@@ -24,22 +23,23 @@ export function decideReviewComment(
   store: WatcherStore,
   event: WatcherEvent,
 ): ReviewCommentDecision {
-  const taskId = taskIdFor(event.service, event.issueIdentifier);
   const review = config.reviewComment;
-  const isInReview = Boolean(
-    review &&
-    event.resolvedState &&
-    normalizeStatus(event.resolvedState) === normalizeStatus(review.inReviewStatus),
-  );
-  const latestCommentAt = event.pullRequest?.latestReviewCommentAt ?? undefined;
-  const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
-  const shouldRequeue = Boolean(
-    isInReview &&
-    latestCommentAt &&
-    (!handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)),
-  );
+  if (
+    !review ||
+    !event.resolvedState ||
+    normalizeStatus(event.resolvedState) !== normalizeStatus(review.inReviewStatus)
+  ) {
+    return { shouldRequeue: false };
+  }
 
-  return { shouldRequeue, commentAt: shouldRequeue ? latestCommentAt : undefined };
+  const latestCommentAt = event.pullRequest?.latestReviewCommentAt;
+  if (!latestCommentAt) return { shouldRequeue: false };
+
+  const taskId = taskIdFor(event.service, event.issueIdentifier);
+  const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
+  return !handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)
+    ? { shouldRequeue: true, commentAt: latestCommentAt }
+    : { shouldRequeue: false };
 }
 
 export function shouldFetchReviewComments(

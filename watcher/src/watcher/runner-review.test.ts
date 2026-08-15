@@ -12,6 +12,14 @@ import {
   withStore,
 } from "./runner.test-support.ts";
 
+function reviewConfig(url = "") {
+  return runtimeConfig({
+    services: [{ name: "service-a", url, linearTeam: "workspace-a-eng" }],
+    linearTeams: linearTeams(["In Progress", "In Review"]),
+    reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
+  });
+}
+
 describe("watcher inline review comments", () => {
   it("rejects a null event in a pending notification payload", () => {
     assert.throws(
@@ -21,14 +29,7 @@ describe("watcher inline review comments", () => {
   });
   it("requeues the first inline comment observed in review", async () => {
     await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-        statusHooks: [],
-        statusTypeOverrides: {},
-        defaultAssignees: [],
-      });
+      const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
         type: "updated",
@@ -54,11 +55,7 @@ describe("watcher inline review comments", () => {
 
   it("does not requeue without an authoritative Linear state", async () => {
     await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-      });
+      const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
 
       const decision = decideReviewComment(config, store, {
@@ -78,14 +75,7 @@ describe("watcher inline review comments", () => {
 
   it("ignores the latest comment after it has been handled", async () => {
     await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-        statusHooks: [],
-        statusTypeOverrides: {},
-        defaultAssignees: [],
-      });
+      const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
         type: "updated",
@@ -116,14 +106,7 @@ describe("watcher inline review comments", () => {
 
   it("requeues a comment that arrives before the watcher first observes In Review", async () => {
     await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-        statusHooks: [],
-        statusTypeOverrides: {},
-        defaultAssignees: [],
-      });
+      const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
         type: "updated",
@@ -148,14 +131,7 @@ describe("watcher inline review comments", () => {
 
   it("updates Linear and the stored task after a new inline comment", async () => {
     await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-        statusHooks: [],
-        statusTypeOverrides: {},
-        defaultAssignees: [],
-      });
+      const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
       store.upsertTaskFromEvent({
         type: "updated",
@@ -223,11 +199,7 @@ describe("watcher inline review comments", () => {
           },
         });
       });
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: dataUrl(snapshot), linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-      });
+      const config = reviewConfig(dataUrl(snapshot));
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });
       const task = store.upsertTaskFromEvent({

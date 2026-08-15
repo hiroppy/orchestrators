@@ -34,7 +34,6 @@ export async function requeueReviewTask({
 }): Promise<void> {
   const review = config.reviewComment;
   if (!decision.shouldRequeue || !review) return;
-  if (!decision.commentAt) throw new Error("Review requeue is missing its comment timestamp");
 
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier))!;
   const team = linearTeamForService(config, task.serviceName);
