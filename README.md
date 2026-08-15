@@ -42,7 +42,7 @@ flowchart LR
   subgraph reviewCycle["Automated review"]
     direction TB
     review["Ready for human review<br/>In Review"]
-    automated{"Automated review feedback?"}
+    automated{"New inline review comment?"}
     requeue["↩ Requeue the issue<br/>In Progress"]
     review --> automated
     automated -- Yes --> requeue

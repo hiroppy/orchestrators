@@ -93,6 +93,13 @@ the issue moves to `inProgressStatus`. The handled timestamp is stored in the
 existing event log; comment IDs and deletion state are not tracked. Omit
 `watcher.reviewComment` to disable this behavior.
 
+Comment checks run during periodic maintenance, including for tasks that remain
+in the current Symphony snapshot without producing a new snapshot event. Before
+updating Linear, the watcher stores a pending requeue event. After a restart it
+checks Linear's current status before retrying: the original review status is
+requeued, an already-applied target is completed locally, and a newer different
+status is preserved.
+
 ### Status hooks
 
 Use `watcher.statusHooks` to run TypeScript after a tracked issue enters a

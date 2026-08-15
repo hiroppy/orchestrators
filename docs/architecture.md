@@ -69,8 +69,9 @@ not part of Symphony's active work set. Tasks whose Linear state type is `comple
 
 The three-second loop does not unconditionally call GitHub for every task. A GitHub query is made
 when event enrichment requires PR data, or when periodic reconciliation finds a task in the
-configured review status. GitHub access is performed through `gh pr view`, which in turn uses the
-GitHub API.
+configured review status. Review-status tasks remain eligible for this 30-second reconciliation
+even while they are present in an unchanged Symphony snapshot. GitHub access is performed through
+`gh pr view` and `gh api`.
 
 At startup, the watcher loads each enabled Linear team's workflow states for configuration
 validation and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
@@ -127,7 +128,10 @@ Comment IDs and deletion state are not persisted.
 
 Before updating Linear, the watcher records a pending requeue event. Periodic maintenance retries
 unfinished events, so an exit between the Linear mutation and the local transaction cannot lose the
-handled timestamp or Slack notification.
+handled timestamp or Slack notification. Recovery first reads the current Linear status. It retries
+the mutation only when the issue remains in the original review status, completes local bookkeeping
+when the target status was already applied, and retires the pending event without changing Linear
+when the issue has advanced to another status.
 
 ## Persistence and recovery
 
