@@ -208,30 +208,11 @@ export async function handleStatusAction(
           createStatusTransitionEvent?.(updatedTask, previousStatus, selectedStatus),
       );
       store.setRenderedSummary(task.id, JSON.stringify(card));
-      const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
-      const statusChangedLine = buildStatusChangedMessage(
-        actorDisplayName,
-        fromStatus,
-        selectedStatus,
-      );
-      const reply = await client.chat.postMessage({
-        channel: existingTask.parentChannelId,
-        thread_ts: existingTask.parentMessageTs,
-        text: statusChangedLine,
-        blocks: buildStatusChangedMessageBlocks(actorDisplayName, fromStatus, selectedStatus),
-      });
-      store.addEvent({
-        taskId: task.id,
-        type: "status_changed",
-        actor,
-        fromStatus,
-        toStatus: selectedStatus,
-        body: statusChangedLine,
-        slackThreadTs: reply.ts,
-      });
       return {
         task,
         fromStatus,
+        parentChannelId: existingTask.parentChannelId,
+        parentMessageTs: existingTask.parentMessageTs,
         previousTask: existingTask,
         transitionEventId: transitionEvent?.id,
       };
@@ -257,6 +238,32 @@ export async function handleStatusAction(
       }
       if (transitionRolledBack) {
         await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
+      } else {
+        const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
+        const statusChangedLine = buildStatusChangedMessage(
+          actorDisplayName,
+          statusTransition.fromStatus,
+          selectedStatus,
+        );
+        const reply = await client.chat.postMessage({
+          channel: statusTransition.parentChannelId,
+          thread_ts: statusTransition.parentMessageTs,
+          text: statusChangedLine,
+          blocks: buildStatusChangedMessageBlocks(
+            actorDisplayName,
+            statusTransition.fromStatus,
+            selectedStatus,
+          ),
+        });
+        store.addEvent({
+          taskId: statusTransition.task.id,
+          type: "status_changed",
+          actor,
+          fromStatus: statusTransition.fromStatus,
+          toStatus: selectedStatus,
+          body: statusChangedLine,
+          slackThreadTs: reply.ts,
+        });
       }
       if (transitionError) throw transitionError;
     }
@@ -385,8 +392,7 @@ export async function publishWatcherEvent(
     const transitionPreviousTask = options.transitionPreviousTask ?? previousTask;
     const transitionStillCurrent =
       options.transitionExpectedStatus === undefined ||
-      normalizeStatus(previousTask?.status ?? "") ===
-        normalizeStatus(options.transitionExpectedStatus);
+      normalizeStatus(task.status) === normalizeStatus(options.transitionExpectedStatus);
     const announceTerminalParent =
       Boolean(transitionPreviousTask?.parentMessageTs) &&
       enteredTerminalLinearState(

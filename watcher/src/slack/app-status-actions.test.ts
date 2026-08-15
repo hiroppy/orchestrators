@@ -350,8 +350,8 @@ describe("Slack status actions", () => {
               type: "updated",
               service: task.serviceName,
               issueIdentifier: task.issueIdentifier,
-              resolvedState: "Done",
-              resolvedStateType: "completed",
+              resolvedState: "In Review",
+              resolvedStateType: "started",
             },
             undefined,
             {
@@ -382,6 +382,7 @@ describe("Slack status actions", () => {
       assert.equal(pendingBeforePublish, 1);
       assert.equal(typeof observedTransitionEventId, "number");
       assert.equal(store.countEvents("service-a:ENG-62", "status_hook_pending"), 0);
+      assert.equal(store.countEvents("service-a:ENG-62", "status_changed"), 0);
       assert.equal(
         store.getUncompletedEvents(
           "status_hook_pending",
@@ -404,13 +405,27 @@ describe("Slack status actions", () => {
         ),
         /restored In Progress.*Linear remains In Review/,
       );
+      assert.equal(
+        calls.some(
+          ({ method, args }) =>
+            method === "postMessage" &&
+            /\*In Progress\* → \*In Review\* by /.test(String(args.text)),
+        ),
+        false,
+      );
     });
   });
 
-  it("keeps an authoritative status advance without posting a rollback error", async () => {
+  it("keeps an authoritative status advance when publication fails", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-      const client = fakeClient(calls);
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => String(args.text).startsWith("Task closed"),
+        },
+      );
       await publishWatcherEvent(client, store, "C123", {
         type: "started",
         service: "service-a",
@@ -431,7 +446,7 @@ describe("Slack status actions", () => {
             },
           },
           client,
-          logger: { error: (error) => assert.fail(String(error)) },
+          logger: { error: () => {} },
         },
         store,
         async () => {},
