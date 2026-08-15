@@ -176,6 +176,19 @@ idempotent. For asynchronous work, such as an App Distribution
 build, make that build a required CI check and use the hook to read its completed
 result instead of waiting for CI inside the hook.
 
+## Slack commands
+
+Mention the configured bot to run a command:
+
+- `@bot status` — show tracked Todo, In Progress, and In Review tasks.
+- `@bot assign @user-or-group` — add a user or user group to notifications for
+  a tracked task. Run this in the task thread.
+- `@bot unassign @user-or-group` — remove a user or user group from
+  notifications for a tracked task. Run this in the task thread.
+- `@bot take-pr <GitHub PR URL>` — create a Linear issue for an existing open
+  pull request.
+- `@bot help` — show the available commands and where to run them.
+
 ## Preview Slack output
 
 Post a representative watcher message to Slack without starting the watcher or
