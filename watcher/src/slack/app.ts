@@ -55,6 +55,7 @@ export type StatusTransitionEventFactory = (
   fromStatus: string,
   toStatus: string,
 ) => TaskEventInput | undefined;
+export type StatusReconciliationEventFactory = (task: Task, previousTask: Task) => TaskEventInput;
 
 export interface SlackAppOptions {
   botToken: string;
@@ -64,6 +65,7 @@ export interface SlackAppOptions {
   store: WatcherStore;
   botUserId: string;
   createStatusTransitionEvent?: StatusTransitionEventFactory;
+  createStatusReconciliationEvent?: StatusReconciliationEventFactory;
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
@@ -78,6 +80,7 @@ export function createSlackApp({
   store,
   botUserId,
   createStatusTransitionEvent,
+  createStatusReconciliationEvent,
   onStatusTransition,
   takePr,
   statusSummary,
@@ -93,6 +96,7 @@ export function createSlackApp({
     store,
     updateLinearStatus,
     createStatusTransitionEvent,
+    createStatusReconciliationEvent,
     onStatusTransition,
   );
   app.action(TAKE_PR_SERVICE_ACTION_ID, async ({ ack }) => {
@@ -115,6 +119,7 @@ function registerStatusAction(
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
   createStatusTransitionEvent?: StatusTransitionEventFactory,
+  createStatusReconciliationEvent?: StatusReconciliationEventFactory,
   onStatusTransition?: StatusTransitionHandler,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
@@ -124,6 +129,7 @@ function registerStatusAction(
       updateLinearStatus,
       onStatusTransition,
       createStatusTransitionEvent,
+      createStatusReconciliationEvent,
     );
   });
 }
@@ -134,6 +140,7 @@ export async function handleStatusAction(
   updateLinearStatus: LinearStatusUpdater,
   onStatusTransition?: StatusTransitionHandler,
   createStatusTransitionEvent?: StatusTransitionEventFactory,
+  createStatusReconciliationEvent?: StatusReconciliationEventFactory,
 ): Promise<void> {
   await ack();
 
@@ -201,11 +208,24 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
+      let hasTransitionEvent = false;
       const { task, fromStatus, transitionEvent } = store.updateTaskStatusAtomically(
         taskId,
         selectedStatus,
-        (updatedTask, previousStatus) =>
-          createStatusTransitionEvent?.(updatedTask, previousStatus, selectedStatus),
+        (updatedTask, previousStatus) => {
+          const transitionEvent = createStatusTransitionEvent?.(
+            updatedTask,
+            previousStatus,
+            selectedStatus,
+          );
+          hasTransitionEvent = transitionEvent !== undefined;
+          return [
+            ...(transitionEvent ? [transitionEvent] : []),
+            ...(createStatusReconciliationEvent
+              ? [createStatusReconciliationEvent(updatedTask, existingTask)]
+              : []),
+          ];
+        },
       );
       store.setRenderedSummary(task.id, JSON.stringify(card));
       return {
@@ -214,7 +234,7 @@ export async function handleStatusAction(
         parentChannelId: existingTask.parentChannelId,
         parentMessageTs: existingTask.parentMessageTs,
         previousTask: existingTask,
-        transitionEventId: transitionEvent?.id,
+        transitionEventId: hasTransitionEvent ? transitionEvent?.id : undefined,
       };
     });
     if (statusTransition) {

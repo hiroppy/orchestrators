@@ -70,10 +70,10 @@ describe("Linear terminal states", () => {
         expected: false,
       },
       {
-        name: "configured terminal status with missing previous metadata",
+        name: "same configured terminal status with missing previous metadata",
         previous: [undefined, "In Staging Check"],
         current: ["started", "In Staging Check"],
-        expected: true,
+        expected: false,
       },
       {
         name: "configured terminal to built-in terminal",

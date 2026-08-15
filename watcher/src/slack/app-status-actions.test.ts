@@ -77,11 +77,19 @@ describe("Slack status actions", () => {
           assert.deepEqual(task.pullRequest?.labels, ["stg-deploy"]);
           return undefined;
         },
+        (task, previousTask) => ({
+          taskId: task.id,
+          type: "linear_reconciliation_pending",
+          fromStatus: previousTask.status,
+          toStatus: task.status,
+          body: previousTask.linearStateType,
+        }),
       );
 
       assert.deepEqual(linearUpdates, ["Rework"]);
       assert.deepEqual(hookTransitions, ["In Review -> Rework"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "Rework");
+      assert.equal(store.countEvents("service-a:ENG-62", "linear_reconciliation_pending"), 1);
       assert.equal(calls.filter(({ method }) => method === "update").length, 1);
       assert.match(
         JSON.stringify(calls.find(({ method }) => method === "update")?.args.blocks),

@@ -688,6 +688,13 @@ describe("watcher reconciliation and snapshots", () => {
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
       store.updateTaskStatus(task.id, "In Staging Check");
+      store.addEvent({
+        taskId: task.id,
+        type: "linear_reconciliation_pending",
+        fromStatus: "In Progress",
+        toStatus: "In Staging Check",
+        body: "started",
+      });
       const calls: Array<Record<string, unknown>> = [];
 
       await runOnce({

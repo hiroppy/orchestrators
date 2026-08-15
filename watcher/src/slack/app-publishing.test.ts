@@ -360,6 +360,32 @@ describe("Slack event publishing", () => {
     });
   });
 
+  it("does not repeat closure messages when overridden terminal metadata stays missing", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const terminalOptions = { statusTypeOverrides: { "in staging check": "completed" } };
+      const event = {
+        type: "ended" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Verify staging",
+        resolvedState: "In Staging Check",
+      };
+
+      await publishWatcherEvent(client, store, "C123", event, undefined, terminalOptions);
+      await publishWatcherEvent(client, store, "C123", event, undefined, terminalOptions);
+
+      assert.equal(
+        calls.filter(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("Task closed"),
+        ).length,
+        0,
+      );
+    });
+  });
+
   it("retries a configured terminal announcement after Slack fails", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

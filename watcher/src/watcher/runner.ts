@@ -20,7 +20,12 @@ import {
   requireGitHubCli,
 } from "../integrations/github.ts";
 import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/app.ts";
-import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
+import {
+  DEFAULT_DATABASE_PATH,
+  taskIdFor,
+  type TaskEventInput,
+  WatcherStore,
+} from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
   SnapshotsByService,
@@ -109,6 +114,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     statusTypeOverrides: runtimeConfig.statusTypeOverrides,
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
+    createStatusReconciliationEvent: linearReconciliationPendingEvent,
     onStatusTransition: async (
       task,
       _fromStatus,
@@ -281,13 +287,17 @@ function markLinearReconciliationPending(
     task.id,
   );
   if (existing.length > 0) return;
-  store.addEvent({
+  store.addEvent(linearReconciliationPendingEvent(task, previousTask));
+}
+
+function linearReconciliationPendingEvent(task: Task, previousTask: Task): TaskEventInput {
+  return {
     taskId: task.id,
     type: LINEAR_RECONCILIATION_PENDING_EVENT,
     fromStatus: previousTask.status,
     toStatus: task.status,
     body: previousTask.linearStateType,
-  });
+  };
 }
 
 function completePendingLinearReconciliations(store: WatcherStore, taskId: string): void {
