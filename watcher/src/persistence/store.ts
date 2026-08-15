@@ -10,6 +10,7 @@ import {
   tasks,
 } from "./schema.ts";
 import { isTerminalLinearState, TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type {
   LinearWorkflowStateType,
   ResolvedLinearTeamConfig,
@@ -257,14 +258,22 @@ export class WatcherStore {
     includedTaskIds: ReadonlySet<string> = new Set(),
     statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
   ): Task[] {
-    const rawStateFilter =
-      Object.keys(statusTypeOverrides).length > 0
-        ? undefined
-        : or(
-            isNull(tasks.linearStateType),
-            notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-            includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
-          );
+    const normalizedOverrideStatuses = new Set(Object.keys(statusTypeOverrides));
+    const overrideStatusNames =
+      normalizedOverrideStatuses.size === 0
+        ? []
+        : this.db
+            .selectDistinct({ name: statuses.name })
+            .from(statuses)
+            .all()
+            .filter(({ name }) => normalizedOverrideStatuses.has(normalizeStatus(name)))
+            .map(({ name }) => name);
+    const rawStateFilter = or(
+      isNull(tasks.linearStateType),
+      notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+      includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+      overrideStatusNames.length > 0 ? inArray(statuses.name, overrideStatusNames) : undefined,
+    );
 
     return this.db
       .select({

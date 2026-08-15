@@ -47,14 +47,24 @@ function queueStatusHook(
 
 describe("status hooks", () => {
   it("preserves a later transition with the same statuses while the first is pending", async () => {
-    await withStore((store) => {
+    await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "updated",
         service: "ios",
         issueIdentifier: "APP-42",
         resolvedState: "In Review",
       });
-      const hooks = [{ id: "review", status: "In Review", run: () => undefined }];
+      store.setParentMessage(task.id, "CTASK", "10.000", "{}");
+      let runs = 0;
+      const hooks = [
+        {
+          id: "review",
+          status: "In Review",
+          run: () => {
+            runs += 1;
+          },
+        },
+      ];
 
       queueStatusHook(store, hooks, task, "In Progress", "In Review");
       store.updateTaskStatus(task.id, "In Progress");
@@ -65,6 +75,15 @@ describe("status hooks", () => {
         store.getUncompletedEvents("status_hook_pending", "status_hook_completed", task.id).length,
         2,
       );
+      await deliverPendingStatusHooks({
+        hooks,
+        store,
+        slackClient: { chat: { postMessage: async () => {} } },
+        watcherChannelId: "CWATCHER",
+        taskId: task.id,
+      });
+
+      assert.equal(runs, 2);
     });
   });
 
