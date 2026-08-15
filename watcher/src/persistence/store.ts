@@ -1,7 +1,14 @@
 import { asc, and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
+import {
+  services,
+  statuses,
+  taskAssignees,
+  taskEvents,
+  taskObservations,
+  tasks,
+} from "./schema.ts";
 import { isTerminalLinearState, TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
   LinearWorkflowStateType,
@@ -331,13 +338,13 @@ export class WatcherStore {
     event: WatcherEvent,
     createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
     now = new Date(),
-  ): { task: Task; previousTask: Task | undefined } {
+  ): { task: Task; previousTask: Task | undefined; transitionEvent: TaskEvent | undefined } {
     return this.db.transaction(() => {
       const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
       const task = this.upsertTaskFromEvent(event, now);
-      const transitionEvent = createEvent(task, previousTask);
-      if (transitionEvent) this.addEvent(transitionEvent);
-      return { task, previousTask };
+      const eventInput = createEvent(task, previousTask);
+      const transitionEvent = eventInput ? this.addEvent(eventInput) : undefined;
+      return { task, previousTask, transitionEvent };
     });
   }
 
@@ -388,25 +395,31 @@ export class WatcherStore {
     taskId: string,
     statusName: string,
     stateType: string | undefined,
+    transitionEventId?: number,
     now = new Date(),
   ): void {
-    const status = this.db
-      .select({ id: statuses.id })
-      .from(statuses)
-      .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
-      .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
-      .get();
-    if (!status) throw new Error(`Previous status not found for ${taskId}: ${statusName}`);
+    this.db.transaction(() => {
+      const status = this.db
+        .select({ id: statuses.id })
+        .from(statuses)
+        .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
+        .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
+        .get();
+      if (!status) throw new Error(`Previous status not found for ${taskId}: ${statusName}`);
 
-    this.db
-      .update(tasks)
-      .set({
-        statusId: status.id,
-        linearStateType: stateType ?? null,
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
+      this.db
+        .update(tasks)
+        .set({
+          statusId: status.id,
+          linearStateType: stateType ?? null,
+          updatedAt: now.toISOString(),
+        })
+        .where(eq(tasks.id, taskId))
+        .run();
+      if (transitionEventId !== undefined) {
+        this.db.delete(taskEvents).where(eq(taskEvents.id, transitionEventId)).run();
+      }
+    });
   }
 
   assignTask(taskId: string, slackUserId: string, now = new Date()): boolean {

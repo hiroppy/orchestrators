@@ -65,6 +65,7 @@ export interface SlackAppOptions {
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
+  statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
 }
 
 export function createSlackApp({
@@ -78,6 +79,7 @@ export function createSlackApp({
   onStatusTransition,
   takePr,
   statusSummary,
+  statusTypeOverrides,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -98,7 +100,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, botUserId, takePr, statusSummary);
+    await handleAppMention(args, store, botUserId, takePr, statusSummary, statusTypeOverrides);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
@@ -267,12 +269,14 @@ export async function publishWatcherEvent(
     const isNewPullRequest =
       event.pullRequest !== undefined &&
       !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
-    const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
-      event,
-      (task, previous) =>
-        previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
-          ? options.createStatusTransitionEvent?.(task, previous.status)
-          : undefined,
+    const {
+      task: persistedTask,
+      previousTask,
+      transitionEvent,
+    } = store.upsertTaskFromEventAtomically(event, (task, previous) =>
+      previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
+        ? options.createStatusTransitionEvent?.(task, previous.status)
+        : undefined,
     );
     if (!persistedTask.parentMessageTs && store.getTaskAssignees(taskId).length === 0) {
       for (const assignee of initialTaskAssignees(
@@ -353,7 +357,12 @@ export async function publishWatcherEvent(
         }
       } catch (error) {
         if (announceTerminalParent && previousTask) {
-          store.restoreTaskState(task.id, previousTask.status, previousTask.linearStateType);
+          store.restoreTaskState(
+            task.id,
+            previousTask.status,
+            previousTask.linearStateType,
+            transitionEvent?.id,
+          );
         }
         throw error;
       }

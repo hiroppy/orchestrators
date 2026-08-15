@@ -41,12 +41,12 @@ function queueStatusHook(
   toStatus: string,
   pullRequest?: Parameters<typeof createPendingStatusHookEvent>[4],
 ): void {
-  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest, store);
+  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest);
   if (event) store.addEvent(event);
 }
 
 describe("status hooks", () => {
-  it("does not queue the same incomplete transition twice", async () => {
+  it("preserves a later transition with the same statuses while the first is pending", async () => {
     await withStore((store) => {
       const task = store.upsertTaskFromEvent({
         type: "updated",
@@ -57,11 +57,13 @@ describe("status hooks", () => {
       const hooks = [{ id: "review", status: "In Review", run: () => undefined }];
 
       queueStatusHook(store, hooks, task, "In Progress", "In Review");
-      queueStatusHook(store, hooks, task, "In Progress", "In Review");
+      store.updateTaskStatus(task.id, "In Progress");
+      const laterTransition = store.updateTaskStatus(task.id, "In Review").task;
+      queueStatusHook(store, hooks, laterTransition, "In Progress", "In Review");
 
       assert.equal(
         store.getUncompletedEvents("status_hook_pending", "status_hook_completed", task.id).length,
-        1,
+        2,
       );
     });
   });

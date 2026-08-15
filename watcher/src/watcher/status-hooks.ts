@@ -31,21 +31,11 @@ export function createPendingStatusHookEvent(
   fromStatus: string,
   toStatus: string,
   pullRequest?: PullRequest,
-  store?: WatcherStore,
 ): TaskEventInput | undefined {
   const hookIds = hooks
     .filter(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))
     .map(({ id }) => id);
   if (hookIds.length === 0) return undefined;
-
-  const alreadyPending = store
-    ?.getUncompletedEvents(STATUS_HOOK_PENDING_EVENT, STATUS_HOOK_COMPLETED_EVENT, task.id)
-    .some(
-      (event) =>
-        normalizeStatus(event.fromStatus) === normalizeStatus(fromStatus) &&
-        normalizeStatus(event.toStatus) === normalizeStatus(toStatus),
-    );
-  if (alreadyPending) return undefined;
 
   return {
     taskId: task.id,

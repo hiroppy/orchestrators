@@ -375,7 +375,16 @@ describe("Slack event publishing", () => {
           },
         },
       );
-      const terminalOptions = { statusTypeOverrides: { "in staging check": "completed" } };
+      const terminalOptions = {
+        statusTypeOverrides: { "in staging check": "completed" },
+        createStatusTransitionEvent: (task: { id: string }, fromStatus: string) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus: "In Staging Check",
+        }),
+      };
       const startedEvent = {
         type: "started" as const,
         service: "service-a",
@@ -397,6 +406,14 @@ describe("Slack event publishing", () => {
       );
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        0,
+      );
 
       await publishWatcherEvent(client, store, "C123", endedEvent, undefined, terminalOptions);
 
@@ -405,6 +422,14 @@ describe("Slack event publishing", () => {
           method === "postMessage" && String(args.text).startsWith("Task closed"),
       );
       assert.equal(closurePosts.length, 1);
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        1,
+      );
     });
   });
 });

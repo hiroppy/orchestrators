@@ -111,6 +111,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       serviceNames: runtimeConfig.services.map(({ name }) => name),
       startedAt,
     },
+    statusTypeOverrides: runtimeConfig.statusTypeOverrides,
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
     onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
@@ -526,7 +527,6 @@ async function processWatcherEvent({
           fromStatus,
           task.status,
           event.pullRequest,
-          store,
         ),
       afterPublish: async (task) => {
         await deliverPendingStatusHooksSafely({

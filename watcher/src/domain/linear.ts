@@ -25,7 +25,9 @@ export function effectiveLinearStateType(
   statusTypeOverrides: Record<string, LinearWorkflowStateType>,
 ): string | null | undefined {
   const normalizedStatus = normalizeStatus(status);
-  return statusTypeOverrides[normalizedStatus ?? ""] ?? stateType;
+  return normalizedStatus && Object.hasOwn(statusTypeOverrides, normalizedStatus)
+    ? statusTypeOverrides[normalizedStatus]
+    : stateType;
 }
 
 export function enteredTerminalLinearState(

@@ -133,6 +133,14 @@ describe("Slack mention commands", () => {
       store.upsertTaskFromEvent({
         type: "ended",
         service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Await approval",
+        resolvedState: "In Review",
+        resolvedStateType: "completed",
+      });
+      store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
         issueIdentifier: "ENG-99",
         issueTitle: "Already shipped",
         resolvedState: "Done",
@@ -153,6 +161,7 @@ describe("Slack mention commands", () => {
           serviceNames: ["service-a", "service-b"],
           startedAt: new Date(2026, 7, 12, 11, 0),
         },
+        { "in progress": "completed", "in review": "started" },
       );
 
       assert.deepEqual(calls[0], {
@@ -174,12 +183,11 @@ describe("Slack mention commands", () => {
           "• [service-a] ENG-60: Plan the change",
           "  <https://example.slack.com/archives/C123/p10000|Slack> | <https://linear.app/example/issue/ENG-60/plan|Linear>",
           "",
-          "*In Progress (1)*",
-          "• [service-a] ENG-61: Build the change",
-          "  <https://linear.app/example/issue/ENG-61/build|Linear>",
-          "",
-          "*In Review (0)*",
+          "*In Progress (0)*",
           "• None",
+          "",
+          "*In Review (1)*",
+          "• [service-a] ENG-62: Await approval",
         ].join("\n"),
       );
       const blocks = calls[1].args.blocks as Array<{ type: string }>;
@@ -187,7 +195,7 @@ describe("Slack mention commands", () => {
         blocks.map(({ type }) => type),
         ["section", "section", "section", "section"],
       );
-      assert.match(JSON.stringify(blocks), /Slack.*Linear.*ENG-61/s);
+      assert.match(JSON.stringify(blocks), /Slack.*Linear.*ENG-62/s);
     });
   });
 

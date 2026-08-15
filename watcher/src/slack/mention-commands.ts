@@ -1,3 +1,5 @@
+import type { LinearWorkflowStateType } from "orchestrator-config";
+
 import type { WatcherStore } from "../persistence/store.ts";
 import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { Task } from "../domain/types.ts";
@@ -38,6 +40,7 @@ export async function handleAppMention(
   botUserId?: string,
   takePrOptions?: TakePrOptions,
   statusSummaryContext?: StatusSummaryContext,
+  statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
@@ -53,6 +56,7 @@ export async function handleAppMention(
       args: mention.args,
       takePrOptions,
       statusSummaryContext,
+      statusTypeOverrides,
     });
   } catch (error) {
     logger.error(error);
@@ -325,11 +329,12 @@ async function handleStatusCommand({
   store,
   args,
   statusSummaryContext,
+  statusTypeOverrides,
 }: MentionCommandContext): Promise<void> {
   if (args.length > 0) return;
 
   const tasks = store
-    .getTasksForLinearSync()
+    .getTasksForLinearSync(new Set(), statusTypeOverrides)
     .filter((task) => STATUS_NAMES.has(normalizeStatus(task.status)));
   const slackLinks = new Map<string, string>();
 
@@ -397,4 +402,5 @@ interface MentionCommandContext {
   args: string[];
   takePrOptions?: TakePrOptions;
   statusSummaryContext?: StatusSummaryContext;
+  statusTypeOverrides: Record<string, LinearWorkflowStateType>;
 }

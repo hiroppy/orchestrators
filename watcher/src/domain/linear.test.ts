@@ -40,6 +40,11 @@ describe("Linear terminal states", () => {
     assert.equal(isTerminalLinearState("completed", "Developing", statusTypeOverrides), false);
   });
 
+  it("ignores inherited properties when no override is configured", () => {
+    assert.equal(effectiveLinearStateType("started", "constructor", {}), "started");
+    assert.equal(effectiveLinearStateType("started", "__proto__", {}), "started");
+  });
+
   it("announces only transitions from nonterminal to terminal", () => {
     const statusTypeOverrides = {
       "in staging check": "completed",
