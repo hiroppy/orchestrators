@@ -31,22 +31,37 @@ The default `customize` workflow follows this cycle:
 
 ```mermaid
 flowchart LR
-  create["📝 Create a Linear issue<br/>Backlog → Todo"]
-  implement["🤖 Symphony implements it<br/>Todo → In Progress"]
-  slack["💬 Follow progress and give instructions<br/>in the Slack task thread"]
-  review["Ready for human review<br/>In Review"]
-  automated{"Automated review feedback?"}
-  notify["🔔 Slack notifies the reviewers"]
-  verify{"Does it work as expected?"}
-  feedback["Reply in Slack<br/>and move back to In Progress"]
-  merging["Approve and move to Merging"]
-  done["🚀 Symphony lands the pull request<br/>Done"]
+  subgraph build["Build"]
+    direction TB
+    create["📝 Create a Linear issue<br/>Backlog → Todo"]
+    implement["🤖 Symphony implements it<br/>Todo → In Progress"]
+    slack["💬 Follow progress and give instructions<br/>in the Slack task thread"]
+    create --> implement --> slack
+  end
 
-  create --> implement --> slack --> review --> automated
+  subgraph reviewCycle["Review"]
+    direction TB
+    review["Ready for human review<br/>In Review"]
+    automated{"Automated review feedback?"}
+    notify["🔔 Slack notifies the reviewers"]
+    verify{"Does it work as expected?"}
+    feedback["Reply in Slack<br/>and move back to In Progress"]
+    review --> automated
+    automated -- No --> notify --> verify
+    verify -- No --> feedback
+  end
+
+  subgraph land["Land"]
+    direction TB
+    merging["Approve and move to Merging"]
+    done["🚀 Symphony lands the pull request<br/>Done"]
+    merging --> done
+  end
+
+  slack --> review
   automated -- Yes --> implement
-  automated -- No --> notify --> verify
-  verify -- No --> feedback --> implement
-  verify -- Yes --> merging --> done
+  feedback --> implement
+  verify -- Yes --> merging
 ```
 
 See [Architecture](docs/architecture.md#review-reaction-lifecycle) for polling,
