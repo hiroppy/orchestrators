@@ -178,11 +178,14 @@ describe("watcher reconciliation and snapshots", () => {
       );
       assert.match(
         String(calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.text),
-        /^\*In Review\* → \*Done\*\nEvent: Updated\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        /^\*In Review\* → \*Done\*\nEvent: Updated$/,
       );
       assert.match(
         JSON.stringify(
-          calls.find(({ method, thread_ts }) => method === "postMessage" && thread_ts)?.blocks,
+          calls.find(
+            ({ method, thread_ts, text }) =>
+              method === "postMessage" && thread_ts && String(text).includes("→ *Done*"),
+          )?.blocks,
         ),
         /Ship the reconciled pull request/,
       );

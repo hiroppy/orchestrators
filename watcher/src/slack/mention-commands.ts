@@ -19,6 +19,7 @@ import type { SlackClient } from "./client-types.ts";
 import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
+import { reloadStatusTimeline } from "./status-timeline.ts";
 
 const STATUS_NAMES = new Set(STATUS_SUMMARY_STATUSES.map(normalizeStatus));
 const MAX_ASSIGNEES_LENGTH = 2_000 - "*Assignees*\n".length;
@@ -309,6 +310,7 @@ async function refreshTaskAssignees(
       ...card,
     });
     store.setRenderedSummary(currentTask.id, JSON.stringify(card));
+    await reloadStatusTimeline(client, store, currentTask.id);
   });
 }
 

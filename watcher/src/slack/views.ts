@@ -60,7 +60,7 @@ const EVENT_LABELS: Record<EventType, string> = {
   recovered: "Recovered",
 };
 
-function parentEventLabel(event: WatcherEvent): string {
+export function parentEventLabel(event: WatcherEvent): string {
   const label = EVENT_LABELS[event.type];
   return event.type === "retrying" && event.attempt ? `${label} (attempt ${event.attempt})` : label;
 }
@@ -205,7 +205,7 @@ export function buildThreadMessageBlocks(
   context: ThreadMessageContext = {},
 ): Array<Record<string, unknown>> {
   const transition = statusTransitionDetails(event, context);
-  const headline = transition?.headline ?? threadHeadline(event);
+  const headline = transition?.headline ?? `*${EVENT_LABELS[event.type]}*`;
   const primaryFields = [
     `*Event*\n${escapeSlack(parentEventLabel(event))}`,
     context.assignees?.length ? formatAssignees(context.assignees) : null,
@@ -213,14 +213,7 @@ export function buildThreadMessageBlocks(
   const errorFields = [event.error ? `*Error*\n${formatError(event.error)}` : null].filter(
     isPresent,
   );
-  const notificationFields = [
-    event.pullRequest ? formatParentPullRequestField(event.pullRequest) : null,
-  ].filter(isPresent);
-
-  return [
-    buildTextSection(headline),
-    ...buildFieldSections(primaryFields, errorFields, notificationFields),
-  ];
+  return [buildTextSection(headline), ...buildFieldSections(primaryFields, errorFields)];
 }
 
 export function buildThreadMessage(
@@ -232,14 +225,10 @@ export function buildThreadMessage(
     return truncateThreadBody([transition.headline, ...transition.details].join("\n"));
   }
 
-  const headline = event.pullRequest
-    ? "*PR created*"
-    : `*${escapeSlack(EVENT_LABELS[event.type])}*`;
   const details = [
-    headline,
+    `*${escapeSlack(EVENT_LABELS[event.type])}*`,
     ...notificationLabels(context.assignees),
     ...[
-      event.pullRequest ? formatPullRequest(event.pullRequest) : null,
       event.error ? `Error: ${event.error}` : null,
       event.attempt ? `Attempt: ${event.attempt}` : null,
     ]
@@ -283,28 +272,8 @@ export function buildStatusChangedMessage(
   )}`;
 }
 
-export function buildStatusChangedMessageBlocks(
-  actorDisplayName: string,
-  fromStatus: string,
-  toStatus: string,
-): SectionBlock[] {
-  return [
-    buildTextSection(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`),
-    ...buildFieldSections([`*Changed by*\n${escapeSlack(actorDisplayName)}`]),
-  ];
-}
-
 export function buildReviewRequeueMessage(fromStatus: string, toStatus: string): string {
   return `Inline review comment detected | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
-}
-
-export function buildReviewRequeueMessageBlocks(
-  fromStatus: string,
-  toStatus: string,
-): SectionBlock[] {
-  return buildNotificationBlocks(`*${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`, [
-    "*Event*\nInline review comment detected",
-  ]);
 }
 
 export function buildTaskClosedMessage(
@@ -529,16 +498,11 @@ function buildFieldSections(...groups: string[][]): SectionBlock[] {
     );
 }
 
-function threadHeadline(event: WatcherEvent): string {
-  if (event.pullRequest) return "*PR created*";
-  return `*${EVENT_LABELS[event.type]}*`;
-}
-
 function formatError(error: string): string {
   return escapeSlack(truncate(error, MAX_ERROR_LENGTH));
 }
 
-function formatAssignees(assignees: string[]): string {
+export function formatAssignees(assignees: readonly string[]): string {
   const label = "*Assignees*\n";
   const availableLength = MAX_FIELD_LENGTH - label.length;
   const targets: string[] = [];
@@ -562,7 +526,6 @@ function formatNonNotifyingAssignee(mention: string): string {
 
 function compactEventDetails(event: WatcherEvent, includeAttempt = true): string[] {
   return [
-    event.pullRequest ? formatPullRequest(event.pullRequest) : null,
     includeAttempt && event.attempt ? `Attempt: ${event.attempt}` : null,
     event.error ? `Error: ${escapeSlack(truncate(event.error, MAX_ERROR_LENGTH))}` : null,
   ].filter(isPresent);
@@ -574,13 +537,9 @@ function truncateThreadBody(body: string): string {
     : `${body.slice(0, MAX_THREAD_BODY_LENGTH - 1)}…`;
 }
 
-function formatParentPullRequestField(pullRequest: PullRequest): string {
+export function formatParentPullRequestField(pullRequest: PullRequest): string {
   const title = pullRequest.title?.trim() || "View pull request";
   return `*${pullRequestLabel(pullRequest)}*\n<${pullRequest.url}|${escapeSlack(title)}>`;
-}
-
-function formatPullRequest(pullRequest: PullRequest): string {
-  return `<${pullRequest.url}|${pullRequestLabel(pullRequest)}>`;
 }
 
 function pullRequestLabel(pullRequest: PullRequest): string {

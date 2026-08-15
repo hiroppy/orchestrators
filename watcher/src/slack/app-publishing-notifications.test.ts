@@ -180,7 +180,7 @@ describe("Slack event notifications", () => {
     });
   });
 
-  it("posts only status transitions and pull request links to the thread", async () => {
+  it("keeps pull requests in cards without posting duplicate thread notifications", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
@@ -224,6 +224,7 @@ describe("Slack event notifications", () => {
         pullRequest: {
           url: "https://github.com/acme/example/pull/42",
           number: 42,
+          title: "Keep pull request facts in the status card",
         },
       });
       await publishWatcherEvent(
@@ -240,6 +241,7 @@ describe("Slack event notifications", () => {
           pullRequest: {
             url: "https://github.com/acme/example/pull/42",
             number: 42,
+            title: "Keep pull request facts in the status card",
           },
         },
         {
@@ -251,34 +253,32 @@ describe("Slack event notifications", () => {
       const threadTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
-      assert.equal(threadTexts.length, 3);
+      assert.equal(threadTexts.length, 1);
       assert.match(threadTexts[0], /^\*Todo\* → \*In Progress\*\nEvent: Updated$/);
-      assert.equal(
-        threadTexts[1],
-        "*PR created* | <https://github.com/acme/example/pull/42|PR#42>",
+      const timelineUpdates = calls.filter(
+        ({ method, args }) => method === "update" && args.ts === "2.000",
       );
+      assert.equal(timelineUpdates.length, 2);
+      assert.match(JSON.stringify(timelineUpdates[0]?.args.blocks), /PR#42/);
+      const timelineUpdate = timelineUpdates.at(-1);
       assert.match(
-        threadTexts[2],
-        /^\*In Progress\* → \*In Review\*\nEvent: Updated\n<https:\/\/github\.com\/acme\/example\/pull\/42\|PR#42>$/,
+        String(timelineUpdate?.args.text),
+        /^\*In Progress\* → \*In Review\*\nEvent: Updated/,
       );
-      const statusTransitionBlocks = calls.filter(
-        ({ method, args }) => method === "postMessage" && args.thread_ts,
-      )[2].args.blocks as Array<Record<string, unknown>>;
-      assert.deepEqual(
-        statusTransitionBlocks.map(({ type }) => type),
-        ["section", "section", "section"],
+      const statusTransitionBlocks = timelineUpdate?.args.blocks;
+      assert.match(
+        JSON.stringify(statusTransitionBlocks),
+        /Keep pull request facts in the status card/,
       );
-      assert.equal(
-        (statusTransitionBlocks[0].text as { text: string }).text,
-        "*In Progress* → *In Review*",
-      );
-      assert.match(JSON.stringify(statusTransitionBlocks), /\*Event\*\\nUpdated/);
-      assert.match(JSON.stringify(statusTransitionBlocks), /PR#42/);
+      assert.match(JSON.stringify(statusTransitionBlocks), /\*Timeline\*/);
+      assert.match(JSON.stringify(statusTransitionBlocks), /Todo → In Progress/);
       assert.equal(
         store.getTask("service-a:ENG-62")?.linkUrl,
         "https://linear.app/acme/issue/ENG-62/example",
       );
-      const latestCardUpdate = calls.findLast(({ method }) => method === "update");
+      const latestCardUpdate = calls.findLast(
+        ({ method, args }) => method === "update" && args.ts === "1.000",
+      );
       assert.match(JSON.stringify(latestCardUpdate?.args.blocks), /github\.com/);
     });
   });

@@ -193,8 +193,8 @@ Mention the configured bot to run a command:
   a tracked task. Run this in the task thread.
 - `@bot unassign @user-or-group` — remove a user or user group from
   notifications for a tracked task. Run this in the task thread.
-- `@bot take-pr <GitHub PR URL>` — create a Linear issue for an existing open
-  pull request.
+- `@bot take-pr <GitHub PR URL>` — create a Todo Linear issue for an existing
+  open pull request. Symphony moves it to In Progress when execution starts.
 - `@bot help` — show the available commands and where to run them.
 
 ## Preview Slack output
@@ -218,8 +218,9 @@ pnpm slack:preview thread update
 The first argument is `post` or `thread`. Available event types are `start`,
 `update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
 a status change made by a Slack user, including the actor's display name. A
-configured creator and additional mention targets can be previewed with
-`post attention` or `thread attention`. Pass them as `mentionTarget` and
+consolidated status card with Event, Assignees, and history can be previewed
+with `thread timeline`. A configured creator and additional mention targets can
+be previewed with `post attention` or `thread attention`. Pass them as `mentionTarget` and
 `mentions` when using the preview helper; the CLI uses non-notifying
 placeholders. Use `thread review-comment` and `thread next`
 for task-thread notifications, `post closed` for the top-level task-closed
@@ -256,8 +257,10 @@ destination channel. It does not require the root `config.ts` or
   same terminal state do not post the notification again.
 - Slack status changes are acknowledged immediately, validated against that
   task's referenced Linear team workflow, written with that team's API key,
-  rendered in Slack, persisted, and recorded in the thread. Changes for the
-  same task are serialized. The local task status is persisted only after both
+  rendered in Slack, persisted, and recorded in the thread. The first status
+  transition creates one thread reply; later transitions update that reply with
+  the latest `from → to` transition and move older transitions into its Timeline.
+  Changes for the same task are serialized. The local task status is persisted only after both
   the Linear update and Slack card update succeed.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
@@ -280,9 +283,9 @@ destination channel. It does not require the root `config.ts` or
 - Every successfully published watcher event creates or updates the parent card
   and is stored in the database audit trail. A thread reply is posted only for
   a resolved status transition, a newly detected pull request, or a configured
-  mention. Manual Slack status changes also post thread history. Pull request
-  replies include the PR URL without replacing the parent title's Linear issue
-  link.
+  mention. Manual Slack status changes share the same status Timeline. Pull
+  request replies include the PR URL without replacing the parent title's Linear
+  issue link.
 - Raw worker stdout is not posted. Thread messages are capped at 2,500
   characters, and error details shown on cards are capped at 180 characters.
 - Inline PR comments are queried only for issues in the configured review status.

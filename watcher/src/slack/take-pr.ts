@@ -262,7 +262,7 @@ export async function handleTakePrAction(
         issueIdentifier: issue.identifier,
         issueUrl: issue.url,
         issueTitle: linearIssueInput.title,
-        resolvedState: "In Progress",
+        resolvedState: "Todo",
         pullRequest: validation.pullRequest,
       });
       for (const assignee of new Set(initialAssignees)) {

@@ -117,10 +117,7 @@ describe("Slack preview", () => {
     for (const call of calls) {
       assert.ok(Array.isArray(call.blocks));
     }
-    assert.equal(
-      calls[0].text,
-      "*PR created* | <https://github.com/example/preview/pull/123|PR#123>",
-    );
+    assert.equal(calls[0].text, "*Started*");
     assert.match(JSON.stringify(calls[1].blocks), /In Progress.*In Review/);
     assert.doesNotMatch(JSON.stringify(calls[1].blocks), /Usage|turns|tokens/i);
     assert.match(String(calls[5].text), /^\*unavailable\* → \*available\*\nEvent: Recovered$/);
@@ -141,7 +138,24 @@ describe("Slack preview", () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].text, "*In Review* → *Rework* by Hiroppy");
-    assert.match(JSON.stringify(calls[0].blocks), /\*Changed by\*\\nHiroppy/);
+    assert.match(JSON.stringify(calls[0].blocks), /\*Event\*\\n`\d{2}:\d{2}` Changed by Hiroppy/);
+  });
+
+  it("previews the consolidated status timeline card", () => {
+    const message = buildSlackPreviewMessage({ category: "thread", type: "timeline" });
+    const blocks = JSON.stringify(message.blocks);
+
+    assert.match(blocks, /\*In Review → Done\*/);
+    assert.match(blocks, /\*Event\*\\n`\d{2}:\d{2}` Updated/);
+    assert.match(blocks, /\*Assignees\*\\n@Hiroppy @Reviewer/);
+    assert.match(blocks, /\*Error\*\\nTemporary orchestrator failure/);
+    assert.match(blocks, /\*PR#123\*/);
+    assert.match(blocks, /Consolidate Slack status updates/);
+    assert.ok(blocks.indexOf("PR#123") < blocks.indexOf("Error"));
+    assert.match(blocks, /\*Timeline\*/);
+    assert.match(blocks, /\d{2}:\d{2} Todo → In Progress/);
+    assert.match(blocks, /\d{2}:\d{2} In Progress → In Review by Reviewer/);
+    assert.ok(blocks.indexOf("In Progress → In Review") < blocks.indexOf("Todo → In Progress"));
   });
 
   it("previews every standalone notification with blocks", () => {
@@ -221,10 +235,7 @@ describe("Slack preview", () => {
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Mentions/);
     assert.match(JSON.stringify(parent.blocks), /PR#123/);
     assert.match(JSON.stringify(parent.blocks), /Improve the watcher Slack preview/);
-    assert.equal(
-      thread.text,
-      "*PR created* | Assignees: <@UCREATOR> <!subteam^SREVIEWERS> | <https://github.com/example/preview/pull/123|PR#123>",
-    );
+    assert.equal(thread.text, "*Started* | Assignees: <@UCREATOR> <!subteam^SREVIEWERS>");
     assert.doesNotMatch(JSON.stringify(parent.blocks), /Waiting for required credentials/);
     assert.doesNotMatch(thread.text, /Waiting for required credentials/);
 
@@ -266,6 +277,7 @@ describe("Slack preview", () => {
       "end",
       "recover",
       "manual",
+      "timeline",
       "attention",
       "review-comment",
       "closed",

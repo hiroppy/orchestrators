@@ -14,7 +14,7 @@ const input = {
 };
 
 describe("createLinearTakePrIssue", () => {
-  it("validates the team and project before creating the issue in In Progress", async (context) => {
+  it("validates the team and project before creating the issue in Todo", async (context) => {
     const requests: Array<{ query: string; variables: Record<string, string> }> = [];
     context.mock.method(globalThis, "fetch", async (_url, options) => {
       const request = JSON.parse(String(options?.body));
@@ -24,7 +24,7 @@ describe("createLinearTakePrIssue", () => {
           data: {
             team: {
               id: "team-a",
-              states: { nodes: [{ id: "state-progress", name: "In Progress" }] },
+              states: { nodes: [{ id: "state-todo", name: "Todo" }] },
             },
             projects: {
               nodes: [
@@ -48,7 +48,7 @@ describe("createLinearTakePrIssue", () => {
             issue: {
               identifier: "ENG-100",
               url: "https://linear.app/example/issue/ENG-100/take-pr",
-              state: { name: "In Progress" },
+              state: { name: "Todo" },
             },
           },
         },
@@ -68,7 +68,7 @@ describe("createLinearTakePrIssue", () => {
       issueId: requests[1].variables.issueId,
       teamId: "team-a",
       projectId: "project-id",
-      stateId: "state-progress",
+      stateId: "state-todo",
       title: input.title,
       description: input.description,
     });
@@ -89,7 +89,7 @@ describe("createLinearTakePrIssue", () => {
           data: {
             team: {
               id: "team-a",
-              states: { nodes: [{ id: "state-progress", name: "In Progress" }] },
+              states: { nodes: [{ id: "state-todo", name: "Todo" }] },
             },
             projects: {
               nodes: [
@@ -114,7 +114,7 @@ describe("createLinearTakePrIssue", () => {
             issue: {
               identifier: "ENG-100",
               url: "https://linear.app/example/issue/ENG-100/take-pr",
-              state: { name: "In Progress" },
+              state: { name: "Todo" },
             },
           },
         },
@@ -151,7 +151,7 @@ describe("createLinearTakePrIssue", () => {
             issue: {
               identifier: "ENG-100",
               url: "https://linear.app/example/issue/ENG-100/take-pr",
-              state: { name: "In Progress" },
+              state: { name: "Todo" },
             },
           },
         },
@@ -271,7 +271,7 @@ describe("createLinearTakePrIssue", () => {
     const cases = [
       {
         projects: { nodes: [] },
-        states: [{ id: "state-progress", name: "In Progress" }],
+        states: [{ id: "state-todo", name: "Todo" }],
         error: /project not found/,
       },
       {
@@ -284,7 +284,7 @@ describe("createLinearTakePrIssue", () => {
             },
           ],
         },
-        states: [{ id: "state-progress", name: "In Progress" }],
+        states: [{ id: "state-todo", name: "Todo" }],
         error: /not associated/,
       },
       {
@@ -297,8 +297,8 @@ describe("createLinearTakePrIssue", () => {
             },
           ],
         },
-        states: [{ id: "state-todo", name: "Todo" }],
-        error: /no In Progress state/,
+        states: [{ id: "state-progress", name: "In Progress" }],
+        error: /no Todo state/,
       },
     ];
 
@@ -325,7 +325,7 @@ function takePrTargetResponse(): Response {
     data: {
       team: {
         id: "team-a",
-        states: { nodes: [{ id: "state-progress", name: "In Progress" }] },
+        states: { nodes: [{ id: "state-todo", name: "Todo" }] },
       },
       projects: {
         nodes: [

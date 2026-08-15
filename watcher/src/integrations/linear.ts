@@ -128,10 +128,8 @@ export async function createLinearTakePrIssue(
     );
   }
 
-  const inProgress = team.states?.nodes?.find(
-    ({ name }) => name.trim().toLowerCase() === "in progress",
-  );
-  if (!inProgress) throw new Error(`Linear team has no In Progress state: ${input.teamId}`);
+  const todo = team.states?.nodes?.find(({ name }) => name.trim().toLowerCase() === "todo");
+  if (!todo) throw new Error(`Linear team has no Todo state: ${input.teamId}`);
 
   let issue = await findLinearTakePrIssue(apiKey, issueId, timeoutMs);
 
@@ -149,14 +147,14 @@ export async function createLinearTakePrIssue(
           issueId,
           teamId: team.id,
           projectId: project.id,
-          stateId: inProgress.id,
+          stateId: todo.id,
           title: input.title,
           description: input.description,
         },
         timeoutMs,
       );
       if (!created.issueCreate?.success) {
-        throw new Error("Linear rejected take-pr issue creation in In Progress.");
+        throw new Error("Linear rejected take-pr issue creation in Todo.");
       }
       issue = {
         ...requireNewLinearTakePrIssue(created.issueCreate.issue),
@@ -246,12 +244,8 @@ async function findLinearTakePrIssue(
 }
 
 function requireNewLinearTakePrIssue(issue: LinearTakePrIssue | undefined): CreatedLinearIssue {
-  if (
-    !issue?.identifier ||
-    !issue.url ||
-    issue.state?.name?.trim().toLowerCase() !== "in progress"
-  ) {
-    throw new Error("Linear rejected take-pr issue creation in In Progress.");
+  if (!issue?.identifier || !issue.url || issue.state?.name?.trim().toLowerCase() !== "todo") {
+    throw new Error("Linear rejected take-pr issue creation in Todo.");
   }
   return { identifier: issue.identifier, url: issue.url };
 }

@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
-  buildStatusChangedMessageBlocks,
   buildStatusSummary,
   buildStatusSummaryBlocks,
   buildTaskCard,
@@ -227,15 +226,6 @@ describe("Slack rendering", () => {
       buildStatusChangedMessage("Example User", "In Review", "Rework"),
       "*In Review* → *Rework* by Example User",
     );
-
-    const pullRequestBody = buildThreadMessage({
-      type: "updated",
-      service: "service-a",
-      issueIdentifier: "ENG-62",
-      pullRequest: { url: "https://github.com/acme/example/pull/42" },
-      error: "x".repeat(4_000),
-    });
-    assert.match(pullRequestBody, /github\.com\/acme\/example\/pull\/42/);
   });
 
   it("renders watcher status changes like the parent event summary", () => {
@@ -262,7 +252,7 @@ describe("Slack rendering", () => {
 
     assert.match(
       body,
-      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Assignees: <@UHIROPPY>\n<https:\/\/github\.com\/acme\/example\/pull\/4\|PR#4>$/,
+      /^\*In Progress\* → \*In Review\*\nEvent: Started \| Assignees: <@UHIROPPY>$/,
     );
     assert.doesNotMatch(body, /Attempt:|Due:/);
 
@@ -284,7 +274,7 @@ describe("Slack rendering", () => {
           toStatus: "In Review",
         },
       )?.map(({ type }) => type),
-      ["section", "section", "section"],
+      ["section", "section"],
     );
   });
 
@@ -334,16 +324,6 @@ describe("Slack rendering", () => {
       buildStatusChangedMessage("Example User", "Rework", "In Review"),
       /\*Rework\* → \*In Review\* by Example User/,
     );
-    assert.deepEqual(buildStatusChangedMessageBlocks("Example User", "Rework", "In Review"), [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "*Rework* → *In Review*" },
-      },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "*Changed by*\nExample User" },
-      },
-    ]);
     assert.doesNotMatch(
       buildStatusChangedMessage("Example User", "In Review", "Done"),
       /SXXXXXXXX/,

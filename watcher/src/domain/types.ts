@@ -115,6 +115,9 @@ export interface TaskEvent {
   taskId: string;
   type: string;
   actor?: string;
+  statusEventType?: "automatic" | "manual";
+  statusEventLabel?: string;
+  statusEventError?: string;
   fromStatus?: string;
   toStatus?: string;
   body?: string;

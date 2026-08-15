@@ -2,7 +2,8 @@ import type { WebClient } from "@slack/web-api";
 
 import type { TaskEvent } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { buildReviewRequeueMessageBlocks, buildTaskCard } from "../slack/views.ts";
+import { buildTaskCard } from "../slack/views.ts";
+import { publishStatusTimeline } from "../slack/status-timeline.ts";
 import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
   parseReviewRequeuePendingPayload,
@@ -45,14 +46,16 @@ async function deliverPendingReviewRequeueNotification(
   const payload = parseReviewRequeuePendingPayload(pending.body);
   const completionKey = String(pending.id);
   if (!store.hasEvent(task.id, REVIEW_REQUEUE_NOTIFIED_EVENT, completionKey)) {
-    const message = {
-      channel: task.parentChannelId,
-      thread_ts: task.parentMessageTs,
-      text: payload.message,
-      blocks: buildReviewRequeueMessageBlocks(pending.fromStatus, pending.toStatus),
-      client_msg_id: slackClientMessageId(pending.id),
-    };
-    await slackClient.chat.postMessage(message);
+    await publishStatusTimeline(slackClient, store, {
+      taskId: task.id,
+      event: {
+        fromStatus: pending.fromStatus,
+        toStatus: pending.toStatus,
+        occurredAt: pending.createdAt,
+        source: { type: "automatic", label: "Inline review comment detected" },
+      },
+      fallbackText: payload.message,
+    });
     store.addEvent({
       taskId: pending.taskId,
       type: REVIEW_REQUEUE_NOTIFIED_EVENT,
@@ -85,9 +88,4 @@ async function deliverPendingReviewRequeueNotification(
     toStatus: pending.toStatus,
     body: completionKey,
   });
-}
-
-function slackClientMessageId(eventId: number): string {
-  const suffix = eventId.toString(16).padStart(12, "0").slice(-12);
-  return `00000000-0000-4000-8000-${suffix}`;
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, ne, notExists, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -12,15 +12,6 @@ export function addTaskEvent(db: WatcherDatabase, event: TaskEventInput): TaskEv
 
 export function addTaskEvents(db: WatcherDatabase, events: TaskEventInput[]): TaskEvent[] {
   return db.transaction((tx) => events.map((event) => insertTaskEvent(tx, event)));
-}
-
-export function hasRecordedPullRequest(db: WatcherDatabase, taskId: string, url: string): boolean {
-  return db
-    .select({ body: taskEvents.body })
-    .from(taskEvents)
-    .where(and(eq(taskEvents.taskId, taskId), ne(taskEvents.type, "workpad_replied")))
-    .all()
-    .some(({ body }) => body?.includes(url));
 }
 
 export function hasRecordedSlackMessage(
@@ -104,6 +95,26 @@ export function getLatestTaskEvent(
     .orderBy(desc(taskEvents.id))
     .get();
   return row ? eventFromRow(row) : undefined;
+}
+
+export function getLatestTaskEventsByType(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+): TaskEvent[] {
+  const fromStatuses = alias(statuses, "typed_event_from_status");
+  const toStatuses = alias(statuses, "typed_event_to_status");
+  return db
+    .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+    .from(taskEvents)
+    .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+    .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+    .orderBy(desc(taskEvents.id))
+    .limit(limit)
+    .all()
+    .map(eventFromRow);
 }
 
 export function getTaskIdsWithIncompleteEvent(
@@ -211,6 +222,9 @@ function eventFromRow({
     taskId: event.taskId,
     type: event.type,
     actor: event.actor ?? undefined,
+    statusEventType: event.statusEventType ?? undefined,
+    statusEventLabel: event.statusEventLabel ?? undefined,
+    statusEventError: event.statusEventError ?? undefined,
     fromStatus: fromStatus ?? undefined,
     toStatus: toStatus ?? undefined,
     body: event.body ?? undefined,

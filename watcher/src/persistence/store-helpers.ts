@@ -8,6 +8,9 @@ export type TaskEventInput = {
   taskId: string;
   type: string;
   actor?: string;
+  statusEventType?: "automatic" | "manual";
+  statusEventLabel?: string;
+  statusEventError?: string;
   fromStatus?: string;
   toStatus?: string;
   body?: string;
@@ -66,6 +69,9 @@ export function insertTaskEvent(
       taskId: event.taskId,
       type: event.type,
       actor: event.actor,
+      statusEventType: event.statusEventType,
+      statusEventLabel: event.statusEventLabel,
+      statusEventError: event.statusEventError,
       fromStatusId,
       toStatusId,
       body: event.body,
@@ -79,6 +85,9 @@ export function insertTaskEvent(
     taskId: event.taskId,
     type: event.type,
     actor: event.actor,
+    statusEventType: event.statusEventType,
+    statusEventLabel: event.statusEventLabel,
+    statusEventError: event.statusEventError,
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
     body: event.body,
@@ -105,6 +114,7 @@ export function taskFromRow(
       ? {
           url: row.pullRequestUrl,
           ...(row.pullRequestNumber === null ? {} : { number: row.pullRequestNumber }),
+          ...(row.pullRequestTitle === null ? {} : { title: row.pullRequestTitle }),
           ...(row.pullRequestLabels === null
             ? {}
             : { labels: JSON.parse(row.pullRequestLabels) as string[] }),
