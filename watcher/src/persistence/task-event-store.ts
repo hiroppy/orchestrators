@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, notExists, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -64,6 +64,28 @@ export function hasStatusTimelineEvent(
       .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.statusEventKey, statusEventKey)))
       .get() !== undefined
   );
+}
+
+export function getUndeliveredStatusTimelineEvents(db: WatcherDatabase): TaskEvent[] {
+  const fromStatuses = alias(statuses, "pending_timeline_from_status");
+  const toStatuses = alias(statuses, "pending_timeline_to_status");
+  return db
+    .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+    .from(taskEvents)
+    .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+    .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+    .where(and(eq(taskEvents.type, "status_timeline"), isNull(taskEvents.slackThreadTs)))
+    .orderBy(asc(taskEvents.createdAt), asc(taskEvents.id))
+    .all()
+    .map(eventFromRow);
+}
+
+export function setTaskEventSlackThreadTs(
+  db: WatcherDatabase,
+  eventId: number,
+  slackThreadTs: string,
+): void {
+  db.update(taskEvents).set({ slackThreadTs }).where(eq(taskEvents.id, eventId)).run();
 }
 
 export function countTaskEvents(db: WatcherDatabase, taskId: string, type: string): number {

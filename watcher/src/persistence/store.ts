@@ -27,11 +27,13 @@ import {
   countTaskEventsWithBody,
   getLatestTaskEvent,
   getLatestTaskEventsByType,
+  getUndeliveredStatusTimelineEvents,
   hasStatusTimelineEvent,
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
   hasRecordedSlackMessage,
   hasTaskEvent,
+  setTaskEventSlackThreadTs,
 } from "./task-event-store.ts";
 import { syncDefinitions } from "./definitions.ts";
 
@@ -525,6 +527,14 @@ export class WatcherStore {
 
   getLatestEventsByType(taskId: string, type: string, limit: number): TaskEvent[] {
     return getLatestTaskEventsByType(this.db, taskId, type, limit);
+  }
+
+  getUndeliveredStatusTimelineEvents(): TaskEvent[] {
+    return getUndeliveredStatusTimelineEvents(this.db);
+  }
+
+  setTaskEventSlackThreadTs(eventId: number, slackThreadTs: string): void {
+    setTaskEventSlackThreadTs(this.db, eventId, slackThreadTs);
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {

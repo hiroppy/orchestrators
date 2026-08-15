@@ -260,8 +260,10 @@ destination channel. It does not require the root `config.ts` or
   rendered in Slack, persisted, and recorded in the thread. The first status
   transition creates one thread reply; later transitions update that reply with
   the latest `from → to` transition and move older transitions into its Timeline.
-  Changes for the same task are serialized. The local task status is persisted only after both
-  the Linear update and Slack card update succeed.
+  Changes for the same task are serialized. Timeline transitions are persisted
+  before Slack delivery and retried during periodic maintenance when delivery or
+  anchor persistence is interrupted. The local task status is persisted only after
+  both the Linear update and Slack card update succeed.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator

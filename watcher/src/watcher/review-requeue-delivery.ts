@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { WebClient } from "@slack/web-api";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -62,7 +60,6 @@ async function deliverPendingReviewRequeueNotification(
         },
         fallbackText: payload.message,
         idempotencyKey: `review-requeue:${completionKey}`,
-        clientMessageId: stableSlackClientMessageId(pending.id),
       });
       store.addEvent({
         taskId: pending.taskId,
@@ -94,9 +91,4 @@ async function deliverPendingReviewRequeueNotification(
       body: completionKey,
     });
   });
-}
-
-function stableSlackClientMessageId(eventId: number): string {
-  const hex = createHash("sha256").update(`review-requeue:${eventId}`).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
