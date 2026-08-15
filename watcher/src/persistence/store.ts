@@ -292,6 +292,7 @@ export class WatcherStore {
       .filter(
         (task) =>
           includedTaskIds.has(task.id) ||
+          task.linearStateType == null ||
           !isTerminalLinearState(task.linearStateType, task.status, statusTypeOverrides),
       );
   }

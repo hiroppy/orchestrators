@@ -38,7 +38,8 @@ export function enteredTerminalLinearState(
   statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
 ): boolean {
   return (
-    !isTerminalLinearState(previousStateType, previousStatus, statusTypeOverrides) &&
+    (previousStateType == null ||
+      !isTerminalLinearState(previousStateType, previousStatus, statusTypeOverrides)) &&
     isTerminalLinearState(currentStateType, currentStatus, statusTypeOverrides)
   );
 }

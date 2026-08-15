@@ -147,6 +147,12 @@ describe("WatcherStore", () => {
         resolvedState: "À FAIRE",
         resolvedStateType: "completed",
       });
+      const provisionalTerminal = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-65",
+        resolvedState: "In Staging Check",
+      });
 
       const tasks = store.getTasksForLinearSync(new Set(), {
         "in staging check": "completed",
@@ -156,7 +162,7 @@ describe("WatcherStore", () => {
 
       assert.deepEqual(
         tasks.map(({ id }) => id),
-        [demoted.id, unicodeDemoted.id],
+        [demoted.id, unicodeDemoted.id, provisionalTerminal.id],
       );
     });
   });
