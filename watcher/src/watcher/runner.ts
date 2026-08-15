@@ -441,9 +441,9 @@ async function reconcileLinearStatuses({
     };
     const reviewDecision = decideReviewReaction(config, store, event, true);
     if (
-      sameStatus &&
+      detailedSameStatus &&
       !reviewDecision.shouldRequeue &&
-      !enteredTerminalState &&
+      !detailedEnteredTerminalState &&
       !hasPendingReconciliation
     ) {
       if (linearIssue.stateType) {
