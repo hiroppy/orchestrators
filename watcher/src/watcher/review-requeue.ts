@@ -84,6 +84,10 @@ export async function recoverPendingReviewRequeues({
       const payload = parseReviewRequeueIntent(pending);
       const task = store.getTask(pending.taskId);
       if (!task) throw new Error(`Task not found: ${pending.taskId}`);
+      if (!config.reviewComment) {
+        retireReviewRequeue(store, pending, payload.commentAt, task.status);
+        continue;
+      }
       const team = linearTeamForService(config, task.serviceName);
       const linearIssue = await fetchLinearState(task.issueIdentifier, {
         apiKey: team?.apiKey,
@@ -138,22 +142,22 @@ async function completeReviewRequeue({
   updateLinearStatus: typeof updateLinearIssueStatus;
   updateLinear?: boolean;
 }): Promise<void> {
-  const review = config.reviewComment;
-  if (!review) return;
   const task = store.getTask(pending.taskId)!;
+  const targetStatus = pending.toStatus;
+  if (!targetStatus) throw new Error(`Review requeue target is missing for ${pending.taskId}`);
   const team = linearTeamForService(config, task.serviceName);
   if (updateLinear) {
-    await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
+    await updateLinearStatus(task.issueIdentifier, targetStatus, {
       apiKey: team?.apiKey,
       issueId: event.linearIssueId,
       teamId: team?.teamId,
     });
   }
   const fromStatus = pending.fromStatus ?? task.status;
-  const message = buildReviewRequeueMessage(fromStatus, review.inProgressStatus);
+  const message = buildReviewRequeueMessage(fromStatus, targetStatus);
   const { task: requeuedTask } = store.updateTaskStatusAtomically(
     task.id,
-    review.inProgressStatus,
+    targetStatus,
     (updatedTask) => {
       const statusHookEvent = createPendingStatusHookEvent(
         config.statusHooks ?? [],
