@@ -312,11 +312,7 @@ function markLinearReconciliationPending(
   task: Task,
   previousTask: Task,
 ): void {
-  const existing = store.getUncompletedEvents(
-    LINEAR_RECONCILIATION_PENDING_EVENT,
-    LINEAR_RECONCILIATION_COMPLETED_EVENT,
-    task.id,
-  );
+  const existing = getPendingLinearReconciliations(store, task.id);
   if (existing.length > 0) return;
   store.addEvent(linearReconciliationPendingEvent(task, previousTask));
 }
@@ -336,13 +332,9 @@ function linearReconciliationEvents(
   task: Task,
   previousTask: Task,
 ): StatusReconciliationEvents {
-  const superseded = store
-    .getUncompletedEvents(
-      LINEAR_RECONCILIATION_PENDING_EVENT,
-      LINEAR_RECONCILIATION_COMPLETED_EVENT,
-      task.id,
-    )
-    .map((event) => linearReconciliationCompletedEvent(task.id, event.id));
+  const superseded = getPendingLinearReconciliations(store, task.id).map((event) =>
+    linearReconciliationCompletedEvent(task.id, event.id),
+  );
   return {
     pending: linearReconciliationPendingEvent(task, previousTask),
     ...(superseded.length > 0 ? { superseded } : {}),
@@ -354,13 +346,15 @@ function isPendingLinearReconciliation(
   taskId: string,
   eventId: number,
 ): boolean {
-  return store
-    .getUncompletedEvents(
-      LINEAR_RECONCILIATION_PENDING_EVENT,
-      LINEAR_RECONCILIATION_COMPLETED_EVENT,
-      taskId,
-    )
-    .some(({ id }) => id === eventId);
+  return getPendingLinearReconciliations(store, taskId).some(({ id }) => id === eventId);
+}
+
+function getPendingLinearReconciliations(store: WatcherStore, taskId?: string): TaskEvent[] {
+  return store.getUncompletedEvents(
+    LINEAR_RECONCILIATION_PENDING_EVENT,
+    LINEAR_RECONCILIATION_COMPLETED_EVENT,
+    taskId,
+  );
 }
 
 function completeLinearReconciliation(store: WatcherStore, taskId: string, eventId: number): void {
@@ -427,6 +421,9 @@ export async function runOnce({
 
   for (const prepared of preparedEvents) {
     const { event: enrichedEvent, reviewDecision } = prepared;
+    const taskId = taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier);
+    const expectedTask = store.getTask(taskId);
+    const pendingReconciliation = getPendingLinearReconciliations(store, taskId)[0];
     await processWatcherEvent({
       config,
       store,
@@ -435,6 +432,8 @@ export async function runOnce({
       event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
+      expectedTask,
+      pendingReconciliation,
     });
   }
 
@@ -471,12 +470,7 @@ async function reconcileLinearStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const pendingReconciliations = new Map(
-    store
-      .getUncompletedEvents(
-        LINEAR_RECONCILIATION_PENDING_EVENT,
-        LINEAR_RECONCILIATION_COMPLETED_EVENT,
-      )
-      .map((event) => [event.taskId, event]),
+    getPendingLinearReconciliations(store).map((event) => [event.taskId, event]),
   );
   const tasks = store
     .getTasksForLinearSync(new Set(pendingReconciliations.keys()), config.statusTypeOverrides)
@@ -614,6 +608,7 @@ async function reconcileLinearStatuses({
       event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
+      expectedTask: task,
       pendingReconciliation,
     });
   }
@@ -627,6 +622,7 @@ async function processWatcherEvent({
   event,
   reviewDecision,
   updateLinearStatus,
+  expectedTask,
   pendingReconciliation,
 }: {
   config: ResolvedWatcherRuntimeConfig;
@@ -636,6 +632,7 @@ async function processWatcherEvent({
   event: WatcherEvent;
   reviewDecision: ReviewCommentDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  expectedTask?: Task;
   pendingReconciliation?: TaskEvent;
 }): Promise<void> {
   const persistedTask = store.getTask(taskIdFor(event.service, event.issueIdentifier));
@@ -657,13 +654,21 @@ async function processWatcherEvent({
       defaultAssignees: config.defaultAssignees ?? [],
       statusTypeOverrides: config.statusTypeOverrides,
       transitionPreviousTask,
-      shouldPublish: () =>
-        pendingReconciliation === undefined ||
-        isPendingLinearReconciliation(
-          store,
-          pendingReconciliation.taskId,
-          pendingReconciliation.id,
-        ),
+      shouldPublish: (currentTask) => {
+        if (pendingReconciliation) {
+          return isPendingLinearReconciliation(
+            store,
+            pendingReconciliation.taskId,
+            pendingReconciliation.id,
+          );
+        }
+        if (!expectedTask) return true;
+        return (
+          currentTask?.updatedAt === expectedTask.updatedAt &&
+          normalizeStatus(currentTask.status) === normalizeStatus(expectedTask.status) &&
+          getPendingLinearReconciliations(store, expectedTask.id).length === 0
+        );
+      },
       afterCardPublish: () => {
         if (pendingReconciliation) {
           completeLinearReconciliation(

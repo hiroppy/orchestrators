@@ -574,6 +574,151 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("does not let an ordinary stale periodic fetch overwrite a newer action", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      const detailedFetchStarted = Promise.withResolvers<void>();
+      const releaseDetailedFetch = Promise.withResolvers<void>();
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        const issue = {
+          identifier: "ENG-62",
+          title: "Merge the pull request",
+          state: { name: "Done", type: "completed" },
+          attachments: { nodes: [] },
+          relations: { nodes: [] },
+        };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({ data: { issue0: issue } });
+        }
+        detailedFetchStarted.resolve();
+        await releaseDetailedFetch.promise;
+        return Response.json({ data: { issue } });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Rework", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      const reconciliation = runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+      });
+      await detailedFetchStarted.promise;
+      const previousTask = store.getTask(task.id)!;
+      store.updateTaskStatusAtomically(task.id, "Rework", (updatedTask) => ({
+        taskId: task.id,
+        type: "linear_reconciliation_pending",
+        fromStatus: previousTask.status,
+        toStatus: updatedTask.status,
+        body: previousTask.linearStateType,
+      }));
+      releaseDetailedFetch.resolve();
+      await reconciliation;
+
+      assert.equal(store.getTask(task.id)?.status, "Rework");
+      assert.equal(
+        store.getUncompletedEvents(
+          "linear_reconciliation_pending",
+          "linear_reconciliation_completed",
+          task.id,
+        ).length,
+        1,
+      );
+    });
+  });
+
+  it("completes a retry marker after a normal snapshot publishes its closure", async (context) => {
+    await withStore(async (store) => {
+      const activeSnapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "running" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        const issue = {
+          identifier: "ENG-62",
+          title: "Merge the pull request",
+          state: { name: "Done", type: "completed" },
+          url: "https://linear.app/example/issue/ENG-62/example",
+          attachments: { nodes: [] },
+          relations: { nodes: [] },
+        };
+        return Response.json({
+          data: query.includes("OrchestratorWatcherIssueStateBatch")
+            ? { issue0: issue }
+            : { issue },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl(activeSnapshot),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      store.addEvent({
+        taskId: task.id,
+        type: "linear_reconciliation_pending",
+        fromStatus: "In Progress",
+        toStatus: "Done",
+        body: "started",
+      });
+      const calls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(
+        calls.filter(
+          ({ method, text }) => method === "postMessage" && String(text).startsWith("Task closed"),
+        ).length,
+        1,
+      );
+      assert.equal(store.countEvents(task.id, "linear_reconciliation_completed"), 1);
+    });
+  });
+
   it("does not retry a closure after only the later thread publication fails", async (context) => {
     await withStore(async (store) => {
       const nativeFetch = globalThis.fetch;
