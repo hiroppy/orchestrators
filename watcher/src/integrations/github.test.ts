@@ -94,6 +94,7 @@ describe("findPullRequest", () => {
       { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
       {
         includeLatestReviewComment: true,
+        symphonyGitHubLogins: ["symphony-bot"],
         execFile: async (_command, args) => {
           if (args[0] === "api") {
             assert.equal(args[1], "graphql");
@@ -131,6 +132,10 @@ describe("findPullRequest", () => {
                                 {
                                   author: { login: "pull-request-author" },
                                   createdAt: "2026-08-15T06:05:00Z",
+                                },
+                                {
+                                  author: { login: "SYMPHONY-BOT" },
+                                  createdAt: "2026-08-15T06:06:00Z",
                                 },
                               ],
                             },

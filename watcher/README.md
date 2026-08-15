@@ -83,6 +83,7 @@ issue is in review:
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
+      symphonyGitHubLogins: ["your-symphony-account"],
     },
   },
 }
@@ -95,6 +96,9 @@ existing event log; comment IDs and deletion state are not tracked. Omit
 `watcher.reviewComment` to disable this behavior.
 Comments in resolved or outdated review threads are ignored. A resolved thread
 becomes eligible again if it is subsequently marked unresolved and is not outdated.
+Comments from the pull request author and accounts listed in
+`symphonyGitHubLogins` are also ignored. Configure the GitHub account used by
+Symphony to reply to reviews so its own replies do not requeue the issue.
 
 Comment checks run during periodic maintenance, including for tasks that remain
 in the current Symphony snapshot without producing a new snapshot event. The

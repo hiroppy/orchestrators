@@ -34,11 +34,16 @@ export async function enrichEvent(
   });
   const resolvedState = linearIssue?.state ?? event.state;
   const includeLatestReviewComment = shouldFetchReviewComments(config, resolvedState);
+  const symphonyGitHubLogins = config.reviewComment?.symphonyGitHubLogins;
   let pullRequest =
-    (await github.findPullRequest(event, { includeLatestReviewComment })) ?? undefined;
+    (await github.findPullRequest(event, { includeLatestReviewComment, symphonyGitHubLogins })) ??
+    undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
     const enrichedPullRequest = await github
-      .findPullRequestByUrl(linearIssue.pullRequest.url, { includeLatestReviewComment })
+      .findPullRequestByUrl(linearIssue.pullRequest.url, {
+        includeLatestReviewComment,
+        symphonyGitHubLogins,
+      })
       .catch(() => null);
     pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
   }

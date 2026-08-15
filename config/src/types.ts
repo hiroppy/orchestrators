@@ -30,6 +30,7 @@ export interface SlackConfig {
 export interface ReviewCommentConfig {
   inReviewStatus: string;
   inProgressStatus: string;
+  symphonyGitHubLogins?: string[];
 }
 
 export interface StatusHookContext {

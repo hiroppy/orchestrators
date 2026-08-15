@@ -10,6 +10,7 @@ const GH_PR_FIELDS =
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
   includeLatestReviewComment?: boolean;
+  symphonyGitHubLogins?: string[];
 }
 
 interface GhPullRequest {
@@ -110,9 +111,11 @@ async function viewPullRequest(
     if (!parsed.url) return null;
     const pullRequest = toPullRequest(parsed);
     if (!options.includeLatestReviewComment) return pullRequest;
-    const latestReviewCommentAt = await fetchLatestReviewCommentAt(execFile, pullRequest).catch(
-      () => null,
-    );
+    const latestReviewCommentAt = await fetchLatestReviewCommentAt(
+      execFile,
+      pullRequest,
+      options.symphonyGitHubLogins ?? [],
+    ).catch(() => null);
     return { ...pullRequest, latestReviewCommentAt };
   } catch {
     return null;
@@ -139,6 +142,7 @@ function toPullRequest(parsed: GhPullRequest): PullRequest {
 async function fetchLatestReviewCommentAt(
   execFile: typeof execFileDefault,
   pullRequest: PullRequest,
+  symphonyGitHubLogins: string[],
 ): Promise<string | null> {
   if (!pullRequest.repository || !pullRequest.number) return null;
   const [owner, repo] = pullRequest.repository.split("/");
@@ -164,13 +168,19 @@ async function fetchLatestReviewCommentAt(
   );
   const response = JSON.parse(stdout) as GhReviewThreadsResponse;
   const responsePullRequest = response.data?.repository?.pullRequest;
-  const authorLogin = responsePullRequest?.author?.login;
+  const ignoredAuthors = new Set(
+    [responsePullRequest?.author?.login, ...symphonyGitHubLogins]
+      .filter((login): login is string => Boolean(login))
+      .map((login) => login.toLowerCase()),
+  );
   return (
     responsePullRequest?.reviewThreads?.nodes
       ?.filter(({ isResolved, isOutdated }) => !isResolved && !isOutdated)
       .flatMap(({ comments }) => comments?.nodes ?? [])
       .flatMap(({ author, createdAt }) =>
-        createdAt && author?.login !== authorLogin ? [createdAt] : [],
+        createdAt && (!author?.login || !ignoredAuthors.has(author.login.toLowerCase()))
+          ? [createdAt]
+          : [],
       )
       .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
   );

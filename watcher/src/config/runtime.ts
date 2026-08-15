@@ -150,7 +150,18 @@ function resolveReviewCommentConfig(
     throw new Error("watcher.reviewComment.inProgressStatus must be a non-empty string.");
   }
 
-  return { inReviewStatus, inProgressStatus };
+  const symphonyGitHubLogins = config.symphonyGitHubLogins?.map((login) => login.trim());
+  if (symphonyGitHubLogins?.some((login) => !login)) {
+    throw new Error(
+      "watcher.reviewComment.symphonyGitHubLogins must contain only non-empty strings.",
+    );
+  }
+
+  return {
+    inReviewStatus,
+    inProgressStatus,
+    ...(symphonyGitHubLogins ? { symphonyGitHubLogins: [...new Set(symphonyGitHubLogins)] } : {}),
+  };
 }
 
 export function resolveSupervisorConfig(config: OrchestratorConfig): SupervisorInstance[] {

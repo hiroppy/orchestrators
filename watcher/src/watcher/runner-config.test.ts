@@ -197,7 +197,11 @@ describe("watcher configuration", () => {
       {
         ...baseConfig(),
         watcher: {
-          reviewComment: { inReviewStatus: " In Review ", inProgressStatus: " In Progress " },
+          reviewComment: {
+            inReviewStatus: " In Review ",
+            inProgressStatus: " In Progress ",
+            symphonyGitHubLogins: [" symphony-bot ", "symphony-bot"],
+          },
         },
       },
       { requireSlack: false },
@@ -206,7 +210,26 @@ describe("watcher configuration", () => {
     assert.deepEqual(config.reviewComment, {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
+      symphonyGitHubLogins: ["symphony-bot"],
     });
+
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              reviewComment: {
+                inReviewStatus: "In Review",
+                inProgressStatus: "In Progress",
+                symphonyGitHubLogins: [" "],
+              },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /symphonyGitHubLogins/,
+    );
 
     for (const reviewComment of [
       { inReviewStatus: "", inProgressStatus: "In Progress" },

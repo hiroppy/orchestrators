@@ -7,6 +7,7 @@ export default defineConfig({
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
+      symphonyGitHubLogins: ["your-symphony-account"],
     },
     // Put local TypeScript hooks in ./hooks and import them from config.ts.
     // A hook's returned string is posted back to the task's Slack thread.

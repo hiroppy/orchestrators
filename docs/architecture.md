@@ -91,10 +91,14 @@ Given this configuration:
 reviewComment: {
   inReviewStatus: "In Review",
   inProgressStatus: "In Progress",
+  symphonyGitHubLogins: ["your-symphony-account"],
 }
 ```
 
 the normal lifecycle is:
+
+The watcher excludes comments from the pull request author and configured
+`symphonyGitHubLogins` before selecting the latest eligible comment.
 
 ```mermaid
 sequenceDiagram

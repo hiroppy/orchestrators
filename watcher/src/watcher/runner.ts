@@ -387,6 +387,7 @@ async function reconcileLinearStatuses({
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
         includeLatestReviewComment: fetchDetailedReviewComments,
+        symphonyGitHubLogins: config.reviewComment?.symphonyGitHubLogins,
       }).catch(() => null);
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
