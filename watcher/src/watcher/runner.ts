@@ -13,6 +13,7 @@ import {
   updateLinearIssueStatus,
 } from "../integrations/linear.ts";
 import { downloadSlackFile } from "../integrations/slack.ts";
+import { isLinearRateLimitError } from "../integrations/linear-client.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
@@ -348,6 +349,7 @@ async function reconcileLinearStatuses({
     );
   });
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
+  const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
     if (!teamName || summaries.has(teamName)) continue;
@@ -355,17 +357,23 @@ async function reconcileLinearStatuses({
       (candidate) =>
         config.services.find(({ name }) => name === candidate.serviceName)?.linearTeam === teamName,
     );
-    summaries.set(
-      teamName,
-      await fetchLinearIssueStateSummaries(
-        teamTasks.map(({ issueIdentifier }) => issueIdentifier),
-        { apiKey: config.linearTeams[teamName]?.apiKey },
-      ),
-    );
+    try {
+      summaries.set(
+        teamName,
+        await fetchLinearIssueStateSummaries(
+          teamTasks.map(({ issueIdentifier }) => issueIdentifier),
+          { apiKey: config.linearTeams[teamName]?.apiKey },
+        ),
+      );
+    } catch (error) {
+      if (!isLinearRateLimitError(error)) throw error;
+      rateLimitedTeams.add(teamName);
+    }
   }
 
   for (const task of tasks) {
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
+    if (teamName && rateLimitedTeams.has(teamName)) continue;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
     const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
     if (summary?.state) {

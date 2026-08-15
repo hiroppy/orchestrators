@@ -13,7 +13,7 @@ import {
   TAKE_PR_ISSUE_QUERY,
   TAKE_PR_TARGET_QUERY,
 } from "./linear-queries.ts";
-import { LINEAR_ENDPOINT, linearRequest } from "./linear-client.ts";
+import { isLinearRateLimitError, LINEAR_ENDPOINT, linearRequest } from "./linear-client.ts";
 import { stableLinearUuid } from "./linear-id.ts";
 
 export { fetchLinearWorkflowStates, updateLinearIssueStatus } from "./linear-status.ts";
@@ -395,7 +395,8 @@ export async function fetchLinearIssueStateSummaries(
           stateType: issue.state?.type ?? null,
         });
       }
-    } catch {
+    } catch (error) {
+      if (isLinearRateLimitError(error)) throw error;
       // Periodic reconciliation is best-effort; a later cycle will retry the batch.
     }
   }

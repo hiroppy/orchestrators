@@ -68,6 +68,17 @@ describe("fetchLinearIssueStateSummaries", () => {
       stateType: "started",
     });
   });
+
+  it("preserves a batch rate-limit error for the caller", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+      Response.json({ errors: [{ extensions: { code: "RATELIMITED" } }] }, { status: 400 }),
+    );
+
+    await assert.rejects(
+      fetchLinearIssueStateSummaries(["ENG-1"], { apiKey: "lin_test" }),
+      /rate limit/i,
+    );
+  });
 });
 
 describe("fetchLinearIssueState", () => {

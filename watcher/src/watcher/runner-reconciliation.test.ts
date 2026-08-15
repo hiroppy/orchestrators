@@ -395,6 +395,50 @@ describe("watcher reconciliation and snapshots", () => {
     });
   }
 
+  it("defers a rate-limited team without issuing per-task fallback requests", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      let linearFetches = 0;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        linearFetches += 1;
+        return Response.json(
+          { errors: [{ extensions: { code: "RATELIMITED" } }] },
+          { status: 400 },
+        );
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(linearFetches, 1);
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+    });
+  });
+
   it("preserves active tasks through an outage and reports recovery without false transitions", async (context) => {
     await withStore(async (store) => {
       const activeSnapshot = {
