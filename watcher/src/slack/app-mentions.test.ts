@@ -33,9 +33,9 @@ describe("Slack mention commands", () => {
           "*Available commands*",
           "• `@Project Bot status`",
           "  Show tracked Todo, In Progress, and In Review tasks.",
-          "• `@Project Bot assign @user-or-group`",
+          "• `@Project Bot assign @user-or-group|username|me`",
           "  Add a user or user group to notifications for a tracked task. Run this in the task thread.",
-          "• `@Project Bot unassign @user-or-group`",
+          "• `@Project Bot unassign @user-or-group|username|me`",
           "  Remove a user or user group from notifications for a tracked task. Run this in the task thread.",
           "• `@Project Bot take-pr <GitHub PR URL>`",
           "  Create a Linear issue for an existing open pull request.",
@@ -344,6 +344,51 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("assigns and unassigns by bare username and me", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls, {
+        UHIROPPY: "hiroppy",
+        UREQUESTER: "requester",
+      });
+
+      for (const [ts, command, assignee, expected] of [
+        ["20.000", "assign", "Hiroppy", ["<@UHIROPPY>"]],
+        ["21.000", "assign", "me", ["<@UHIROPPY>", "<@UREQUESTER>"]],
+        ["22.000", "unassign", "hiroppy", ["<@UREQUESTER>"]],
+        ["23.000", "unassign", "ME", []],
+      ] as const) {
+        await handleAppMention(
+          {
+            event: {
+              channel: "C123",
+              thread_ts: "10.000",
+              ts,
+              user: "UREQUESTER",
+              text: `<@UBOT> ${command} ${assignee}`,
+            },
+            client,
+            logger: { error: (error: unknown) => assert.fail(String(error)) },
+          },
+          store,
+          "UBOT",
+        );
+
+        assert.deepEqual(store.getTaskAssignees(task.id), expected);
+      }
+
+      assert.equal(calls.filter(({ method }) => method === "usersList").length, 2);
+      assert.equal(calls.filter(({ method }) => method === "addReaction").length, 4);
+    });
+  });
+
   it("serializes assignment refreshes behind watcher card updates", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
@@ -456,7 +501,7 @@ describe("Slack mention commands", () => {
       assert.equal(calls.length, events.length - 1);
       assert.match(String(calls[0].args.text), /tracked task thread/);
       for (const call of calls.slice(1)) {
-        assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user-or-group`");
+        assert.equal(call.args.text, "[error] Usage: <@UBOT> `assign @user-or-group|username|me`");
         assert.equal(call.args.thread_ts, "10.000");
       }
     });
@@ -691,7 +736,10 @@ describe("Slack mention commands", () => {
       assert.equal(calls[0].args.thread_ts, undefined);
       assert.match(String(calls[1].args.text), /tracked task thread/);
       assert.equal(calls[1].args.thread_ts, "99.000");
-      assert.equal(calls[2].args.text, "[error] Usage: <@UBOT> `unassign @user-or-group`");
+      assert.equal(
+        calls[2].args.text,
+        "[error] Usage: <@UBOT> `unassign @user-or-group|username|me`",
+      );
     });
   });
 

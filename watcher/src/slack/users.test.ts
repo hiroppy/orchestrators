@@ -1,9 +1,60 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { resolveSlackAssigneeLabels } from "./users.ts";
+import { resolveSlackAssigneeId, resolveSlackAssigneeLabels } from "./users.ts";
 
 describe("Slack users", () => {
+  it("resolves mentions, me, and a bare username", async () => {
+    const cursors: Array<string | undefined> = [];
+    const client = {
+      users: {
+        async info() {
+          return { ok: true };
+        },
+        async list({ cursor }: { cursor?: string }) {
+          cursors.push(cursor);
+          return cursor
+            ? {
+                ok: true,
+                members: [{ id: "UHIROPPY", name: "Hiroppy", profile: {} }],
+              }
+            : {
+                ok: true,
+                members: [{ id: "UOTHER", name: "other", profile: {} }],
+                response_metadata: { next_cursor: "next-page" },
+              };
+        },
+      },
+    } as never;
+
+    assert.equal(await resolveSlackAssigneeId(client, "<@U123>"), "U123");
+    assert.equal(await resolveSlackAssigneeId(client, "<!subteam^S123>"), "!subteam^S123");
+    assert.equal(await resolveSlackAssigneeId(client, "ME", "UCURRENT"), "UCURRENT");
+    assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), "UHIROPPY");
+    assert.deepEqual(cursors, [undefined, "next-page"]);
+  });
+
+  it("does not resolve an ambiguous bare name", async () => {
+    const client = {
+      users: {
+        async info() {
+          return { ok: true };
+        },
+        async list() {
+          return {
+            ok: true,
+            members: [
+              { id: "U123", name: "hiroppy", profile: {} },
+              { id: "U456", profile: { display_name: "Hiroppy" } },
+            ],
+          };
+        },
+      },
+    } as never;
+
+    assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), undefined);
+  });
+
   it("resolves user mentions to non-notifying display-name labels", async () => {
     const labels = await resolveSlackAssigneeLabels(
       {

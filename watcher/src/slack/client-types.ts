@@ -7,6 +7,8 @@ import type {
   ChatUpdateResponse,
   UsersInfoArguments,
   UsersInfoResponse,
+  UsersListArguments,
+  UsersListResponse,
 } from "@slack/web-api";
 
 export interface SlackClient {
@@ -19,5 +21,6 @@ export interface SlackClient {
   };
   users?: {
     info(args: UsersInfoArguments): Promise<UsersInfoResponse>;
+    list?(args: UsersListArguments): Promise<UsersListResponse>;
   };
 }

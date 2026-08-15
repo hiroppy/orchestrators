@@ -1,5 +1,4 @@
 import type { WatcherStore } from "../persistence/store.ts";
-import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
@@ -16,7 +15,11 @@ import {
   type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
-import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
+import {
+  resolveSlackAssigneeId,
+  resolveSlackAssigneeLabels,
+  resolveSlackDisplayName,
+} from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
 import { reloadStatusTimeline } from "./status-timeline.ts";
@@ -162,12 +165,13 @@ async function handleAssignCommand({
     return;
   }
 
-  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  const slackAssigneeId =
+    args.length === 1 ? await resolveSlackAssigneeId(client, args[0], event.user) : undefined;
   if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`assign @user-or-group\``,
+      `Usage: ${event.botMention} \`assign @user-or-group|username|me\``,
     );
     return;
   }
@@ -241,12 +245,13 @@ async function handleUnassignCommand({
     return;
   }
 
-  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  const slackAssigneeId =
+    args.length === 1 ? await resolveSlackAssigneeId(client, args[0], event.user) : undefined;
   if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`unassign @user-or-group\``,
+      `Usage: ${event.botMention} \`unassign @user-or-group|username|me\``,
     );
     return;
   }
