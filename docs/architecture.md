@@ -82,16 +82,14 @@ transient cached mutation failure leaves the cache intact. A non-transient failu
 team's cache and returns the original error without an immediate retry; a later poll then resolves
 current state metadata through the uncached path.
 
-## Review-reaction lifecycle
+## Inline-review-comment lifecycle
 
 Given this configuration:
 
 ```ts
-reviewReaction: {
+reviewComment: {
   inReviewStatus: "In Review",
   inProgressStatus: "In Progress",
-  reaction: "👀",
-  maxRequeues: 3,
 }
 ```
 
@@ -109,31 +107,21 @@ sequenceDiagram
   Note over S: Issue leaves Symphony's active work set
   W->>L: Periodically read stored nonterminal issue
   L-->>W: In Review and linked PR URL
-  W->>G: gh pr view --json headRefOid,reactionGroups
-  G-->>W: Current PR reaction counts
-  alt Configured reaction is present below the final allowed requeue
+  W->>DB: Read latest transition into In Review
+  W->>G: Read latest inline review comment
+  G-->>W: Latest comment creation time
+  alt Comment is newer than the In Review transition
     W->>L: Move issue to In Progress
-    W->>DB: Store status and requeue attempt
+    W->>DB: Store status and notification state
     Note over S,L: Issue becomes eligible for Symphony again
-  else Configured reaction uses the final allowed requeue
-    W->>L: Move issue to In Progress
-    W->>DB: Store status, final attempt, and limit notification state
-    Note over S,L: Issue becomes eligible for Symphony again, but this PR head is now capped
-  else Reaction is absent
-    W->>DB: Keep task in In Review
-  else Same reacted PR head is already capped
+  else No newer inline comment
     W->>DB: Keep task in In Review
   end
 ```
 
-The decision uses the current reaction count on the PR itself. It does not inspect when the reaction
-was added or require it to be newer than the transition into `In Review`. Consequently, a reaction
-added many hours after review began can move the issue back to `In Progress` on the next periodic
-reconciliation.
-
-Requeue attempts are counted per issue, PR URL, PR head commit, and configured reaction. The count
-is persisted across watcher restarts. A new PR head commit receives a fresh allowance; the same
-reacted head remains capped after `maxRequeues` attempts.
+The decision compares GitHub's latest inline-comment `created_at` with the database timestamp of
+the latest transition into `In Review`. Returning to review creates a new boundary, so an older
+comment cannot requeue the task again. Comment IDs and deletion state are not persisted.
 
 ## Persistence and recovery
 
@@ -142,11 +130,11 @@ The watcher database stores:
 - the latest Symphony snapshots used for diffing;
 - tracked tasks and their current known Linear status;
 - Slack parent-message identifiers;
-- watcher events and review-requeue attempts;
+- watcher events and review-comment requeues;
 - pending delivery and reconciliation state for recoverable operations.
 
 The database is why review tracking and delivery retries can continue after a watcher restart. If
-the watcher is stopped, no polling or reaction handling occurs; reconciliation resumes after it
+the watcher is stopped, no polling or review-comment handling occurs; reconciliation resumes after it
 starts again.
 
 ## Implementation map
@@ -155,7 +143,7 @@ starts again.
 - `watcher/src/watcher/snapshots.ts` collects Symphony observability snapshots.
 - `watcher/src/watcher/diff.ts` converts snapshot changes into watcher events.
 - `watcher/src/watcher/event-enrichment.ts` resolves Linear state and PR metadata.
-- `watcher/src/watcher/review-reactions.ts` decides whether a reaction should requeue a task.
+- `watcher/src/watcher/review-comments.ts` decides whether a new inline comment should requeue a task.
 - `watcher/src/watcher/review-requeue.ts` updates Linear and persists the requeue result.
-- `watcher/src/integrations/github.ts` reads PRs and reaction groups through the GitHub CLI.
+- `watcher/src/integrations/github.ts` reads PRs and inline review comments through the GitHub CLI.
 - `watcher/src/persistence/store.ts` stores snapshots, tasks, and the event audit trail.

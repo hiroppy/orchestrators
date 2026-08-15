@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { resolveWatcherConfig } from "../config/runtime.ts";
-import type { ReviewReactionConfig } from "../domain/types.ts";
 import { requireSlackBotUserId } from "./runner.ts";
 import { resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { baseConfig, linearTeams } from "./runner.test-support.ts";
@@ -193,64 +192,36 @@ describe("watcher configuration", () => {
     );
   });
 
-  it("requires valid review reaction settings", () => {
+  it("requires valid review comment settings", () => {
     const config = resolveWatcherConfig(
       {
         ...baseConfig(),
         watcher: {
-          reviewReaction: {
-            inReviewStatus: "In Review",
-            inProgressStatus: "In Progress",
-            reaction: " 👀 ",
-            maxRequeues: 3,
-          },
+          reviewComment: { inReviewStatus: " In Review ", inProgressStatus: " In Progress " },
         },
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.reviewReaction, {
+    assert.deepEqual(config.reviewComment, {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
-      reaction: "👀",
-      maxRequeues: 3,
     });
 
-    for (const reviewReaction of [
-      {
-        inReviewStatus: "",
-        inProgressStatus: "In Progress",
-        reaction: "👀",
-        maxRequeues: 3,
-      },
-      {
-        inReviewStatus: "In Review",
-        inProgressStatus: "In Progress",
-        maxRequeues: 3,
-      } as unknown as ReviewReactionConfig,
-      {
-        inReviewStatus: "In Review",
-        inProgressStatus: "In Progress",
-        reaction: "",
-        maxRequeues: 3,
-      },
-      {
-        inReviewStatus: "In Review",
-        inProgressStatus: "In Progress",
-        reaction: "👀",
-        maxRequeues: 0,
-      },
+    for (const reviewComment of [
+      { inReviewStatus: "", inProgressStatus: "In Progress" },
+      { inReviewStatus: "In Review", inProgressStatus: "" },
     ]) {
       assert.throws(
         () =>
           resolveWatcherConfig(
             {
               ...baseConfig(),
-              watcher: { reviewReaction },
+              watcher: { reviewComment },
             },
             { requireSlack: false },
           ),
-        /watcher\.reviewReaction/,
+        /watcher\.reviewComment/,
       );
     }
   });

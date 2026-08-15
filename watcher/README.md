@@ -64,39 +64,34 @@ imported values, duplicate enabled ports, and missing credentials at startup.
 The watcher fetches the referenced teams' current workflow states from Linear
 before polling.
 
-Workflow-specific behavior remains explicit: `reviewReaction.inReviewStatus`
-and `reviewReaction.inProgressStatus` are business rules rather than
+Workflow-specific behavior remains explicit: `reviewComment.inReviewStatus`
+and `reviewComment.inProgressStatus` are business rules rather than
 discoverable Linear semantics. Startup verifies that every configured name
 exists in each enabled team's fetched workflow and fails with a configuration
 error if it does not.
 
-### Review reaction requeue
+### Inline review comment requeue
 
-Set `watcher.reviewReaction` to move review work back into Symphony while a
-linked GitHub pull request has the configured reaction:
+Set `watcher.reviewComment` to move review work back into Symphony when a new
+inline review comment appears after the issue enters review:
 
 ```ts
 {
   watcher: {
-    // Requeues a Linear issue from review when a linked GitHub PR has this reaction.
-    // Remove this block to disable reaction-based requeueing.
-    reviewReaction: {
+    // Remove this block to disable inline-comment requeueing.
+    reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
-      reaction: "👀", // e.g. Codex code review in progress
-      maxRequeues: 3,
     },
   },
 }
 ```
 
-The watcher checks reactions only while the Linear issue is in
-`inReviewStatus`. A matching reaction moves the issue to `inProgressStatus`.
-This repeats until the reaction disappears or `maxRequeues` is reached.
-
-Reaching the limit immediately posts a notice in the task thread. Requeue
-counts survive watcher restarts because they are stored in the watcher
-database. Omit `watcher.reviewReaction` to disable this behavior.
+The watcher checks inline comments only while the Linear issue is in
+`inReviewStatus`. If the newest comment was created after the latest recorded
+transition into review, the issue moves to `inProgressStatus`. Existing and
+deleted comments need no separate cursor state. Omit `watcher.reviewComment`
+to disable this behavior.
 
 ### Status hooks
 
@@ -213,7 +208,7 @@ a status change made by a Slack user, including the actor's display name. A
 configured creator and additional mention targets can be previewed with
 `post attention` or `thread attention`. Pass them as `mentionTarget` and
 `mentions` when using the preview helper; the CLI uses non-notifying
-placeholders. Use `thread reaction`, `thread reaction-limit`, and `thread next`
+placeholders. Use `thread review-comment` and `thread next`
 for task-thread notifications, `post closed` for the top-level task-closed
 notification, and `assignees status` for the status summary.
 Thread previews are posted as

@@ -89,34 +89,32 @@ describe("findPullRequest", () => {
     });
   });
 
-  it("checks the configured reaction only when requested", async () => {
+  it("loads the latest inline review comment when requested", async () => {
     const result = await findPullRequest(
       { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
       {
-        reaction: "👀",
+        includeLatestReviewComment: true,
         execFile: async (_command, args) => {
-          assert.deepEqual(args, [
-            "pr",
-            "view",
-            "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
-          ]);
+          if (args[0] === "api") {
+            assert.deepEqual(args, [
+              "api",
+              "repos/example/service/pulls/123/comments?sort=created&direction=desc&per_page=1",
+            ]);
+            return { stdout: JSON.stringify([{ created_at: "2026-08-15T06:02:10Z" }]) };
+          }
           return {
             stdout: JSON.stringify({
               url: "https://github.com/example/service/pull/123",
+              number: 123,
               headRefName: "eng-65-contact-form",
               labels: [{ name: "stg-deploy" }],
-              reactionGroups: [
-                { content: "THUMBS_UP", users: { totalCount: 2 } },
-                { content: "EYES", users: { totalCount: 1 } },
-              ],
             }),
           };
         },
       },
     );
 
-    assert.equal(result?.hasConfiguredReaction, true);
+    assert.equal(result?.latestReviewCommentAt, "2026-08-15T06:02:10Z");
     assert.deepEqual(result?.labels, ["stg-deploy"]);
   });
 
@@ -171,32 +169,25 @@ describe("findPullRequest", () => {
 });
 
 describe("findPullRequestByUrl", () => {
-  it("loads reaction metadata from an attached pull request URL", async () => {
+  it("represents a PR with no inline comments", async () => {
     const url = "https://github.com/example/service/pull/123";
     const result = await findPullRequestByUrl(url, {
-      reaction: "👀",
+      includeLatestReviewComment: true,
       execFile: async (command, args, options) => {
         assert.equal(command, "gh");
-        assert.deepEqual(args, [
-          "pr",
-          "view",
-          url,
-          "--json",
-          "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
-        ]);
+        if (args[0] === "api") return { stdout: "[]" };
         assert.equal(options.cwd, undefined);
         return {
           stdout: JSON.stringify({
             url,
             number: 123,
             labels: [{ name: "symphony" }],
-            reactionGroups: [{ content: "EYES", users: { totalCount: 0 } }],
           }),
         };
       },
     });
 
-    assert.equal(result?.hasConfiguredReaction, false);
+    assert.equal(result?.latestReviewCommentAt, null);
     assert.deepEqual(result?.labels, ["symphony"]);
   });
 
@@ -208,19 +199,5 @@ describe("findPullRequestByUrl", () => {
     });
 
     assert.deepEqual(result?.labels, []);
-  });
-
-  it("maps a configured emoji to GitHub reaction content", async () => {
-    const result = await findPullRequestByUrl("https://github.com/example/service/pull/123", {
-      reaction: "🚀",
-      execFile: async () => ({
-        stdout: JSON.stringify({
-          url: "https://github.com/example/service/pull/123",
-          reactionGroups: [{ content: "ROCKET", users: { totalCount: 1 } }],
-        }),
-      }),
-    });
-
-    assert.equal(result?.hasConfiguredReaction, true);
   });
 });

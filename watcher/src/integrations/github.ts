@@ -1,27 +1,15 @@
-import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 
 import type { PullRequest, WatcherEvent } from "../domain/types.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
   "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels";
-const GH_PR_FIELDS_WITH_REACTIONS = `${GH_PR_FIELDS},reactionGroups`;
-const GITHUB_REACTION_BY_EMOJI: Record<string, string> = {
-  "👍": "THUMBS_UP",
-  "👎": "THUMBS_DOWN",
-  "😄": "LAUGH",
-  "🎉": "HOORAY",
-  "😕": "CONFUSED",
-  "❤️": "HEART",
-  "❤": "HEART",
-  "🚀": "ROCKET",
-  "👀": "EYES",
-};
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
-  reaction?: string;
+  includeLatestReviewComment?: boolean;
 }
 
 interface GhPullRequest {
@@ -36,20 +24,17 @@ interface GhPullRequest {
   headRefOid?: string;
   baseRefName?: string;
   labels?: Array<{ name?: string }>;
-  reactionGroups?: Array<{
-    content?: string;
-    users?: { totalCount?: number };
-  }>;
+}
+
+interface GhReviewComment {
+  created_at?: string;
 }
 
 export async function requireGitHubCli(
   execFile: typeof execFileDefault = execFileDefault,
 ): Promise<void> {
   try {
-    await execFile("gh", ["auth", "status"], {
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
+    await execFile("gh", ["auth", "status"], { timeout: 10_000, maxBuffer: 1024 * 1024 });
   } catch {
     throw new Error(
       "GitHub CLI is required and must be authenticated. Run `gh auth login` before starting the watcher.",
@@ -61,9 +46,7 @@ export async function findPullRequest(
   event: WatcherEvent,
   options: FindPullRequestOptions = {},
 ): Promise<PullRequest | null> {
-  if (!event.workspacePath) return null;
-  if (event.state?.toLowerCase() === "todo") return null;
-
+  if (!event.workspacePath || event.state?.toLowerCase() === "todo") return null;
   const pullRequest = await viewPullRequest(undefined, options, event.workspacePath);
   return pullRequest &&
     matchesIssueIdentifier(pullRequest.headRefName ?? undefined, event.issueIdentifier)
@@ -84,8 +67,7 @@ async function viewPullRequest(
   cwd?: string,
 ): Promise<PullRequest | null> {
   const execFile = options.execFile ?? execFileDefault;
-  const fields = options.reaction ? GH_PR_FIELDS_WITH_REACTIONS : GH_PR_FIELDS;
-  const args = ["pr", "view", ...(selector ? [selector] : []), "--json", fields];
+  const args = ["pr", "view", ...(selector ? [selector] : []), "--json", GH_PR_FIELDS];
 
   try {
     const { stdout } = await execFile("gh", args, {
@@ -94,13 +76,19 @@ async function viewPullRequest(
       maxBuffer: 1024 * 1024,
     });
     const parsed = JSON.parse(stdout) as GhPullRequest;
-    return parsed.url ? toPullRequest(parsed, options.reaction) : null;
+    if (!parsed.url) return null;
+    const pullRequest = toPullRequest(parsed);
+    if (!options.includeLatestReviewComment) return pullRequest;
+    return {
+      ...pullRequest,
+      latestReviewCommentAt: await fetchLatestReviewCommentAt(execFile, pullRequest),
+    };
   } catch {
     return null;
   }
 }
 
-function toPullRequest(parsed: GhPullRequest, reaction?: string): PullRequest {
+function toPullRequest(parsed: GhPullRequest): PullRequest {
   return {
     url: parsed.url!,
     number: parsed.number ?? null,
@@ -114,17 +102,21 @@ function toPullRequest(parsed: GhPullRequest, reaction?: string): PullRequest {
     baseRefName: parsed.baseRefName ?? null,
     repository: repositoryFromPullRequestUrl(parsed.url!),
     labels: parsed.labels?.flatMap(({ name }) => (name ? [name] : [])) ?? [],
-    ...(reaction
-      ? {
-          hasConfiguredReaction: Boolean(
-            parsed.reactionGroups?.some(
-              ({ content, users }) =>
-                content === githubReactionContent(reaction) && (users?.totalCount ?? 0) > 0,
-            ),
-          ),
-        }
-      : {}),
   };
+}
+
+async function fetchLatestReviewCommentAt(
+  execFile: typeof execFileDefault,
+  pullRequest: PullRequest,
+): Promise<string | null> {
+  if (!pullRequest.repository || !pullRequest.number) return null;
+  const endpoint = `repos/${pullRequest.repository}/pulls/${pullRequest.number}/comments?sort=created&direction=desc&per_page=1`;
+  const { stdout } = await execFile("gh", ["api", endpoint], {
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+  });
+  const comments = JSON.parse(stdout) as GhReviewComment[];
+  return comments[0]?.created_at ?? null;
 }
 
 function repositoryFromPullRequestUrl(url: string): string | null {
@@ -137,17 +129,10 @@ function repositoryFromPullRequestUrl(url: string): string | null {
   }
 }
 
-function githubReactionContent(reaction: string): string {
-  const normalized = reaction.trim();
-  return GITHUB_REACTION_BY_EMOJI[normalized] ?? normalized.toUpperCase();
-}
-
 function matchesIssueIdentifier(headRefName?: string, issueIdentifier?: string): boolean {
   if (!headRefName || !issueIdentifier) return false;
-
   const issueParts = issueIdentifier.match(/^([a-z]+)[^a-z0-9]*(\d+)$/i);
   if (!issueParts) return false;
-
   const [, prefix, number] = issueParts;
   const pattern = new RegExp(`(?:^|[^a-z0-9])${prefix}[^a-z0-9]*${number}(?=$|[^a-z0-9])`, "i");
   return pattern.test(headRefName);

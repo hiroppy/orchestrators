@@ -5,7 +5,7 @@ import type {
   NotificationsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
-  ReviewReactionConfig,
+  ReviewCommentConfig,
   ServiceDefinition,
   SlackConfig,
   StatusHookConfig,
@@ -46,7 +46,7 @@ export interface WatcherRuntimeConfig {
     maxAttempts: number;
     delayMs: number;
   };
-  reviewReaction?: ResolvedReviewReactionConfig;
+  reviewComment?: ReviewCommentConfig;
   statusHooks: ResolvedStatusHookConfig[];
   defaultAssignees: string[];
   notifications?: ResolvedNotificationConfig;
@@ -55,10 +55,6 @@ export interface WatcherRuntimeConfig {
 
 export interface ResolvedWatcherRuntimeConfig extends Omit<WatcherRuntimeConfig, "linearTeams"> {
   linearTeams: Record<string, ResolvedLinearTeamConfig>;
-}
-
-interface ResolvedReviewReactionConfig extends ReviewReactionConfig {
-  reaction: string;
 }
 
 export type ResolvedStatusHookConfig = StatusHookConfig;
@@ -97,7 +93,7 @@ export function resolveWatcherConfig(
   };
 
   validateEndedTaskRetry(endedTaskRetry);
-  const reviewReaction = resolveReviewReactionConfig(config.watcher?.reviewReaction);
+  const reviewComment = resolveReviewCommentConfig(config.watcher?.reviewComment);
   const statusHooks = resolveStatusHooks(config.watcher?.statusHooks);
 
   return {
@@ -105,7 +101,7 @@ export function resolveWatcherConfig(
     linearTeams: referencedLinearTeams(config.linearTeams, instances),
     pollIntervalMs: POLL_INTERVAL_MS,
     endedTaskRetry,
-    reviewReaction,
+    reviewComment,
     statusHooks,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     notifications: resolveNotificationConfig(config.slack?.notifications),
@@ -140,28 +136,21 @@ function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedSta
   });
 }
 
-function resolveReviewReactionConfig(
-  config: ReviewReactionConfig | undefined,
-): ResolvedReviewReactionConfig | undefined {
+function resolveReviewCommentConfig(
+  config: ReviewCommentConfig | undefined,
+): ReviewCommentConfig | undefined {
   if (!config) return undefined;
 
   const inReviewStatus = config.inReviewStatus?.trim();
   const inProgressStatus = config.inProgressStatus?.trim();
-  const reaction = config.reaction?.trim();
   if (!inReviewStatus) {
-    throw new Error("watcher.reviewReaction.inReviewStatus must be a non-empty string.");
+    throw new Error("watcher.reviewComment.inReviewStatus must be a non-empty string.");
   }
   if (!inProgressStatus) {
-    throw new Error("watcher.reviewReaction.inProgressStatus must be a non-empty string.");
-  }
-  if (!reaction) {
-    throw new Error("watcher.reviewReaction.reaction must be a non-empty string.");
-  }
-  if (!Number.isInteger(config.maxRequeues) || config.maxRequeues < 1) {
-    throw new Error("watcher.reviewReaction.maxRequeues must be a positive integer.");
+    throw new Error("watcher.reviewComment.inProgressStatus must be a non-empty string.");
   }
 
-  return { inReviewStatus, inProgressStatus, reaction, maxRequeues: config.maxRequeues };
+  return { inReviewStatus, inProgressStatus };
 }
 
 export function resolveSupervisorConfig(config: OrchestratorConfig): SupervisorInstance[] {

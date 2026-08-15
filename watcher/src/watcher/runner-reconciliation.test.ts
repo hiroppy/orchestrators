@@ -299,11 +299,9 @@ describe("watcher reconciliation and snapshots", () => {
           },
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
-        reviewReaction: {
+        reviewComment: {
           inReviewStatus: "In Review",
           inProgressStatus: "In Progress",
-          reaction: "👀",
-          maxRequeues: 3,
         },
       });
       store.syncDefinitions(config.services, config.linearTeams);

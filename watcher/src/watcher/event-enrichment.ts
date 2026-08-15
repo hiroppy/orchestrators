@@ -9,7 +9,7 @@ import {
 } from "../integrations/github.ts";
 import { fetchLinearIssueState } from "../integrations/linear.ts";
 import { linearTeamForService } from "./runtime-config.ts";
-import { reviewReactionForStatus } from "./review-reactions.ts";
+import { shouldFetchReviewComments } from "./review-comments.ts";
 
 const creatorMentionCache = new Map<string, string | null>();
 
@@ -33,15 +33,17 @@ export async function enrichEvent(
     retryDelayMs: isEnded ? config.endedTaskRetry.delayMs : 0,
   });
   const resolvedState = linearIssue?.state ?? event.state;
-  const reaction = reviewReactionForStatus(config, resolvedState);
-  let pullRequest = (await github.findPullRequest(event, { reaction })) ?? undefined;
-  let reactionLookupSucceeded = !reaction || pullRequest?.hasConfiguredReaction !== undefined;
+  const includeLatestReviewComment = shouldFetchReviewComments(config, resolvedState);
+  let pullRequest =
+    (await github.findPullRequest(event, { includeLatestReviewComment })) ?? undefined;
+  let commentLookupSucceeded =
+    !includeLatestReviewComment || pullRequest?.latestReviewCommentAt !== undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
     const enrichedPullRequest = await github
-      .findPullRequestByUrl(linearIssue.pullRequest.url, { reaction })
+      .findPullRequestByUrl(linearIssue.pullRequest.url, { includeLatestReviewComment })
       .catch(() => null);
-    if (reaction)
-      reactionLookupSucceeded = enrichedPullRequest?.hasConfiguredReaction !== undefined;
+    if (includeLatestReviewComment)
+      commentLookupSucceeded = enrichedPullRequest?.latestReviewCommentAt !== undefined;
     pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
   }
   return {
@@ -59,7 +61,7 @@ export async function enrichEvent(
       pullRequest,
       relatedIssues: linearIssue?.relatedIssues,
     }),
-    isAuthoritative: Boolean(linearIssue?.state) && reactionLookupSucceeded,
+    isAuthoritative: Boolean(linearIssue?.state) && commentLookupSucceeded,
   };
 }
 

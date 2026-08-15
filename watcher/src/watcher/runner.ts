@@ -34,19 +34,17 @@ import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
-  decideReviewReaction,
-  pendingReviewPullRequest,
+  decideReviewComment,
   REVIEW_REQUEUE_RECONCILED_EVENT,
   REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
-  reviewReactionForStatus,
+  shouldFetchReviewComments,
   shouldSuppressReviewMention,
-  type ReviewReactionDecision,
-} from "./review-reactions.ts";
+  type ReviewCommentDecision,
+} from "./review-comments.ts";
 import {
-  deliverPendingReviewLimitNotifications,
   deliverPendingReviewRequeueNotifications,
   markReviewRequeueReconciled,
-} from "./review-limit-delivery.ts";
+} from "./review-requeue-delivery.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -253,7 +251,6 @@ export async function runOnce({
       slackClient,
       watcherChannelId: slackChannelId,
     });
-    await deliverPendingReviewLimitNotifications(store, slackClient);
     await deliverPendingReviewRequeueNotifications(store, slackClient);
   }
   const reviewReconciliationTaskIds = new Set(
@@ -275,7 +272,7 @@ export async function runOnce({
       findPullRequestByUrl,
     });
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
-    const reviewDecision = decideReviewReaction(
+    const reviewDecision = decideReviewComment(
       config,
       store,
       enrichment.event,
@@ -377,13 +374,18 @@ async function reconcileLinearStatuses({
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
     const hasPendingReconciliation = reviewReconciliationTaskIds.has(task.id);
     if (summary?.state) {
-      const reaction = reviewReactionForStatus(config, summary.state);
+      const fetchReviewComments = shouldFetchReviewComments(config, summary.state);
       const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
       const enteredTerminalState = enteredTerminalLinearState(
         task.linearStateType,
         summary.stateType,
       );
-      if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
+      if (
+        sameStatus &&
+        !enteredTerminalState &&
+        !hasPendingReconciliation &&
+        !fetchReviewComments
+      ) {
         if (summary.stateType) {
           store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
         }
@@ -403,12 +405,12 @@ async function reconcileLinearStatuses({
       task.linearStateType,
       linearIssue.stateType,
     );
-    const detailedReaction = reviewReactionForStatus(config, linearIssue.state);
+    const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
     if (
       detailedSameStatus &&
       !detailedEnteredTerminalState &&
       !hasPendingReconciliation &&
-      !detailedReaction
+      !fetchDetailedReviewComments
     ) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
@@ -416,18 +418,16 @@ async function reconcileLinearStatuses({
       markReviewRequeueReconciled(store, task.id);
       continue;
     }
-    let pullRequest =
-      linearIssue.pullRequest ??
-      (hasPendingReconciliation ? pendingReviewPullRequest(store, task.id) : undefined);
-    if (detailedReaction && hasPendingReconciliation && !pullRequest?.url) continue;
+    let pullRequest = linearIssue.pullRequest;
+    if (fetchDetailedReviewComments && hasPendingReconciliation && !pullRequest?.url) continue;
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
-        reaction: detailedReaction,
+        includeLatestReviewComment: fetchDetailedReviewComments,
       }).catch(() => null);
       if (
-        detailedReaction &&
+        fetchDetailedReviewComments &&
         hasPendingReconciliation &&
-        enrichedPullRequest?.hasConfiguredReaction === undefined
+        enrichedPullRequest?.latestReviewCommentAt === undefined
       )
         continue;
       pullRequest = enrichedPullRequest ?? pullRequest;
@@ -448,7 +448,7 @@ async function reconcileLinearStatuses({
       pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     };
-    const reviewDecision = decideReviewReaction(config, store, event, true);
+    const reviewDecision = decideReviewComment(config, store, event, true);
     if (
       detailedSameStatus &&
       !reviewDecision.shouldRequeue &&
@@ -491,7 +491,7 @@ async function processWatcherEvent({
   slackClient: WebClient;
   slackChannelId: string;
   event: WatcherEvent;
-  reviewDecision: ReviewReactionDecision;
+  reviewDecision: ReviewCommentDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   await publishWatcherEvent(

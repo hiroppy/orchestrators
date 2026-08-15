@@ -21,8 +21,8 @@ see what needs attention and respond without opening each Symphony dashboard.
   manage task assignees, turn an existing open pull request into tracked Linear
   work, and send replies and images from a Slack thread back to the Linear
   workpad.
-- **Automated review loops keep moving.** When a configured review reaction
-  (for example, Codex's 👀) appears on a linked pull request, Orchestrators
+- **Automated review loops keep moving.** When a new inline review comment is
+  added to a linked pull request while its issue is in review, Orchestrators
   requeues the Linear issue so Symphony can act on the feedback.
 
 ## How it works
