@@ -410,7 +410,7 @@ describe("WatcherStore", () => {
         issueIdentifier: "ENG-62",
         state: "Done",
       });
-      store.addEvent({
+      const delivered = store.addEvent({
         taskId: task.id,
         type: "status_timeline",
         statusEventKey: "source:later",
@@ -432,6 +432,28 @@ describe("WatcherStore", () => {
       );
       assert.equal(store.hasStatusTimelineEvent(task.id, "source:later"), true);
       assert.equal(store.hasStatusTimelineEvent(task.id, "source:missing"), false);
+
+      store.setTaskEventSlackThreadTs(delivered.id, "20.000");
+      for (let index = 0; index < 12; index += 1) {
+        store.addEvent({
+          taskId: task.id,
+          type: "status_timeline",
+          fromStatus: "In Progress",
+          toStatus: "Done",
+          createdAt: new Date(`2026-08-15T13:${String(index).padStart(2, "0")}:00Z`),
+        });
+      }
+
+      assert.equal(
+        store
+          .getLatestEventsByType(task.id, "status_timeline", 12)
+          .some((event) => event.slackThreadTs),
+        false,
+      );
+      assert.equal(
+        store.getLatestDeliveredEventsByType(task.id, "status_timeline", 1)[0]?.slackThreadTs,
+        "20.000",
+      );
     });
   });
 });

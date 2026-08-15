@@ -37,7 +37,7 @@ it("rejects a new timeline card when Slack omits its timestamp", async () => {
       parentChannelId: "C123",
       parentMessageTs: "10.000",
     }),
-    getLatestEventsByType: () => [],
+    getLatestDeliveredEventsByType: () => [],
     getTaskAssignees: () => [],
     addEvent: () => {
       eventStored = true;
@@ -75,7 +75,7 @@ it("recovers after Slack succeeds but recording its timestamp fails", async () =
       parentChannelId: "C123",
       parentMessageTs: "10.000",
     }),
-    getLatestEventsByType: () => [event],
+    getLatestDeliveredEventsByType: () => [],
     getTaskAssignees: () => [],
     addEvent: () => event,
     getUndeliveredStatusTimelineEvents: () => (delivered ? [] : [event]),
@@ -118,6 +118,62 @@ it("recovers after Slack succeeds but recording its timestamp fails", async () =
     clientMessageIds[0]!,
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/,
   );
+});
+
+it("reuses the delivered anchor when newer pending events exceed the history limit", async () => {
+  const event = storedTimelineEvent();
+  const pendingEvents = Array.from({ length: 11 }, (_, index): TaskEvent => ({
+    ...storedTimelineEvent(),
+    id: event.id + index + 1,
+    createdAt: new Date(Date.parse(event.createdAt) + (index + 1) * 1_000).toISOString(),
+  }));
+  const deliveredEvent = {
+    ...storedTimelineEvent(),
+    id: 1,
+    slackThreadTs: "20.000",
+    createdAt: "2026-08-15T11:00:00Z",
+  };
+  let updates = 0;
+  let posts = 0;
+  const store = {
+    getTask: () => ({
+      id: event.taskId,
+      parentChannelId: "C123",
+      parentMessageTs: "10.000",
+    }),
+    getLatestEventsByType: () => [event, ...pendingEvents],
+    getLatestDeliveredEventsByType: () => [deliveredEvent],
+    getTaskAssignees: () => [],
+    addEvent: () => event,
+    setTaskEventSlackThreadTs: () => undefined,
+  } as unknown as WatcherStore;
+  const client = {
+    chat: {
+      update: async ({ ts }: { ts: string }) => {
+        assert.equal(ts, deliveredEvent.slackThreadTs);
+        updates += 1;
+        return { ok: true };
+      },
+      postMessage: async () => {
+        posts += 1;
+        return { ok: true, ts: "duplicate.000" };
+      },
+    },
+  } as unknown as SlackClient;
+
+  await publishStatusTimeline(client, store, {
+    taskId: event.taskId,
+    fallbackText: event.body!,
+    event: {
+      fromStatus: event.fromStatus!,
+      toStatus: event.toStatus!,
+      occurredAt: event.createdAt,
+      source: { type: "automatic", label: event.statusEventLabel! },
+    },
+  });
+
+  assert.equal(updates, 1);
+  assert.equal(posts, 0);
 });
 
 function storedTimelineEvent(): TaskEvent {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { KnownBlock } from "@slack/web-api";
 
 import type { PullRequest, Task, TaskEvent } from "../domain/types.ts";
@@ -104,8 +106,8 @@ async function deliverStatusTimelineEvent(
   const task = store.getTask(event.taskId);
   if (!task?.parentChannelId || !task.parentMessageTs) return;
   const previous = store
-    .getLatestEventsByType(event.taskId, STATUS_TIMELINE_EVENT, MAX_TIMELINE_EVENTS + 2)
-    .filter((candidate) => candidate.id !== event.id && candidate.slackThreadTs)
+    .getLatestDeliveredEventsByType(event.taskId, STATUS_TIMELINE_EVENT, MAX_TIMELINE_EVENTS + 1)
+    .filter((candidate) => candidate.id !== event.id)
     .slice(0, MAX_TIMELINE_EVENTS);
   const anchorTs = previous[0]?.slackThreadTs;
   const storedEvents = [event, ...previous].sort(
@@ -150,10 +152,11 @@ export async function reloadStatusTimeline(
   taskId: string,
 ): Promise<void> {
   const task = store.getTask(taskId);
-  const storedEvents = store
-    .getLatestEventsByType(taskId, STATUS_TIMELINE_EVENT, MAX_TIMELINE_EVENTS + 2)
-    .filter((event) => event.slackThreadTs)
-    .slice(0, MAX_TIMELINE_EVENTS + 1);
+  const storedEvents = store.getLatestDeliveredEventsByType(
+    taskId,
+    STATUS_TIMELINE_EVENT,
+    MAX_TIMELINE_EVENTS + 1,
+  );
   const messageTs = storedEvents[0]?.slackThreadTs;
   if (!task?.parentChannelId || !messageTs) return;
 
@@ -285,4 +288,3 @@ function truncateTimeline(lines: string[]): string {
   }
   return kept.length === lines.length ? kept.join("\n") : `${kept.join("\n")}\n…`;
 }
-import { createHash } from "node:crypto";

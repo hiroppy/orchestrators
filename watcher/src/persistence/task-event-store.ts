@@ -1,4 +1,16 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -120,17 +132,7 @@ export function getLatestTaskEvent(
   taskId: string,
   type: string,
 ): TaskEvent | undefined {
-  const fromStatuses = alias(statuses, "event_from_status");
-  const toStatuses = alias(statuses, "event_to_status");
-  const row = db
-    .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
-    .from(taskEvents)
-    .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
-    .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
-    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
-    .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
-    .get();
-  return row ? eventFromRow(row) : undefined;
+  return queryLatestTaskEvents(db, taskId, type, 1)[0];
 }
 
 export function getLatestTaskEventsByType(
@@ -139,6 +141,25 @@ export function getLatestTaskEventsByType(
   type: string,
   limit: number,
 ): TaskEvent[] {
+  return queryLatestTaskEvents(db, taskId, type, limit);
+}
+
+export function getLatestDeliveredTaskEventsByType(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+): TaskEvent[] {
+  return queryLatestTaskEvents(db, taskId, type, limit, true);
+}
+
+function queryLatestTaskEvents(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+  deliveredOnly = false,
+): TaskEvent[] {
   const fromStatuses = alias(statuses, "typed_event_from_status");
   const toStatuses = alias(statuses, "typed_event_to_status");
   return db
@@ -146,7 +167,13 @@ export function getLatestTaskEventsByType(
     .from(taskEvents)
     .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
     .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
-    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
+    .where(
+      and(
+        eq(taskEvents.taskId, taskId),
+        eq(taskEvents.type, type),
+        deliveredOnly ? isNotNull(taskEvents.slackThreadTs) : undefined,
+      ),
+    )
     .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
     .limit(limit)
     .all()
