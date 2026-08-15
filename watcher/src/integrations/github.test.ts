@@ -106,6 +106,7 @@ describe("findPullRequest", () => {
                 data: {
                   repository: {
                     pullRequest: {
+                      author: { login: "pull-request-author" },
                       reviewThreads: {
                         nodes: [
                           {
@@ -121,7 +122,18 @@ describe("findPullRequest", () => {
                           {
                             isResolved: false,
                             isOutdated: false,
-                            comments: { nodes: [{ createdAt: "2026-08-15T06:02:10Z" }] },
+                            comments: {
+                              nodes: [
+                                {
+                                  author: { login: "reviewer" },
+                                  createdAt: "2026-08-15T06:02:10Z",
+                                },
+                                {
+                                  author: { login: "pull-request-author" },
+                                  createdAt: "2026-08-15T06:05:00Z",
+                                },
+                              ],
+                            },
                           },
                         ],
                       },

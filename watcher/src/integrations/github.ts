@@ -30,11 +30,14 @@ interface GhReviewThreadsResponse {
   data?: {
     repository?: {
       pullRequest?: {
+        author?: { login?: string };
         reviewThreads?: {
           nodes?: Array<{
             isResolved?: boolean;
             isOutdated?: boolean;
-            comments?: { nodes?: Array<{ createdAt?: string }> };
+            comments?: {
+              nodes?: Array<{ author?: { login?: string }; createdAt?: string }>;
+            };
           }>;
         };
       };
@@ -46,11 +49,12 @@ const LATEST_UNRESOLVED_REVIEW_COMMENT_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
+      author { login }
       reviewThreads(first: 100) {
         nodes {
           isResolved
           isOutdated
-          comments(last: 1) { nodes { createdAt } }
+          comments(last: 100) { nodes { author { login } createdAt } }
         }
       }
     }
@@ -159,11 +163,15 @@ async function fetchLatestReviewCommentAt(
     },
   );
   const response = JSON.parse(stdout) as GhReviewThreadsResponse;
+  const responsePullRequest = response.data?.repository?.pullRequest;
+  const authorLogin = responsePullRequest?.author?.login;
   return (
-    response.data?.repository?.pullRequest?.reviewThreads?.nodes
+    responsePullRequest?.reviewThreads?.nodes
       ?.filter(({ isResolved, isOutdated }) => !isResolved && !isOutdated)
       .flatMap(({ comments }) => comments?.nodes ?? [])
-      .flatMap(({ createdAt }) => (createdAt ? [createdAt] : []))
+      .flatMap(({ author, createdAt }) =>
+        createdAt && author?.login !== authorLogin ? [createdAt] : [],
+      )
       .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
   );
 }
