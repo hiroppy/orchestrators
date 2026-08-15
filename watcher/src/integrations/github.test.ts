@@ -118,6 +118,28 @@ describe("findPullRequest", () => {
     assert.deepEqual(result?.labels, ["stg-deploy"]);
   });
 
+  it("keeps the pull request when loading its latest comment fails", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => {
+          if (args[0] === "api") throw new Error("GitHub API unavailable");
+          return {
+            stdout: JSON.stringify({
+              url: "https://github.com/example/service/pull/123",
+              number: 123,
+              headRefName: "eng-65-contact-form",
+            }),
+          };
+        },
+      },
+    );
+
+    assert.equal(result?.url, "https://github.com/example/service/pull/123");
+    assert.equal(result?.latestReviewCommentAt, null);
+  });
+
   it("returns null when gh finds a PR for a stale branch", async () => {
     const result = await findPullRequest(
       { workspacePath: "/tmp/repo", state: "In Progress", issueIdentifier: "ENG-65" },

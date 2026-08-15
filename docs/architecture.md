@@ -111,6 +111,7 @@ sequenceDiagram
   W->>G: Read latest inline review comment
   G-->>W: Latest comment creation time
   alt Comment is newer than the handled timestamp
+    W->>DB: Store pending requeue event
     W->>L: Move issue to In Progress
     W->>DB: Atomically store status, handled timestamp, and pending notifications
     Note over S,L: Issue becomes eligible for Symphony again

@@ -211,6 +211,8 @@ describe("watcher configuration", () => {
     for (const reviewComment of [
       { inReviewStatus: "", inProgressStatus: "In Progress" },
       { inReviewStatus: "In Review", inProgressStatus: "" },
+      { inReviewStatus: " ", inProgressStatus: "In Progress" },
+      { inReviewStatus: "In Review", inProgressStatus: " " },
     ]) {
       assert.throws(
         () =>

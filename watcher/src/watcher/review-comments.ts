@@ -55,7 +55,11 @@ export function shouldFetchReviewComments(
 
 export function parseReviewRequeuePendingPayload(body: string): ReviewRequeuePayload {
   const payload = JSON.parse(body) as Partial<Record<keyof ReviewRequeuePayload, unknown>>;
-  if (typeof payload.message !== "string" || typeof payload.event !== "object") {
+  if (
+    typeof payload.message !== "string" ||
+    typeof payload.event !== "object" ||
+    payload.event === null
+  ) {
     throw new Error("Invalid review requeue pending payload");
   }
   return payload as unknown as ReviewRequeuePayload;

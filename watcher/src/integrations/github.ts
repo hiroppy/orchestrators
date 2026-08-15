@@ -79,10 +79,10 @@ async function viewPullRequest(
     if (!parsed.url) return null;
     const pullRequest = toPullRequest(parsed);
     if (!options.includeLatestReviewComment) return pullRequest;
-    return {
-      ...pullRequest,
-      latestReviewCommentAt: await fetchLatestReviewCommentAt(execFile, pullRequest),
-    };
+    const latestReviewCommentAt = await fetchLatestReviewCommentAt(execFile, pullRequest).catch(
+      () => null,
+    );
+    return { ...pullRequest, latestReviewCommentAt };
   } catch {
     return null;
   }
