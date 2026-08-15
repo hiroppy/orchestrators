@@ -37,6 +37,9 @@ export async function resolveLinearWorkflowStatuses(
 
 function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
   const rules: Array<[label: string, status: string]> = [];
+  for (const status of Object.keys(config.statusTypeOverrides)) {
+    rules.push(["watcher.statusTypeOverrides", status]);
+  }
   if (config.reviewReaction) {
     rules.push(
       ["watcher.reviewReaction.inReviewStatus", config.reviewReaction.inReviewStatus],

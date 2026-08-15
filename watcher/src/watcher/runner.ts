@@ -212,17 +212,24 @@ export async function reconcileSlackStatusTransition({
   });
   if (!linearIssue?.state || !linearIssue.stateType) return;
 
-  await publishWatcherEvent(slackClient, store, slackChannelId, {
-    type: "updated",
-    service: task.serviceName,
-    issueIdentifier: task.issueIdentifier,
-    issueTitle: linearIssue.title,
-    issueUrl: linearIssue.url ?? task.linkUrl,
-    resolvedState: linearIssue.state,
-    resolvedStateType: normalizeStatus(linearIssue.stateType),
-    pullRequest: linearIssue.pullRequest,
-    relatedIssues: linearIssue.relatedIssues,
-  });
+  await publishWatcherEvent(
+    slackClient,
+    store,
+    slackChannelId,
+    {
+      type: "updated",
+      service: task.serviceName,
+      issueIdentifier: task.issueIdentifier,
+      issueTitle: linearIssue.title,
+      issueUrl: linearIssue.url ?? task.linkUrl,
+      resolvedState: linearIssue.state,
+      resolvedStateType: normalizeStatus(linearIssue.stateType),
+      pullRequest: linearIssue.pullRequest,
+      relatedIssues: linearIssue.relatedIssues,
+    },
+    undefined,
+    { statusTypeOverrides: config.statusTypeOverrides },
+  );
 }
 
 interface RunOnceOptions {
@@ -382,6 +389,9 @@ async function reconcileLinearStatuses({
       const enteredTerminalState = enteredTerminalLinearState(
         task.linearStateType,
         summary.stateType,
+        task.status,
+        summary.state,
+        config.statusTypeOverrides,
       );
       if (sameStatus && !enteredTerminalState && !hasPendingReconciliation && !reaction) {
         if (summary.stateType) {
@@ -402,6 +412,9 @@ async function reconcileLinearStatuses({
     const detailedEnteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,
       linearIssue.stateType,
+      task.status,
+      linearIssue.state,
+      config.statusTypeOverrides,
     );
     const detailedReaction = reviewReactionForStatus(config, linearIssue.state);
     if (
@@ -502,6 +515,7 @@ async function processWatcherEvent({
     shouldSuppressReviewMention(reviewDecision) ? undefined : config.notifications,
     {
       defaultAssignees: config.defaultAssignees ?? [],
+      statusTypeOverrides: config.statusTypeOverrides,
       forceMention: reviewDecision.deliverDeferredMention,
       createStatusTransitionEvent: (task, fromStatus) =>
         createPendingStatusHookEvent(

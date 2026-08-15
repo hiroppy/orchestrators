@@ -1,5 +1,6 @@
 import { App } from "@slack/bolt";
 import type { ChatPostMessageResponse } from "@slack/web-api";
+import type { LinearWorkflowStateType } from "orchestrator-config";
 
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
@@ -254,6 +255,7 @@ export async function publishWatcherEvent(
   notificationConfig?: ResolvedNotificationConfig,
   options: {
     defaultAssignees?: string[];
+    statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -310,7 +312,13 @@ export async function publishWatcherEvent(
     const summary = JSON.stringify(card);
     const announceTerminalParent =
       Boolean(previousTask?.parentMessageTs) &&
-      enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
+      enteredTerminalLinearState(
+        previousTask?.linearStateType,
+        task.linearStateType,
+        previousTask?.status,
+        task.status,
+        options.statusTypeOverrides ?? {},
+      );
     if (!task.parentChannelId || !task.parentMessageTs) {
       const parent = await client.chat.postMessage({
         channel: destinationChannel,

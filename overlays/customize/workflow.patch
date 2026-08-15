@@ -2,7 +2,15 @@ diff --git a/elixir/WORKFLOW.md b/elixir/WORKFLOW.md
 index c87d048..1b2ea79 100644
 --- a/elixir/WORKFLOW.md
 +++ b/elixir/WORKFLOW.md
-@@ -70,6 +70,18 @@ Instructions:
+@@ -12,6 +12,7 @@ tracker:
+     - Canceled
+     - Duplicate
+     - Done
++    - In Staging Check
+ polling:
+   interval_ms: 5000
+ workspace:
+@@ -70,6 +71,18 @@ Instructions:
  2. Only stop early for a true external blocker (missing required tools, auth, permissions, or secrets). If blocked, record it in the workpad and move the issue according to the workflow.
  3. Final message must report completed actions and blockers only. Do not include "next steps for user".
  
@@ -21,7 +29,7 @@ index c87d048..1b2ea79 100644
  Work only in the provided repository copy. Do not touch any other path.
  
  ## Prerequisite: Linear MCP or `linear_graphql` tool is available
-@@ -79,6 +91,9 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
+@@ -79,6 +92,9 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
  ## Default posture
  
  - Start by determining the ticket's current status, then follow the matching flow for that status.
@@ -31,7 +39,7 @@ index c87d048..1b2ea79 100644
  - Start every task by opening the tracking workpad comment and bringing it up to date before doing new implementation work.
  - Spend extra effort up front on planning and verification design before implementation.
  - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
-@@ -102,15 +117,16 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
+@@ -102,14 +118,15 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
  - `commit`: produce clean, logical commits during implementation.
  - `push`: keep remote branch current and publish updates.
  - `pull`: keep branch updated with latest `origin/main` before handoff.
@@ -49,8 +57,7 @@ index c87d048..1b2ea79 100644
 +- `In Review` -> PR is attached and validated; waiting on human approval.
  - `Merging` -> approved by human; execute the `land` skill flow (do not call `gh pr merge` directly).
  - `Rework` -> reviewer requested changes; planning + implementation required.
- - `Done` -> terminal state; no further action required.
-@@ -124,7 +140,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
+@@ -124,6 +141,6 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
     - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
       - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
     - `In Progress` -> continue execution flow from current scratchpad comment.
@@ -58,8 +65,7 @@ index c87d048..1b2ea79 100644
 +   - `In Review` -> wait and poll for decision/review updates.
     - `Merging` -> on entry, open and follow `.codex/skills/land/SKILL.md`; do not call `gh pr merge` directly.
     - `Rework` -> run rework flow.
-    - `Done` -> do nothing and shut down.
-@@ -170,7 +186,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
+@@ -170,7 +187,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
  
  ## PR feedback sweep protocol (required)
  
@@ -68,7 +74,7 @@ index c87d048..1b2ea79 100644
  
  1. Identify the PR number from issue links/attachments.
  2. Gather feedback from all channels:
-@@ -184,19 +200,19 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
+@@ -184,19 +201,19 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
  5. Re-run validation after feedback-driven changes and push updates.
  6. Repeat this sweep until there are no outstanding actionable comments.
  

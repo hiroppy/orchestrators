@@ -33,6 +33,46 @@ describe("requireSlackBotUserId", () => {
 });
 
 describe("watcher configuration", () => {
+  it("resolves and validates workflow state type overrides", async () => {
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: {
+          statusTypeOverrides: { " In Staging Check ": "completed", Released: "canceled" },
+        },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.statusTypeOverrides, {
+      "In Staging Check": "completed",
+      Released: "canceled",
+    });
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      /watcher\.statusTypeOverrides references unknown Linear status "In Staging Check"/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          { ...baseConfig(), watcher: { statusTypeOverrides: { "": "completed" } } },
+          { requireSlack: false },
+        ),
+      /watcher\.statusTypeOverrides must contain non-empty names/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { statusTypeOverrides: { Released: "invalid" } },
+          } as never,
+          { requireSlack: false },
+        ),
+      /must be a valid Linear workflow state type/,
+    );
+  });
+
   it("uses the service's explicit Linear team ID", () => {
     const config = resolveWatcherConfig(
       {

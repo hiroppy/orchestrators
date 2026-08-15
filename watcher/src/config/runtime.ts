@@ -1,7 +1,10 @@
+import { LINEAR_WORKFLOW_STATE_TYPES } from "orchestrator-config";
+
 import type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
+  LinearWorkflowStateType,
   NotificationsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
@@ -48,6 +51,7 @@ export interface WatcherRuntimeConfig {
   };
   reviewReaction?: ResolvedReviewReactionConfig;
   statusHooks: ResolvedStatusHookConfig[];
+  statusTypeOverrides: Record<string, LinearWorkflowStateType>;
   defaultAssignees: string[];
   notifications?: ResolvedNotificationConfig;
   slack?: ResolvedSlackConfig;
@@ -99,6 +103,7 @@ export function resolveWatcherConfig(
   validateEndedTaskRetry(endedTaskRetry);
   const reviewReaction = resolveReviewReactionConfig(config.watcher?.reviewReaction);
   const statusHooks = resolveStatusHooks(config.watcher?.statusHooks);
+  const statusTypeOverrides = resolveStatusTypeOverrides(config.watcher?.statusTypeOverrides);
 
   return {
     services,
@@ -107,10 +112,33 @@ export function resolveWatcherConfig(
     endedTaskRetry,
     reviewReaction,
     statusHooks,
+    statusTypeOverrides,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     notifications: resolveNotificationConfig(config.slack?.notifications),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolveStatusTypeOverrides(
+  overrides: Record<string, LinearWorkflowStateType> | undefined,
+): Record<string, LinearWorkflowStateType> {
+  if (overrides === undefined) return {};
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
+    throw new Error("watcher.statusTypeOverrides must be an object.");
+  }
+  const entries = Object.entries(overrides);
+  validateStatuses(
+    "watcher.statusTypeOverrides",
+    entries.map(([status]) => status),
+  );
+  for (const [status, stateType] of entries) {
+    if (!LINEAR_WORKFLOW_STATE_TYPES.includes(stateType)) {
+      throw new Error(
+        `watcher.statusTypeOverrides[${JSON.stringify(status)}] must be a valid Linear workflow state type.`,
+      );
+    }
+  }
+  return Object.fromEntries(entries.map(([status, stateType]) => [status.trim(), stateType]));
 }
 
 function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedStatusHookConfig[] {

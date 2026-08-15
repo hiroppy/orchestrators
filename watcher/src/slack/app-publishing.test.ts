@@ -313,4 +313,50 @@ describe("Slack event publishing", () => {
       );
     });
   });
+
+  it("posts a closure message for a configured terminal status with a started state type", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const terminalOptions = { statusTypeOverrides: { "In Staging Check": "completed" } };
+
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          issueTitle: "Verify staging",
+          resolvedState: "In Review",
+          resolvedStateType: "started",
+        },
+        undefined,
+        terminalOptions,
+      );
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "ended",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          issueTitle: "Verify staging",
+          resolvedState: "In Staging Check",
+          resolvedStateType: "started",
+        },
+        undefined,
+        terminalOptions,
+      );
+
+      const closurePosts = calls.filter(
+        ({ method, args }) =>
+          method === "postMessage" && String(args.text).startsWith("Task closed"),
+      );
+      assert.equal(closurePosts.length, 1);
+      assert.match(String(closurePosts[0].args.text), /Task closed \| \*In Staging Check\*/);
+    });
+  });
 });
