@@ -35,6 +35,8 @@ export async function resolveSlackAssigneeLabels(
 ): Promise<string[]> {
   return Promise.all(
     assignees.map(async (assignee) => {
+      const userGroup = assignee.match(/^<!subteam\^([A-Z0-9]+)(?:\|([^>]+))?>$/i);
+      if (userGroup) return `@${userGroup[2] ?? userGroup[1]}`;
       const slackUserId = assignee.match(/^<@([A-Z0-9]+)>$/i)?.[1];
       if (!slackUserId) return assignee;
 

@@ -4,7 +4,6 @@ import type { ChatPostMessageResponse } from "@slack/web-api";
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
   buildStatusChangedMessage,
-  buildStatusChangedMessageBlocks,
   buildRelatedIssuesMessage,
   buildRelatedIssuesMessageBlocks,
   buildTaskCard,
@@ -12,6 +11,7 @@ import {
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  parentEventLabel,
   type StatusSummaryContext,
 } from "./views.ts";
 import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
@@ -28,6 +28,7 @@ import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts"
 import { postSlackOperationError } from "./errors.ts";
 import { escapeSlack } from "./view-formatting.ts";
 import type { SlackClient } from "./client-types.ts";
+import { publishStatusTimeline, reloadStatusTimeline } from "./status-timeline.ts";
 import {
   handleTakePrAction,
   TAKE_PR_CONFIRM_ACTION_ID,
@@ -209,11 +210,15 @@ export async function handleStatusAction(
         fromStatus,
         selectedStatus,
       );
-      const reply = await client.chat.postMessage({
-        channel: existingTask.parentChannelId,
-        thread_ts: existingTask.parentMessageTs,
-        text: statusChangedLine,
-        blocks: buildStatusChangedMessageBlocks(actorDisplayName, fromStatus, selectedStatus),
+      await publishStatusTimeline(client, store, {
+        taskId: task.id,
+        event: {
+          fromStatus,
+          toStatus: selectedStatus,
+          occurredAt: new Date().toISOString(),
+          source: { type: "manual", actor: { id: actor, label: actorDisplayName } },
+        },
+        fallbackText: statusChangedLine,
       });
       store.addEvent({
         taskId: task.id,
@@ -222,7 +227,6 @@ export async function handleStatusAction(
         fromStatus,
         toStatus: selectedStatus,
         body: statusChangedLine,
-        slackThreadTs: reply.ts,
       });
       return { task, fromStatus };
     });
@@ -262,9 +266,6 @@ export async function publishWatcherEvent(
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   await withTaskCardQueue(taskId, async () => {
-    const isNewPullRequest =
-      event.pullRequest !== undefined &&
-      !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
     const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
       event,
       (task, previous) =>
@@ -282,6 +283,11 @@ export async function publishWatcherEvent(
       }
     }
     let task = persistedTask;
+    const pullRequestChanged =
+      event.pullRequest !== undefined &&
+      (event.pullRequest.url !== previousTask?.pullRequest?.url ||
+        event.pullRequest.number !== previousTask?.pullRequest?.number ||
+        event.pullRequest.title !== previousTask?.pullRequest?.title);
     const statusChanged =
       previousTask !== undefined &&
       normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
@@ -351,25 +357,41 @@ export async function publishWatcherEvent(
       }
     }
 
-    const threadEvent =
-      isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
+    const statusEvent = { ...event, pullRequest: undefined };
     const threadContext = {
       fromStatus: previousTask?.status,
       toStatus: task.status,
     };
-    const notificationContext = { ...threadContext, assignees: notificationAssignees };
-    const threadBody = buildThreadMessage(threadEvent, notificationContext);
-    const threadBlocks = buildThreadMessageBlocks(threadEvent, notificationContext);
-    const reply = shouldPostThreadMessage(
-      statusChanged,
-      isNewPullRequest,
-      Boolean(notificationAssignees),
-    )
+    const statusBody = buildThreadMessage(statusEvent, threadContext);
+    if (statusChanged) {
+      await publishStatusTimeline(client, store, {
+        taskId: task.id,
+        event: {
+          fromStatus: previousTask.status,
+          toStatus: task.status,
+          occurredAt: new Date().toISOString(),
+          source: {
+            type: "automatic",
+            label: parentEventLabel(statusEvent),
+            error: statusEvent.error,
+          },
+        },
+        fallbackText: statusBody,
+      });
+    } else if (pullRequestChanged) {
+      await reloadStatusTimeline(client, store, task.id);
+    }
+
+    const standaloneContext = { assignees: notificationAssignees };
+    const standaloneBody = buildThreadMessage(statusEvent, standaloneContext);
+    const standaloneBlocks = buildThreadMessageBlocks(statusEvent, standaloneContext);
+    const shouldPostStandalone = notificationAssignees !== undefined;
+    const reply = shouldPostStandalone
       ? await client.chat.postMessage({
           channel: task.parentChannelId!,
           thread_ts: task.parentMessageTs!,
-          text: threadBody,
-          ...(threadBlocks ? { blocks: threadBlocks } : {}),
+          text: standaloneBody,
+          ...(standaloneBlocks ? { blocks: standaloneBlocks } : {}),
         })
       : undefined;
     await options.afterPublish?.(task);
@@ -379,7 +401,7 @@ export async function publishWatcherEvent(
       actor: "watcher",
       fromStatus: previousTask?.status,
       toStatus: task.status,
-      body: threadBody,
+      body: statusChanged ? statusBody : standaloneBody,
       slackThreadTs: reply?.ts,
     });
   });
@@ -430,14 +452,6 @@ async function postRelatedIssues(
   } catch (error) {
     console.error("Failed to post related issues:", error);
   }
-}
-
-function shouldPostThreadMessage(
-  statusChanged: boolean,
-  isNewPullRequest: boolean,
-  hasNotifications: boolean,
-): boolean {
-  return statusChanged || isNewPullRequest || hasNotifications;
 }
 
 interface StatusActionBody {

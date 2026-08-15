@@ -20,6 +20,7 @@ import {
   requireGitHubCli,
 } from "../integrations/github.ts";
 import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/app.ts";
+import { deliverPendingStatusTimelines } from "../slack/status-timeline.ts";
 import { DEFAULT_DATABASE_PATH, taskIdFor, WatcherStore } from "../persistence/store.ts";
 import type {
   OrchestratorConfig,
@@ -239,6 +240,7 @@ export async function runOnce({
   runPeriodicMaintenance = true,
 }: RunOnceOptions) {
   if (runPeriodicMaintenance) {
+    await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
       hooks: config.statusHooks ?? [],
       store,

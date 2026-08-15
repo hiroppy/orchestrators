@@ -1,4 +1,16 @@
-import { and, asc, count, desc, eq, gt, inArray, ne, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -12,15 +24,6 @@ export function addTaskEvent(db: WatcherDatabase, event: TaskEventInput): TaskEv
 
 export function addTaskEvents(db: WatcherDatabase, events: TaskEventInput[]): TaskEvent[] {
   return db.transaction((tx) => events.map((event) => insertTaskEvent(tx, event)));
-}
-
-export function hasRecordedPullRequest(db: WatcherDatabase, taskId: string, url: string): boolean {
-  return db
-    .select({ body: taskEvents.body })
-    .from(taskEvents)
-    .where(and(eq(taskEvents.taskId, taskId), ne(taskEvents.type, "workpad_replied")))
-    .all()
-    .some(({ body }) => body?.includes(url));
 }
 
 export function hasRecordedSlackMessage(
@@ -61,6 +64,42 @@ export function hasTaskEvent(
   );
 }
 
+export function hasStatusTimelineEvent(
+  db: WatcherDatabase,
+  taskId: string,
+  statusEventKey: string,
+): boolean {
+  return (
+    db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.statusEventKey, statusEventKey)))
+      .get() !== undefined
+  );
+}
+
+export function getUndeliveredStatusTimelineEvents(db: WatcherDatabase): TaskEvent[] {
+  const fromStatuses = alias(statuses, "pending_timeline_from_status");
+  const toStatuses = alias(statuses, "pending_timeline_to_status");
+  return db
+    .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
+    .from(taskEvents)
+    .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
+    .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
+    .where(and(eq(taskEvents.type, "status_timeline"), isNull(taskEvents.slackThreadTs)))
+    .orderBy(asc(taskEvents.createdAt), asc(taskEvents.id))
+    .all()
+    .map(eventFromRow);
+}
+
+export function setTaskEventSlackThreadTs(
+  db: WatcherDatabase,
+  eventId: number,
+  slackThreadTs: string,
+): void {
+  db.update(taskEvents).set({ slackThreadTs }).where(eq(taskEvents.id, eventId)).run();
+}
+
 export function countTaskEvents(db: WatcherDatabase, taskId: string, type: string): number {
   return (
     db
@@ -93,17 +132,52 @@ export function getLatestTaskEvent(
   taskId: string,
   type: string,
 ): TaskEvent | undefined {
-  const fromStatuses = alias(statuses, "event_from_status");
-  const toStatuses = alias(statuses, "event_to_status");
-  const row = db
+  return queryLatestTaskEvents(db, taskId, type, 1)[0];
+}
+
+export function getLatestTaskEventsByType(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+): TaskEvent[] {
+  return queryLatestTaskEvents(db, taskId, type, limit);
+}
+
+export function getLatestDeliveredTaskEventsByType(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+): TaskEvent[] {
+  return queryLatestTaskEvents(db, taskId, type, limit, true);
+}
+
+function queryLatestTaskEvents(
+  db: WatcherDatabase,
+  taskId: string,
+  type: string,
+  limit: number,
+  deliveredOnly = false,
+): TaskEvent[] {
+  const fromStatuses = alias(statuses, "typed_event_from_status");
+  const toStatuses = alias(statuses, "typed_event_to_status");
+  return db
     .select({ event: taskEvents, fromStatus: fromStatuses.name, toStatus: toStatuses.name })
     .from(taskEvents)
     .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
     .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
-    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
-    .orderBy(desc(taskEvents.id))
-    .get();
-  return row ? eventFromRow(row) : undefined;
+    .where(
+      and(
+        eq(taskEvents.taskId, taskId),
+        eq(taskEvents.type, type),
+        deliveredOnly ? isNotNull(taskEvents.slackThreadTs) : undefined,
+      ),
+    )
+    .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
+    .limit(limit)
+    .all()
+    .map(eventFromRow);
 }
 
 export function getTaskIdsWithIncompleteEvent(
@@ -211,6 +285,10 @@ function eventFromRow({
     taskId: event.taskId,
     type: event.type,
     actor: event.actor ?? undefined,
+    statusEventType: event.statusEventType ?? undefined,
+    statusEventLabel: event.statusEventLabel ?? undefined,
+    statusEventError: event.statusEventError ?? undefined,
+    statusEventKey: event.statusEventKey ?? undefined,
     fromStatus: fromStatus ?? undefined,
     toStatus: toStatus ?? undefined,
     body: event.body ?? undefined,

@@ -26,11 +26,15 @@ import {
   countTaskEventsAfterLatest,
   countTaskEventsWithBody,
   getLatestTaskEvent,
+  getLatestDeliveredTaskEventsByType,
+  getLatestTaskEventsByType,
+  getUndeliveredStatusTimelineEvents,
+  hasStatusTimelineEvent,
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
-  hasRecordedPullRequest,
   hasRecordedSlackMessage,
   hasTaskEvent,
+  setTaskEventSlackThreadTs,
 } from "./task-event-store.ts";
 import { syncDefinitions } from "./definitions.ts";
 
@@ -292,6 +296,7 @@ export class WatcherStore {
         linkUrl: event.issueUrl,
         pullRequestUrl: event.pullRequest?.url,
         pullRequestNumber: event.pullRequest?.number,
+        pullRequestTitle: event.pullRequest?.title,
         pullRequestLabels,
         lastEventAt: event.lastEventAt ?? timestamp,
         createdAt: timestamp,
@@ -306,6 +311,7 @@ export class WatcherStore {
           linkUrl: event.issueUrl ?? existing?.linkUrl,
           pullRequestUrl: event.pullRequest?.url ?? existing?.pullRequest?.url,
           pullRequestNumber: event.pullRequest?.number ?? existing?.pullRequest?.number,
+          pullRequestTitle: event.pullRequest?.title ?? existing?.pullRequest?.title,
           pullRequestLabels,
           lastEventAt: event.lastEventAt ?? timestamp,
           updatedAt: timestamp,
@@ -496,16 +502,16 @@ export class WatcherStore {
     return addTaskEvents(this.db, events);
   }
 
-  hasRecordedPullRequest(taskId: string, url: string): boolean {
-    return hasRecordedPullRequest(this.db, taskId, url);
-  }
-
   hasRecordedSlackMessage(taskId: string, messageTs: string, eventType: string): boolean {
     return hasRecordedSlackMessage(this.db, taskId, messageTs, eventType);
   }
 
   hasEvent(taskId: string, type: string, body: string): boolean {
     return hasTaskEvent(this.db, taskId, type, body);
+  }
+
+  hasStatusTimelineEvent(taskId: string, statusEventKey: string): boolean {
+    return hasStatusTimelineEvent(this.db, taskId, statusEventKey);
   }
 
   countEvents(taskId: string, type: string): number {
@@ -518,6 +524,22 @@ export class WatcherStore {
 
   getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
     return getLatestTaskEvent(this.db, taskId, type);
+  }
+
+  getLatestEventsByType(taskId: string, type: string, limit: number): TaskEvent[] {
+    return getLatestTaskEventsByType(this.db, taskId, type, limit);
+  }
+
+  getLatestDeliveredEventsByType(taskId: string, type: string, limit: number): TaskEvent[] {
+    return getLatestDeliveredTaskEventsByType(this.db, taskId, type, limit);
+  }
+
+  getUndeliveredStatusTimelineEvents(): TaskEvent[] {
+    return getUndeliveredStatusTimelineEvents(this.db);
+  }
+
+  setTaskEventSlackThreadTs(eventId: number, slackThreadTs: string): void {
+    setTaskEventSlackThreadTs(this.db, eventId, slackThreadTs);
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {

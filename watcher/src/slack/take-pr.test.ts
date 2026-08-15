@@ -544,7 +544,7 @@ describe("take-pr Slack flow", () => {
     });
   });
 
-  it("creates an In Progress Linear issue for the selected service and completes the request", async () => {
+  it("creates a Todo Linear issue for the selected service and completes the request", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const canonicalPullRequestUrl = "https://github.com/example-renamed/widget/pull/42";
@@ -606,6 +606,7 @@ describe("take-pr Slack flow", () => {
         "<!subteam^SDEFAULT>",
         "<@U123>",
       ]);
+      assert.equal(store.getTask("service-a:ENG-100")?.status, "Todo");
       assert.deepEqual(calls[0], {
         method: "getPermalink",
         args: { channel: "C123", message_ts: "10.000" },

@@ -21,6 +21,7 @@ describe("Slack status actions", () => {
           labels: ["stg-deploy"],
         },
       });
+      store.assignTask("service-a:ENG-62", "U123");
       calls.length = 0;
       let acknowledged = false;
       const linearUpdates: string[] = [];
@@ -89,6 +90,10 @@ describe("Slack status actions", () => {
       assert.match(
         String(calls.find(({ method }) => method === "postMessage")?.args.text),
         /\*In Review\* → \*Rework\* by Example User/,
+      );
+      assert.match(
+        JSON.stringify(calls.find(({ method }) => method === "postMessage")?.args.blocks),
+        /\*Assignees\*\\n@Example User/,
       );
     });
   });

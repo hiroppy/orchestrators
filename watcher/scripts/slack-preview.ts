@@ -13,18 +13,18 @@ import {
   buildRelatedIssuesMessage,
   buildRelatedIssuesMessageBlocks,
   buildReviewRequeueMessage,
-  buildReviewRequeueMessageBlocks,
   buildTaskCard,
   buildStatusChangedMessage,
-  buildStatusChangedMessageBlocks,
   buildStatusSummary,
   buildStatusSummaryBlocks,
   buildTaskClosedMessage,
   buildTaskClosedMessageBlocks,
   buildThreadMessage,
   buildThreadMessageBlocks,
+  parentEventLabel,
   type TaskCard,
 } from "../src/slack/views.ts";
+import { buildStatusCard } from "../src/slack/status-timeline.ts";
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 const DEFAULT_ATTENTION_TARGET = "@attention-target";
@@ -41,6 +41,7 @@ export const SLACK_PREVIEW_EVENT_TYPES = [
 export const SLACK_PREVIEW_TYPES = [
   ...SLACK_PREVIEW_EVENT_TYPES,
   "manual",
+  "timeline",
   "attention",
   "review-comment",
   "closed",
@@ -121,7 +122,7 @@ export function resolveSlackPreviewCase(
       : "Missing Slack preview type.";
     throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
   }
-  const threadOnly = ["manual", "review-comment", "next"];
+  const threadOnly = ["manual", "timeline", "review-comment", "next"];
   if (category === "post" && threadOnly.includes(type)) {
     throw new Error(`Slack preview type ${type} is only available for thread previews.\n${usage}`);
   }
@@ -179,13 +180,75 @@ export function buildSlackPreviewMessage(
     }
     return {
       text: buildStatusChangedMessage("Hiroppy", "In Review", "Rework"),
-      blocks: buildStatusChangedMessageBlocks("Hiroppy", "In Review", "Rework"),
+      blocks: buildStatusCard({
+        events: [
+          {
+            fromStatus: "In Review",
+            toStatus: "Rework",
+            occurredAt: "2026-08-15T00:00:00.000Z",
+            source: { type: "manual", actor: { id: "UHIROPPY", label: "Hiroppy" } },
+          },
+        ],
+        facts: { assignees: [] },
+      }),
+    };
+  }
+  if (type === "timeline") {
+    if (category !== "thread") {
+      throw new Error("Slack preview type timeline is only available for thread previews.");
+    }
+    return {
+      text: "*In Review* → *Done*\nEvent: Updated | Assignees: @Hiroppy @Reviewer",
+      blocks: buildStatusCard({
+        events: [
+          {
+            fromStatus: "In Review",
+            toStatus: "Done",
+            occurredAt: "2026-08-15T02:00:00.000Z",
+            source: {
+              type: "automatic",
+              label: "Updated",
+              error: "Temporary orchestrator failure",
+            },
+          },
+          {
+            fromStatus: "In Progress",
+            toStatus: "In Review",
+            occurredAt: "2026-08-15T01:00:00.000Z",
+            source: { type: "manual", actor: { id: "UREVIEWER", label: "Reviewer" } },
+          },
+          {
+            fromStatus: "Todo",
+            toStatus: "In Progress",
+            occurredAt: "2026-08-15T00:00:00.000Z",
+            source: { type: "automatic", label: "Updated" },
+          },
+        ],
+        facts: {
+          assignees: ["@Hiroppy", "@Reviewer"],
+          pullRequest: {
+            url: "https://github.com/example/preview/pull/123",
+            number: 123,
+            title: "Consolidate Slack status updates",
+          },
+        },
+      }),
     };
   }
   if (type === "review-comment") {
     return {
       text: buildReviewRequeueMessage("In Review", "In Progress"),
-      blocks: buildReviewRequeueMessageBlocks("In Review", "In Progress"),
+      blocks: buildStatusCard({
+        events: [
+          {
+            fromStatus: "In Review",
+            toStatus: "In Progress",
+            occurredAt: "2026-08-15T00:00:00.000Z",
+            source: { type: "automatic", label: "Inline review comment detected" },
+          },
+        ],
+        facts: { assignees: [] },
+      }),
     };
   }
   if (type === "closed") {
@@ -254,6 +317,27 @@ export function buildSlackPreviewMessage(
       ...previewThreadContext(eventType),
       assignees: [assignee, ...assignees].filter((value): value is string => Boolean(value)),
     };
+    if (context.fromStatus && context.toStatus) {
+      const statusEvent = { ...event, pullRequest: undefined };
+      return {
+        text: buildThreadMessage(statusEvent, context),
+        blocks: buildStatusCard({
+          events: [
+            {
+              fromStatus: context.fromStatus,
+              toStatus: context.toStatus,
+              occurredAt: now.toISOString(),
+              source: {
+                type: "automatic",
+                label: parentEventLabel(statusEvent),
+                error: statusEvent.error,
+              },
+            },
+          ],
+          facts: { assignees: context.assignees },
+        }),
+      };
+    }
     const blocks = buildThreadMessageBlocks(event, context);
     return {
       text: buildThreadMessage(event, context),
