@@ -49,8 +49,8 @@ flowchart LR
   verify -- Yes --> merging --> done
 ```
 
-See [Architecture](docs/architecture.md#review-reaction-lifecycle) for polling,
-reaction limits, persistence, and recovery details.
+See [Architecture](docs/architecture.md#inline-review-comment-lifecycle) for polling,
+comment handling, persistence, and recovery details.
 
 ## Requirements
 
@@ -85,4 +85,4 @@ pnpm start:watcher
 - [`docs/workflows.md`](docs/workflows.md) — Symphony workflow profiles and
   per-instance configuration
 - [`docs/architecture.md`](docs/architecture.md) — data flow, polling
-  boundaries, and the review-reaction lifecycle
+  boundaries, and the inline-review-comment lifecycle

@@ -6,7 +6,7 @@ import { requeueReviewTask } from "./review-requeue.ts";
 import { fakeSlackClient, linearTeams, runtimeConfig, withStore } from "./runner.test-support.ts";
 
 describe("watcher inline review comments", () => {
-  it("requeues when the latest inline comment is newer than the In Review transition", async () => {
+  it("requeues the first inline comment observed in review", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -23,13 +23,6 @@ describe("watcher inline review comments", () => {
         issueIdentifier: "ENG-62",
         state: "In Review",
       });
-      store.addEvent({
-        taskId: "service-a:ENG-62",
-        type: "updated",
-        fromStatus: "In Progress",
-        toStatus: "In Review",
-      });
-
       const decision = decideReviewComment(config, store, {
         type: "updated",
         service: "service-a",
@@ -42,10 +35,11 @@ describe("watcher inline review comments", () => {
       });
 
       assert.equal(decision.shouldRequeue, true);
+      assert.equal(decision.commentAt, "2999-01-01T00:00:00.000Z");
     });
   });
 
-  it("ignores comments that predate the latest In Review transition", async () => {
+  it("ignores the latest comment after it has been handled", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -64,9 +58,8 @@ describe("watcher inline review comments", () => {
       });
       store.addEvent({
         taskId: "service-a:ENG-62",
-        type: "updated",
-        fromStatus: "In Progress",
-        toStatus: "In Review",
+        type: "review_comment_handled",
+        body: "2000-01-01T00:00:00.000Z",
       });
 
       const decision = decideReviewComment(config, store, {
@@ -84,7 +77,7 @@ describe("watcher inline review comments", () => {
     });
   });
 
-  it("does not reuse an old comment while the task is returning to In Review", async () => {
+  it("requeues a comment that arrives before the watcher first observes In Review", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
@@ -101,13 +94,6 @@ describe("watcher inline review comments", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      store.addEvent({
-        taskId: "service-a:ENG-62",
-        type: "updated",
-        fromStatus: "In Progress",
-        toStatus: "In Review",
-      });
-
       const decision = decideReviewComment(config, store, {
         type: "updated",
         service: "service-a",
@@ -119,7 +105,7 @@ describe("watcher inline review comments", () => {
         },
       });
 
-      assert.equal(decision.shouldRequeue, false);
+      assert.equal(decision.shouldRequeue, true);
     });
   });
 
@@ -154,7 +140,7 @@ describe("watcher inline review comments", () => {
           issueIdentifier: "ENG-62",
           resolvedState: "In Review",
         },
-        decision: { shouldRequeue: true },
+        decision: { shouldRequeue: true, commentAt: "2026-08-15T00:00:00.000Z" },
         updateLinearStatus: async (_identifier, status) => {
           updates.push(status);
         },
@@ -162,6 +148,10 @@ describe("watcher inline review comments", () => {
 
       assert.deepEqual(updates, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(
+        store.getLatestEvent("service-a:ENG-62", "review_comment_handled")?.body,
+        "2026-08-15T00:00:00.000Z",
+      );
     });
   });
 });

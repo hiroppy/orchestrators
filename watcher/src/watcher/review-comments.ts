@@ -4,12 +4,14 @@ import { normalizeStatus } from "../domain/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
+export const REVIEW_COMMENT_HANDLED_EVENT = "review_comment_handled";
 export const REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT = "review_requeue_notification_pending";
 export const REVIEW_REQUEUE_NOTIFIED_EVENT = "review_requeue_notified";
 export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notification_delivered";
 
 export interface ReviewCommentDecision {
   shouldRequeue: boolean;
+  commentAt?: string;
 }
 
 export interface ReviewRequeuePayload {
@@ -28,23 +30,15 @@ export function decideReviewComment(
   const isInReview = Boolean(
     review && normalizeStatus(currentStatus) === normalizeStatus(review.inReviewStatus),
   );
-  const wasAlreadyInReview = Boolean(
-    review &&
-    normalizeStatus(store.getTask(taskId)?.status) === normalizeStatus(review.inReviewStatus),
-  );
-  const latestCommentAt = event.pullRequest?.latestReviewCommentAt;
-  const enteredReviewAt = review
-    ? store.getLatestTransitionTo(taskId, review.inReviewStatus)?.createdAt
-    : undefined;
+  const latestCommentAt = event.pullRequest?.latestReviewCommentAt ?? undefined;
+  const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
   const shouldRequeue = Boolean(
     isInReview &&
-    wasAlreadyInReview &&
     latestCommentAt &&
-    enteredReviewAt &&
-    Date.parse(latestCommentAt) > Date.parse(enteredReviewAt),
+    (!handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)),
   );
 
-  return { shouldRequeue };
+  return { shouldRequeue, commentAt: shouldRequeue ? latestCommentAt : undefined };
 }
 
 export function shouldFetchReviewComments(

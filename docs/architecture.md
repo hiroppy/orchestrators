@@ -7,7 +7,7 @@ Orchestrators consists of two long-running processes with different responsibili
   resulting state in Slack.
 
 The important distinction is that a task can leave Symphony's active work set while remaining a
-nonterminal task tracked by the watcher. Review-reaction handling depends on this distinction.
+nonterminal task tracked by the watcher. Inline-comment handling depends on this distinction.
 
 ## System overview
 
@@ -28,13 +28,13 @@ flowchart LR
   Symphony <-->|claims and updates active issues| Linear
   Watcher -->|polls observability API every 3 seconds| Symphony
   Watcher <-->|reads and updates issue state| Linear
-  Watcher -->|reads linked PR metadata and reactions via gh| GitHub
+  Watcher -->|reads linked PR metadata and comments via gh| GitHub
   Watcher <-->|posts cards and handles interactions| Slack
   Watcher <-->|tasks, snapshots, events, delivery state| DB
 ```
 
 The watcher uses polling for Symphony, Linear, and GitHub. Slack interactions arrive through Socket
-Mode. GitHub reactions are not received through a webhook.
+Mode. GitHub comments are not received through a webhook.
 
 ## Two tracking layers
 
@@ -60,12 +60,12 @@ not part of Symphony's active work set. Tasks whose Linear state type is `comple
 
 ## Polling and API calls
 
-| Trigger              |                   Typical interval | External work                                                                  |
-| -------------------- | ---------------------------------: | ------------------------------------------------------------------------------ |
-| Symphony observation |                          3 seconds | Reads each enabled instance's local observability API                          |
-| Snapshot change      | Event-driven after a 3-second poll | Reads Linear; may query the task's PR                                          |
-| Periodic maintenance |                         30 seconds | Reconciles stored nonterminal tasks with Linear; may query review PR reactions |
-| Slack interaction    |                       Event-driven | May update Linear and then the Slack task card                                 |
+| Trigger              |                   Typical interval | External work                                                                 |
+| -------------------- | ---------------------------------: | ----------------------------------------------------------------------------- |
+| Symphony observation |                          3 seconds | Reads each enabled instance's local observability API                         |
+| Snapshot change      | Event-driven after a 3-second poll | Reads Linear; may query the task's PR                                         |
+| Periodic maintenance |                         30 seconds | Reconciles stored nonterminal tasks with Linear; may query review PR comments |
+| Slack interaction    |                       Event-driven | May update Linear and then the Slack task card                                |
 
 The three-second loop does not unconditionally call GitHub for every task. A GitHub query is made
 when event enrichment requires PR data, or when periodic reconciliation finds a task in the
@@ -107,21 +107,22 @@ sequenceDiagram
   Note over S: Issue leaves Symphony's active work set
   W->>L: Periodically read stored nonterminal issue
   L-->>W: In Review and linked PR URL
-  W->>DB: Read latest transition into In Review
+  W->>DB: Read latest handled comment timestamp
   W->>G: Read latest inline review comment
   G-->>W: Latest comment creation time
-  alt Comment is newer than the In Review transition
+  alt Comment is newer than the handled timestamp
     W->>L: Move issue to In Progress
-    W->>DB: Store status and notification state
+    W->>DB: Atomically store status, handled timestamp, and pending notifications
     Note over S,L: Issue becomes eligible for Symphony again
   else No newer inline comment
     W->>DB: Keep task in In Review
   end
 ```
 
-The decision compares GitHub's latest inline-comment `created_at` with the database timestamp of
-the latest transition into `In Review`. Returning to review creates a new boundary, so an older
-comment cannot requeue the task again. Comment IDs and deletion state are not persisted.
+The decision compares GitHub's latest inline-comment `created_at` with the last handled comment
+timestamp in `task_events`. This catches comments that arrive between Linear entering `In Review`
+and the watcher's next poll, while an already handled comment cannot requeue the task again.
+Comment IDs and deletion state are not persisted.
 
 ## Persistence and recovery
 

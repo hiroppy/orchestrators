@@ -26,7 +26,6 @@ import {
   countTaskEventsAfterLatest,
   countTaskEventsWithBody,
   getLatestTaskEvent,
-  getLatestTaskTransitionTo,
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
   hasRecordedPullRequest,
@@ -476,13 +475,15 @@ export class WatcherStore {
   updateTaskStatusAtomically(
     taskId: string,
     statusName: string,
-    createEvent: (task: Task, fromStatus: string) => TaskEventInput | undefined,
+    createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; fromStatus: string } {
     return this.db.transaction(() => {
       const transition = this.updateTaskStatus(taskId, statusName, now);
-      const event = createEvent(transition.task, transition.fromStatus);
-      if (event) this.addEvent(event);
+      const events = createEvents(transition.task, transition.fromStatus);
+      if (events) {
+        for (const event of Array.isArray(events) ? events : [events]) this.addEvent(event);
+      }
       return transition;
     });
   }
@@ -517,10 +518,6 @@ export class WatcherStore {
 
   getLatestEvent(taskId: string, type: string): TaskEvent | undefined {
     return getLatestTaskEvent(this.db, taskId, type);
-  }
-
-  getLatestTransitionTo(taskId: string, status: string): TaskEvent | undefined {
-    return getLatestTaskTransitionTo(this.db, taskId, status);
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {

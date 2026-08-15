@@ -1,7 +1,7 @@
 # Orchestrator Slack Watcher
 
 See [`../docs/architecture.md`](../docs/architecture.md) for the relationship between Symphony,
-the watcher, Linear, GitHub, Slack, and the review-reaction lifecycle.
+the watcher, Linear, GitHub, Slack, and the inline-review-comment lifecycle.
 
 ## Configuration
 
@@ -72,8 +72,8 @@ error if it does not.
 
 ### Inline review comment requeue
 
-Set `watcher.reviewComment` to move review work back into Symphony when a new
-inline review comment appears after the issue enters review:
+Set `watcher.reviewComment` to move review work back into Symphony when an
+unhandled inline review comment is observed while the issue is in review:
 
 ```ts
 {
@@ -88,10 +88,10 @@ inline review comment appears after the issue enters review:
 ```
 
 The watcher checks inline comments only while the Linear issue is in
-`inReviewStatus`. If the newest comment was created after the latest recorded
-transition into review, the issue moves to `inProgressStatus`. Existing and
-deleted comments need no separate cursor state. Omit `watcher.reviewComment`
-to disable this behavior.
+`inReviewStatus`. If the newest comment is later than the last handled comment,
+the issue moves to `inProgressStatus`. The handled timestamp is stored in the
+existing event log; comment IDs and deletion state are not tracked. Omit
+`watcher.reviewComment` to disable this behavior.
 
 ### Status hooks
 
