@@ -266,6 +266,7 @@ export async function reconcileSlackStatusTransition({
     }
     throw error;
   }
+  completePendingLinearReconciliations(store, task.id);
   return false;
 }
 
@@ -287,6 +288,20 @@ function markLinearReconciliationPending(
     toStatus: task.status,
     body: previousTask.linearStateType,
   });
+}
+
+function completePendingLinearReconciliations(store: WatcherStore, taskId: string): void {
+  for (const event of store.getUncompletedEvents(
+    LINEAR_RECONCILIATION_PENDING_EVENT,
+    LINEAR_RECONCILIATION_COMPLETED_EVENT,
+    taskId,
+  )) {
+    store.addEvent({
+      taskId,
+      type: LINEAR_RECONCILIATION_COMPLETED_EVENT,
+      body: String(event.id),
+    });
+  }
 }
 
 interface RunOnceOptions {
@@ -586,13 +601,7 @@ async function processWatcherEvent({
           watcherChannelId: slackChannelId,
           taskId: task.id,
         });
-        if (pendingReconciliation) {
-          store.addEvent({
-            taskId: task.id,
-            type: LINEAR_RECONCILIATION_COMPLETED_EVENT,
-            body: String(pendingReconciliation.id),
-          });
-        }
+        if (pendingReconciliation) completePendingLinearReconciliations(store, task.id);
       },
     },
   );

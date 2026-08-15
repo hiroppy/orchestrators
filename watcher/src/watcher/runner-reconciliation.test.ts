@@ -312,6 +312,84 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("completes an obsolete retry after a newer status action succeeds", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        const issue = {
+          identifier: "ENG-62",
+          title: "Merge the pull request",
+          state: { name: "Done", type: "completed" },
+          url: "https://linear.app/example/issue/ENG-62/example",
+          attachments: { nodes: [] },
+          relations: { nodes: [] },
+        };
+        return Response.json({
+          data: query.includes("OrchestratorWatcherIssueStateBatch")
+            ? { issue0: issue }
+            : { issue },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      store.addEvent({
+        taskId: task.id,
+        type: "linear_reconciliation_pending",
+        fromStatus: "In Progress",
+        toStatus: "In Review",
+        body: "started",
+      });
+      const previousTask = store.getTask(task.id)!;
+      const { task: newerActionTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "Done",
+        () => undefined,
+      );
+      const calls: Array<Record<string, unknown>> = [];
+      const slackClient = fakeSlackClient(calls);
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient,
+        slackChannelId: "C123",
+        task: newerActionTask,
+        previousTask,
+      });
+
+      assert.equal(store.countEvents(task.id, "linear_reconciliation_completed"), 1);
+
+      await runOnce({ config, store, slackClient, slackChannelId: "C123" });
+
+      assert.equal(
+        calls.filter(
+          ({ method, text }) => method === "postMessage" && String(text).startsWith("Task closed"),
+        ).length,
+        1,
+      );
+    });
+  });
+
   it("does not roll back a newer Slack status action after an earlier Linear read fails", async (context) => {
     await withStore(async (store) => {
       const fetchStarted = Promise.withResolvers<void>();

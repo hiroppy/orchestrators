@@ -239,11 +239,12 @@ export async function handleStatusAction(
       if (transitionRolledBack) {
         await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
       } else {
+        const reconciledStatus = store.getTask(taskId)?.status ?? selectedStatus;
         const actorDisplayName = await resolveSlackDisplayName(client, actionBody.user, logger);
         const statusChangedLine = buildStatusChangedMessage(
           actorDisplayName,
           statusTransition.fromStatus,
-          selectedStatus,
+          reconciledStatus,
         );
         const reply = await client.chat.postMessage({
           channel: statusTransition.parentChannelId,
@@ -252,7 +253,7 @@ export async function handleStatusAction(
           blocks: buildStatusChangedMessageBlocks(
             actorDisplayName,
             statusTransition.fromStatus,
-            selectedStatus,
+            reconciledStatus,
           ),
         });
         store.addEvent({
@@ -260,7 +261,7 @@ export async function handleStatusAction(
           type: "status_changed",
           actor,
           fromStatus: statusTransition.fromStatus,
-          toStatus: selectedStatus,
+          toStatus: reconciledStatus,
           body: statusChangedLine,
           slackThreadTs: reply.ts,
         });

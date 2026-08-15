@@ -484,6 +484,14 @@ describe("Slack status actions", () => {
       assert.equal(
         calls.some(
           ({ method, args }) =>
+            method === "postMessage" && /\*In Progress\* → \*Done\* by /.test(String(args.text)),
+        ),
+        true,
+      );
+      assert.equal(store.getLatestEvent("service-a:ENG-62", "status_changed")?.toStatus, "Done");
+      assert.equal(
+        calls.some(
+          ({ method, args }) =>
             method === "postMessage" && String(args.text).startsWith("[error] Watcher processing"),
         ),
         false,
