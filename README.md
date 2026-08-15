@@ -1,37 +1,66 @@
 # Orchestrators
 
-[Symphony](https://github.com/openai/symphony) is a powerful orchestrator, but
-managing it outside its dashboard can be difficult. Orchestrators runs one
-Symphony instance per project, brings notifications from every instance into
-Slack, and makes it easy to update Linear issue statuses. This lets you
-efficiently keep many tasks moving, even while away from your desk.
+Run a fleet of [Symphony](https://github.com/openai/symphony) instances and keep
+their work moving from Slack.
+
+Orchestrators gives every project an isolated Symphony instance, then brings
+their tasks, pull requests, and Linear workflows into one Slack channel. You can
+see what needs attention and respond without opening each Symphony dashboard.
 
 ![Task monitoring and Linear status updates in Slack](.github/assets/task.png)
 
 ## What it does
 
-- Monitor tasks across all your Symphony projects from one Slack channel
-- Get notified when tasks change state, open pull requests, become blocked, or
-  finish
-- Update Linear issue statuses directly from Slack
-- Mention the configured bot with `help` to see the available Slack commands
-  and where to run them
-- Mention the configured bot with `status` for tracked Todo, In Progress, and In Review tasks,
-  with links to their Slack task threads when available
-- Mention the configured bot with `assign @user` in a tracked task thread to include that
-  user in task assignees for only that task. Any user can assign another user.
-- Mention the configured bot with `unassign @user` in a tracked task thread to remove that
-  user from the task assignees. Any user can unassign another user.
-- Attach an existing pull request to Linear so the watcher can monitor it
-- Reply to a Linear workpad from its Slack task thread, so you can keep
-  Symphony work moving directly from Slack
-- Keep work moving during automated code review by requeuing Linear issues when
-  a configured emoji reaction (for example, Codex's 👀) appears on a linked
-  pull request
-- Run multiple isolated Symphony instances with one command while keeping each
-  project's workspace and logs separate
+- **One control plane for every project.** Run multiple isolated Symphony
+  instances with a single command, while keeping each project's workflow,
+  workspace, and logs separate.
+- **A live task inbox in Slack.** Follow state changes, pull requests, blockers,
+  and completed work across every instance from one channel, with a dedicated
+  thread for each task.
+- **Operate Linear without leaving the conversation.** Change issue status,
+  manage task assignees, turn an existing open pull request into tracked Linear
+  work, and send replies and images from a Slack thread back to the Linear
+  workpad.
+- **Automated review loops keep moving.** When a configured review reaction
+  (for example, Codex's 👀) appears on a linked pull request, Orchestrators
+  requeues the Linear issue so Symphony can act on the feedback.
 
-Generated instances, runtime data, and private configuration are gitignored.
+## How it works
+
+The default `customize` workflow follows this cycle:
+
+```mermaid
+flowchart TD
+  create["User: Create an issue in the Omakase project<br/>from @Linear or the Linear website"]
+  backlog["Linear: Issue starts in Backlog"]
+  todo["User: Check the request and move it to Todo"]
+  thread["Watcher: Create the Slack parent post<br/>on the first observed task event"]
+  implement["Symphony: Move to In Progress<br/>and start or resume implementation"]
+  review["Symphony: Finish implementation,<br/>clear review feedback, and pass checks"]
+  inReview["Symphony: Move the issue to In Review"]
+  reaction{"Configured reaction on the PR?<br/>For example, Codex's 👀"}
+  limit{"Has this PR head already reached<br/>the automatic requeue limit?"}
+  requeue["Watcher: Move the issue back to In Progress<br/>and record the attempt; notify on the final one"]
+  limitNotice["Watcher: Keep the issue in In Review<br/>until the reaction is removed or status changes"]
+  notify["Slack: Notify configured assignees<br/>including the creator when resolved"]
+  verify["User: Verify the implementation"]
+  expected{"Does it work as expected?"}
+  feedback["User: Explain the problem in the parent post thread"]
+  acknowledged["Watcher: Copy the reply to the Linear Workpad<br/>and acknowledge it with ✅"]
+  resume["User: Move the issue back to In Progress<br/>from Slack or Linear"]
+  devReview["Development team: Review and approve the pull request"]
+  merging["User: Move the issue to Merging"]
+  land["Symphony: Run the land workflow"]
+  done["Linear: Move the issue to Done"]
+
+  create --> backlog --> todo --> thread --> implement --> review --> inReview --> reaction
+  reaction -- Yes --> limit
+  limit -- Yes --> limitNotice
+  limit -- No --> requeue --> implement
+  reaction -- No --> notify --> verify --> expected
+  expected -- No --> feedback --> acknowledged --> resume --> implement
+  expected -- Yes --> devReview --> merging --> land --> done
+```
 
 ## Requirements
 
@@ -41,233 +70,29 @@ Generated instances, runtime data, and private configuration are gitignored.
 - Authenticated GitHub CLI (`gh auth status`)
 
 Official Symphony recommends `mise` for managing Elixir/Erlang versions, and
-the setup commands below use it.
-
-## Setup
-
-<details>
-<summary>1. Set up the watcher</summary>
-
-During setup, you will configure the following values:
-
-- `SLACK_BOT_TOKEN` — Slack bot token (`xoxb-...`)
-- `SLACK_APP_TOKEN` — Slack app-level token (`xapp-...`)
-- `SLACK_CHANNEL_ID` — destination Slack channel ID
-- `LINEAR_API_KEY_PROJECT` — Linear API key
-- `LINEAR_TEAM_ID_PROJECT` — Linear team ID
-- `<instance-name>` — local Symphony instance name
-- `<team-key>` — key used for the Linear team
-- `<workspace>` — Linear workspace slug
-
-### Install
-
-```sh
-npm run setup
-pnpm install
-cp config.example.ts config.ts
-```
-
-### Configuration
-
-The root `config.ts` is gitignored. Credentials can also be read from environment
-variables as shown in `config.example.ts`. The Symphony runner and Slack watcher
-both read it through the `orchestrator-config` workspace package.
-
-#### Create the Slack app
-
-Create the app from [`watcher/slack-manifest.json`](watcher/slack-manifest.json),
-install it to the workspace, and invite its bot to the destination channel. The
-manifest enables Socket Mode and interactivity. It grants only the bot scopes
-used by the watcher:
-
-- `chat:write` — post and update task messages
-- `app_mentions:read` — respond to the bot mention commands `help`, `status`,
-  and task-thread `assign @user` and `unassign @user`
-- `channels:history` / `groups:history` — receive user replies in public or
-  private task threads
-- `files:read` — download images attached to task thread replies for copying to
-  Linear
-- `reactions:write` — acknowledge successfully copied replies with a check mark
-- `users:read` — resolve the display name of a user who changes a status
-- `users:read.email` — match a Linear issue creator to their Slack account
-
-Preview the status-command response with:
-
-```sh
-pnpm --filter orchestrator-slack-watcher slack:preview assignees status
-```
-
-The preview uses `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` when set, otherwise it
-falls back to `slack.botToken` and `slack.channelId` in `config.ts`.
-
-After adding or updating a scope for an existing Slack app, reinstall the
-app to the workspace and replace the configured bot token if Slack issues a new
-one. Existing installations do not gain newly declared scopes automatically.
-
-The manifest cannot issue an app-level token. In **Basic Information →
-App-Level Tokens**, choose **Generate Token and Scopes**, add
-`connections:write`, and copy the resulting `xapp-...` token to
-`slack.appToken` in `config.ts`. Copy the installed bot's `xoxb-...`
-token to `slack.botToken`.
-
-#### Define teams and instances
-
-Declare Linear credentials as named teams, then reference one team from every
-instance:
-
-```ts
-export default defineConfig({
-  slack: {
-    botToken: process.env.SLACK_BOT_TOKEN ?? "", // xoxb-...
-    appToken: process.env.SLACK_APP_TOKEN ?? "", // xapp-...
-    channelId: process.env.SLACK_CHANNEL_ID ?? "",
-  },
-  linearTeams: {
-    "<team-key>": {
-      apiKey: process.env.LINEAR_API_KEY_PROJECT ?? "",
-      teamId: process.env.LINEAR_TEAM_ID_PROJECT ?? "",
-      baseUrl: "https://linear.app/<workspace>/issue",
-    },
-  },
-  instances: {
-    "<instance-name>": {
-      enabled: true,
-      port: 4105,
-      linearTeam: "<team-key>",
-    },
-  },
-});
-```
-
-See [`watcher/README.md`](watcher/README.md) for runtime behavior and optional
-configuration. See [`docs/architecture.md`](docs/architecture.md) for the complete data flow,
-polling boundaries, and review-reaction lifecycle.
-
-</details>
-
-<details>
-<summary>2. Set up a Symphony instance</summary>
-
-Run the following commands from the repository root.
-
-During setup, you will configure the following values:
-
-- `<instance-name>` — local Symphony instance name
-- `<repository-url>` — repository cloned into each issue workspace
-- `<linear-project-slug>` — Linear project slug
-
-Create and configure Symphony:
-
-```sh
-./scripts/setup-symphony.sh "<instance-name>"
-```
-
-The setup command asks which workflow profile to use:
-
-- `customize` (default) — applies the repository's Japanese Linear, pull request, review
-  quiet-window, and Docker cleanup conventions
-- `official` — copies the upstream Symphony workflow unchanged
-
-For non-interactive setup, pass the profile explicitly:
-
-```sh
-./scripts/setup-symphony.sh "<instance-name>" official
-./scripts/setup-symphony.sh "<instance-name>" customize
-```
-
-The `customize` profile is maintained separately in
-[`overlays/customize/workflow.patch`](overlays/customize/workflow.patch), keeping
-the `symphony_template/` Git subtree identical to upstream.
-
-The watcher example configuration uses `In Review`, matching the default
-`customize` profile. The `official` profile uses Symphony's upstream
-`Human Review` status; when selecting it, set `watcher.reviewReaction.inReviewStatus`
-and any matching `slack.notifications.statuses` entries to `Human Review`.
-
-Edit `symphonies/<instance-name>/elixir/WORKFLOW.md`. Each instance has its own
-workflow and can customize it independently. Since `symphonies/` is gitignored,
-these changes stay local to the instance. At minimum, set:
-
-```yaml
----
-tracker:
-  kind: linear
-  provider:
-    project_slug: "<linear-project-slug>"
-  required_labels: []
-  active_states:
-    - Todo
-    - In Progress
-  terminal_states:
-    - Done
-    - Canceled
-polling:
-  interval_ms: 5000
-workspace:
-  root: ../../../data/symphony/workspaces/<instance-name>
-hooks:
-  after_create: |
-    git clone --depth 1 <repository-url> .
-agent:
-  max_concurrent_agents: 10
-  max_turns: 20
----
-```
-
-`WORKFLOW.md` contains the Linear states and repository-specific workflow for
-that instance. The `workspace.root` path is relative to the instance's `elixir/`
-directory.
-
-Build the copied instance:
-
-```sh
-cd "symphonies/<instance-name>/elixir"
-mise trust
-mise install
-mise exec -- mix setup
-mise exec -- mix build
-cd ../../..
-```
-
-If the Symphony runner or Slack watcher is already running, restart both
-processes after adding or changing an instance. Configuration is loaded at
-startup.
-
-</details>
+the setup guide uses it.
 
 ## Run
 
-Run the enabled Symphony instances from the repository root:
+Follow [`SETUP.md`](SETUP.md) to configure Slack and Linear, create a Symphony
+instance, and verify the complete setup. Then start the enabled instances:
 
 ```sh
 pnpm start:symphonies
 ```
 
-Each instance's dashboard is available at `http://127.0.0.1:<port>`, using the
-port configured in `config.ts`. Logs are written to
-`data/symphony/logs/<instance-name>/`.
-
-To also monitor the instances from Slack, start the watcher in another terminal:
+In another terminal, start the Slack watcher:
 
 ```sh
 pnpm start:watcher
 ```
 
-## Update Symphony
+## Documentation
 
-Pull the latest `openai/symphony` `main` branch into `symphony_template/`:
-
-```sh
-./scripts/update-symphony.sh
-```
-
-This does not update instances already copied to `symphonies/`.
-
-## Repository layout
-
-- `symphony_template/` — official Symphony source imported as a Git subtree and copied into each instance
-- `symphonies/<name>/` — generated local instances
-- `config/` — shared configuration package and schema
-- `watcher/` — process runner and Slack watcher
-- `data/symphony/` — instance workspaces and logs
-- `data/watcher/` — watcher SQLite state
+- [`SETUP.md`](SETUP.md) — installation and initial configuration
+- [`watcher/README.md`](watcher/README.md) — Slack commands, watcher behavior,
+  and optional configuration
+- [`docs/workflows.md`](docs/workflows.md) — Symphony workflow profiles and
+  per-instance configuration
+- [`docs/architecture.md`](docs/architecture.md) — data flow, polling
+  boundaries, and the review-reaction lifecycle
