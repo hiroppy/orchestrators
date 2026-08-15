@@ -23,8 +23,5 @@
     "oxfmt": "0.63.0",
     "oxlint": "1.78.0"
   },
-  "engines": {
-    "node": "v26.7.0"
-  },
   "packageManager": "pnpm@11.21.0"
 }

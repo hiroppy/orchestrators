@@ -12,8 +12,5 @@
   },
   "dependencies": {
     "@slack/web-api": "8.0.0"
-  },
-  "engines": {
-    "node": "v26.7.0"
   }
 }
