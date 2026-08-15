@@ -251,6 +251,7 @@ export async function reconcileSlackStatusTransition({
       statusTypeOverrides: config.statusTypeOverrides,
       transitionPreviousTask: previousTask,
       transitionEventId,
+      transitionExpectedStatus: task.status,
     },
   );
   return false;

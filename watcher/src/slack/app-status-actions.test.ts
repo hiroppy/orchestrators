@@ -358,6 +358,7 @@ describe("Slack status actions", () => {
               statusTypeOverrides: { "in review": "completed" },
               transitionPreviousTask: previousTask,
               transitionEventId,
+              transitionExpectedStatus: task.status,
               createStatusTransitionEvent: (updatedTask, fromStatus) => ({
                 taskId: updatedTask.id,
                 type: "status_hook_pending",
@@ -447,7 +448,11 @@ describe("Slack status actions", () => {
               resolvedStateType: "completed",
             },
             undefined,
-            { transitionPreviousTask: previousTask, transitionEventId },
+            {
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+              transitionExpectedStatus: task.status,
+            },
           );
         },
         (task, fromStatus, toStatus) => ({
@@ -461,6 +466,93 @@ describe("Slack status actions", () => {
 
       assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
       assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.equal(
+        calls.some(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("[error] Watcher processing"),
+        ),
+        false,
+      );
+    });
+  });
+
+  it("does not roll back a newer action when stale reconciliation publication fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => String(args.text).startsWith("Task closed"),
+        },
+      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          store.updateTaskStatusAtomically(task.id, "Done", (updatedTask, fromStatus) => ({
+            taskId: updatedTask.id,
+            type: "status_hook_pending",
+            actor: "watcher",
+            fromStatus,
+            toStatus: updatedTask.status,
+          }));
+          await publishWatcherEvent(
+            client,
+            store,
+            "C123",
+            {
+              type: "updated",
+              service: task.serviceName,
+              issueIdentifier: task.issueIdentifier,
+              resolvedState: "Done",
+              resolvedStateType: "completed",
+            },
+            undefined,
+            {
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+              transitionExpectedStatus: task.status,
+            },
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
+      assert.deepEqual(
+        store
+          .getUncompletedEvents("status_hook_pending", "status_hook_completed", "service-a:ENG-62")
+          .map(({ fromStatus, toStatus }) => `${fromStatus} -> ${toStatus}`),
+        ["In Progress -> In Review", "In Review -> Done"],
+      );
       assert.equal(
         calls.some(
           ({ method, args }) =>

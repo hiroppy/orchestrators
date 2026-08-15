@@ -325,6 +325,7 @@ export async function publishWatcherEvent(
     statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
     transitionPreviousTask?: Task;
     transitionEventId?: number;
+    transitionExpectedStatus?: string;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -382,6 +383,10 @@ export async function publishWatcherEvent(
     );
     const summary = JSON.stringify(card);
     const transitionPreviousTask = options.transitionPreviousTask ?? previousTask;
+    const transitionStillCurrent =
+      options.transitionExpectedStatus === undefined ||
+      normalizeStatus(previousTask?.status ?? "") ===
+        normalizeStatus(options.transitionExpectedStatus);
     const announceTerminalParent =
       Boolean(transitionPreviousTask?.parentMessageTs) &&
       enteredTerminalLinearState(
@@ -424,7 +429,11 @@ export async function publishWatcherEvent(
           );
         }
       } catch (error) {
-        if (transitionPreviousTask && (statusChanged || announceTerminalParent)) {
+        if (
+          transitionPreviousTask &&
+          transitionStillCurrent &&
+          (statusChanged || announceTerminalParent)
+        ) {
           const transitionEventIds = [transitionEvent?.id, options.transitionEventId].filter(
             (eventId): eventId is number => eventId !== undefined,
           );
