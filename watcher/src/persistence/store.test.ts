@@ -391,6 +391,49 @@ describe("WatcherStore", () => {
       assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 0);
     });
   });
+
+  it("orders recovered timeline events by occurrence time and finds their source key", async () => {
+    await withStore((store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
+        {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-a",
+            statuses: ["Todo", "In Progress", "Done"],
+          },
+        },
+      );
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "Done",
+      });
+      store.addEvent({
+        taskId: task.id,
+        type: "status_timeline",
+        statusEventKey: "source:later",
+        fromStatus: "In Progress",
+        toStatus: "Done",
+        createdAt: new Date("2026-08-15T12:00:00Z"),
+      });
+      store.addEvent({
+        taskId: task.id,
+        type: "status_timeline",
+        fromStatus: "Todo",
+        toStatus: "In Progress",
+        createdAt: new Date("2026-08-15T11:00:00Z"),
+      });
+
+      assert.deepEqual(
+        store.getLatestEventsByType(task.id, "status_timeline", 2).map((event) => event.toStatus),
+        ["Done", "In Progress"],
+      );
+      assert.equal(store.hasStatusTimelineEvent(task.id, "source:later"), true);
+      assert.equal(store.hasStatusTimelineEvent(task.id, "source:missing"), false);
+    });
+  });
 });
 
 async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {

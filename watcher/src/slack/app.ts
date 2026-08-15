@@ -283,8 +283,11 @@ export async function publishWatcherEvent(
       }
     }
     let task = persistedTask;
-    const isNewPullRequest =
-      event.pullRequest !== undefined && event.pullRequest.url !== previousTask?.pullRequest?.url;
+    const pullRequestChanged =
+      event.pullRequest !== undefined &&
+      (event.pullRequest.url !== previousTask?.pullRequest?.url ||
+        event.pullRequest.number !== previousTask?.pullRequest?.number ||
+        event.pullRequest.title !== previousTask?.pullRequest?.title);
     const statusChanged =
       previousTask !== undefined &&
       normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
@@ -359,8 +362,7 @@ export async function publishWatcherEvent(
       fromStatus: previousTask?.status,
       toStatus: task.status,
     };
-    const notificationContext = { ...threadContext, assignees: notificationAssignees };
-    const statusBody = buildThreadMessage(statusEvent, notificationContext);
+    const statusBody = buildThreadMessage(statusEvent, threadContext);
     if (statusChanged) {
       await publishStatusTimeline(client, store, {
         taskId: task.id,
@@ -376,14 +378,14 @@ export async function publishWatcherEvent(
         },
         fallbackText: statusBody,
       });
-    } else if (isNewPullRequest) {
+    } else if (pullRequestChanged) {
       await reloadStatusTimeline(client, store, task.id);
     }
 
-    const standaloneContext = { assignees: statusChanged ? [] : notificationAssignees };
+    const standaloneContext = { assignees: notificationAssignees };
     const standaloneBody = buildThreadMessage(statusEvent, standaloneContext);
     const standaloneBlocks = buildThreadMessageBlocks(statusEvent, standaloneContext);
-    const shouldPostStandalone = !statusChanged && notificationAssignees !== undefined;
+    const shouldPostStandalone = notificationAssignees !== undefined;
     const reply = shouldPostStandalone
       ? await client.chat.postMessage({
           channel: task.parentChannelId!,

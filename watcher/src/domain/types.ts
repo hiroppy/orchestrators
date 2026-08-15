@@ -118,6 +118,7 @@ export interface TaskEvent {
   statusEventType?: "automatic" | "manual";
   statusEventLabel?: string;
   statusEventError?: string;
+  statusEventKey?: string;
   fromStatus?: string;
   toStatus?: string;
   body?: string;

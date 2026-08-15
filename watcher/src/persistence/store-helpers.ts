@@ -11,6 +11,7 @@ export type TaskEventInput = {
   statusEventType?: "automatic" | "manual";
   statusEventLabel?: string;
   statusEventError?: string;
+  statusEventKey?: string;
   fromStatus?: string;
   toStatus?: string;
   body?: string;
@@ -72,6 +73,7 @@ export function insertTaskEvent(
       statusEventType: event.statusEventType,
       statusEventLabel: event.statusEventLabel,
       statusEventError: event.statusEventError,
+      statusEventKey: event.statusEventKey,
       fromStatusId,
       toStatusId,
       body: event.body,
@@ -88,6 +90,7 @@ export function insertTaskEvent(
     statusEventType: event.statusEventType,
     statusEventLabel: event.statusEventLabel,
     statusEventError: event.statusEventError,
+    statusEventKey: event.statusEventKey,
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
     body: event.body,

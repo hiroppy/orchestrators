@@ -88,6 +88,7 @@ export const taskEvents = sqliteTable(
     statusEventType: text("status_event_type", { enum: ["automatic", "manual"] }),
     statusEventLabel: text("status_event_label"),
     statusEventError: text("status_event_error"),
+    statusEventKey: text("status_event_key"),
     fromStatusId: integer("from_status_id").references(() => statuses.id),
     toStatusId: integer("to_status_id").references(() => statuses.id),
     body: text("body"),

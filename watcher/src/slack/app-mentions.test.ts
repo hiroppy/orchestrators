@@ -327,9 +327,8 @@ describe("Slack mention commands", () => {
       const notificationTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
-      assert.equal(notificationTexts.length, 2);
-      assert.equal(notificationTexts[0].match(/<@UHIROPPY>/g)?.length, 1);
-      assert.doesNotMatch(notificationTexts[1], /<@UHIROPPY>/);
+      assert.equal(notificationTexts.length, 3);
+      assert.equal(notificationTexts.filter((text) => text.includes("<@UHIROPPY>")).length, 1);
 
       assert.deepEqual(
         notificationTargetsForWatcherEvent(

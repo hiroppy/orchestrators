@@ -45,6 +45,8 @@ interface StatusCardDelivery {
   taskId: string;
   fallbackText: string;
   event: StatusCardEvent;
+  idempotencyKey?: string;
+  clientMessageId?: string;
 }
 
 export async function publishStatusTimeline(
@@ -55,6 +57,13 @@ export async function publishStatusTimeline(
   const task = store.getTask(delivery.taskId);
   if (!task?.parentChannelId || !task.parentMessageTs) {
     throw new Error(`Task has no Slack parent message: ${delivery.taskId}`);
+  }
+  if (
+    delivery.idempotencyKey &&
+    store.hasStatusTimelineEvent(delivery.taskId, delivery.idempotencyKey)
+  ) {
+    await reloadStatusTimeline(client, store, delivery.taskId);
+    return;
   }
   const previous = store.getLatestEventsByType(
     delivery.taskId,
@@ -83,7 +92,9 @@ export async function publishStatusTimeline(
       thread_ts: task.parentMessageTs,
       text: delivery.fallbackText,
       blocks,
+      ...(delivery.clientMessageId ? { client_msg_id: delivery.clientMessageId } : {}),
     });
+    if (!response.ts) throw new Error(`Slack did not return ts for task ${delivery.taskId}.`);
     messageTs = response.ts;
   }
 
@@ -96,6 +107,7 @@ export async function publishStatusTimeline(
     statusEventType: source.type,
     statusEventLabel: source.type === "automatic" ? source.label : undefined,
     statusEventError: source.type === "automatic" ? source.error : undefined,
+    statusEventKey: delivery.idempotencyKey,
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
     body: delivery.fallbackText,

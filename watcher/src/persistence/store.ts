@@ -27,6 +27,7 @@ import {
   countTaskEventsWithBody,
   getLatestTaskEvent,
   getLatestTaskEventsByType,
+  hasStatusTimelineEvent,
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
   hasRecordedSlackMessage,
@@ -504,6 +505,10 @@ export class WatcherStore {
 
   hasEvent(taskId: string, type: string, body: string): boolean {
     return hasTaskEvent(this.db, taskId, type, body);
+  }
+
+  hasStatusTimelineEvent(taskId: string, statusEventKey: string): boolean {
+    return hasStatusTimelineEvent(this.db, taskId, statusEventKey);
   }
 
   countEvents(taskId: string, type: string): number {

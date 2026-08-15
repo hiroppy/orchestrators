@@ -52,6 +52,20 @@ export function hasTaskEvent(
   );
 }
 
+export function hasStatusTimelineEvent(
+  db: WatcherDatabase,
+  taskId: string,
+  statusEventKey: string,
+): boolean {
+  return (
+    db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.statusEventKey, statusEventKey)))
+      .get() !== undefined
+  );
+}
+
 export function countTaskEvents(db: WatcherDatabase, taskId: string, type: string): number {
   return (
     db
@@ -92,7 +106,7 @@ export function getLatestTaskEvent(
     .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
     .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
     .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
-    .orderBy(desc(taskEvents.id))
+    .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
     .get();
   return row ? eventFromRow(row) : undefined;
 }
@@ -111,7 +125,7 @@ export function getLatestTaskEventsByType(
     .leftJoin(fromStatuses, eq(taskEvents.fromStatusId, fromStatuses.id))
     .leftJoin(toStatuses, eq(taskEvents.toStatusId, toStatuses.id))
     .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.type, type)))
-    .orderBy(desc(taskEvents.id))
+    .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
     .limit(limit)
     .all()
     .map(eventFromRow);
@@ -225,6 +239,7 @@ function eventFromRow({
     statusEventType: event.statusEventType ?? undefined,
     statusEventLabel: event.statusEventLabel ?? undefined,
     statusEventError: event.statusEventError ?? undefined,
+    statusEventKey: event.statusEventKey ?? undefined,
     fromStatus: fromStatus ?? undefined,
     toStatus: toStatus ?? undefined,
     body: event.body ?? undefined,

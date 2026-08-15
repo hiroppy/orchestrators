@@ -139,8 +139,10 @@ describe("Slack event notifications", () => {
       const threadTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
-      assert.equal(threadTexts.length, 2);
-      for (const text of threadTexts) {
+      assert.equal(threadTexts.length, 3);
+      const mentionTexts = threadTexts.filter((text) => text.includes("<!subteam^SREVIEWERS>"));
+      assert.equal(mentionTexts.length, 2);
+      for (const text of mentionTexts) {
         assert.match(text, /Assignees: .*<!subteam\^SREVIEWERS>/);
         assert.match(text, /Assignees: .*<@UCREATOR>/);
       }

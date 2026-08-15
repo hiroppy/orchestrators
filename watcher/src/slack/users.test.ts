@@ -16,10 +16,10 @@ describe("Slack users", () => {
           },
         },
       },
-      ["<@U02T8HCR5>", "<!subteam^S123>"],
+      ["<@U02T8HCR5>", "<!subteam^S123>", "<!subteam^S456|Reviewers>"],
     );
 
-    assert.deepEqual(labels, ["@Hiroppy", "<!subteam^S123>"]);
+    assert.deepEqual(labels, ["@Hiroppy", "@S123", "@Reviewers"]);
   });
 
   it("falls back to the user ID when display-name lookup is unavailable", async () => {

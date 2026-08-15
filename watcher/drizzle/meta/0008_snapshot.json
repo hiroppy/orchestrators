@@ -242,6 +242,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "status_event_key": {
+          "name": "status_event_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "from_status_id": {
           "name": "from_status_id",
           "type": "integer",

@@ -281,11 +281,10 @@ destination channel. It does not require the root `config.ts` or
   changes its reported state, enters retrying or blocked, or disappears.
   Changes only to activity text, timestamps, or counters do not emit an event.
 - Every successfully published watcher event creates or updates the parent card
-  and is stored in the database audit trail. A thread reply is posted only for
-  a resolved status transition, a newly detected pull request, or a configured
-  mention. Manual Slack status changes share the same status Timeline. Pull
-  request replies include the PR URL without replacing the parent title's Linear
-  issue link.
+  and is stored in the database audit trail. Status changes update the shared
+  thread Timeline, and newly detected or updated pull requests refresh its PR
+  section without posting a separate reply. A thread reply is posted only for a
+  configured mention. Manual Slack status changes share the same status Timeline.
 - Raw worker stdout is not posted. Thread messages are capped at 2,500
   characters, and error details shown on cards are capped at 180 characters.
 - Inline PR comments are queried only for issues in the configured review status.

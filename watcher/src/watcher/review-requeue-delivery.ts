@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { WebClient } from "@slack/web-api";
 
 import type { TaskEvent } from "../domain/types.ts";
@@ -44,29 +46,33 @@ async function deliverPendingReviewRequeueNotification(
     throw new Error(`Invalid pending review requeue notification event for ${task.id}`);
   }
   const payload = parseReviewRequeuePendingPayload(pending.body);
+  const { fromStatus, toStatus } = pending;
   const completionKey = String(pending.id);
-  if (!store.hasEvent(task.id, REVIEW_REQUEUE_NOTIFIED_EVENT, completionKey)) {
-    await publishStatusTimeline(slackClient, store, {
-      taskId: task.id,
-      event: {
-        fromStatus: pending.fromStatus,
-        toStatus: pending.toStatus,
-        occurredAt: pending.createdAt,
-        source: { type: "automatic", label: "Inline review comment detected" },
-      },
-      fallbackText: payload.message,
-    });
-    store.addEvent({
-      taskId: pending.taskId,
-      type: REVIEW_REQUEUE_NOTIFIED_EVENT,
-      actor: "watcher",
-      fromStatus: pending.fromStatus,
-      toStatus: pending.toStatus,
-      body: completionKey,
-    });
-  }
   await withTaskCardQueue(task.id, async () => {
-    const updatedTask = store.getTask(task.id)!;
+    const updatedTask = store.getTask(task.id);
+    if (!updatedTask?.parentChannelId || !updatedTask.parentMessageTs) return;
+    if (!store.hasEvent(task.id, REVIEW_REQUEUE_NOTIFIED_EVENT, completionKey)) {
+      await publishStatusTimeline(slackClient, store, {
+        taskId: task.id,
+        event: {
+          fromStatus,
+          toStatus,
+          occurredAt: pending.createdAt,
+          source: { type: "automatic", label: "Inline review comment detected" },
+        },
+        fallbackText: payload.message,
+        idempotencyKey: `review-requeue:${completionKey}`,
+        clientMessageId: stableSlackClientMessageId(pending.id),
+      });
+      store.addEvent({
+        taskId: pending.taskId,
+        type: REVIEW_REQUEUE_NOTIFIED_EVENT,
+        actor: "watcher",
+        fromStatus,
+        toStatus,
+        body: completionKey,
+      });
+    }
     const card = buildTaskCard(
       updatedTask,
       store.getSelectableStatuses(updatedTask.serviceName),
@@ -79,13 +85,18 @@ async function deliverPendingReviewRequeueNotification(
       ...card,
     });
     store.setRenderedSummary(updatedTask.id, JSON.stringify(card));
+    store.addEvent({
+      taskId: pending.taskId,
+      type: REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
+      actor: "watcher",
+      fromStatus,
+      toStatus,
+      body: completionKey,
+    });
   });
-  store.addEvent({
-    taskId: pending.taskId,
-    type: REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
-    actor: "watcher",
-    fromStatus: pending.fromStatus,
-    toStatus: pending.toStatus,
-    body: completionKey,
-  });
+}
+
+function stableSlackClientMessageId(eventId: number): string {
+  const hex = createHash("sha256").update(`review-requeue:${eventId}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
