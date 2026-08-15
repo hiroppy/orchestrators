@@ -25,6 +25,7 @@ import type {
   OrchestratorConfig,
   SnapshotsByService,
   Task,
+  TaskEvent,
   WatcherEvent,
 } from "../domain/types.ts";
 import { enteredTerminalLinearState } from "../domain/linear.ts";
@@ -45,6 +46,8 @@ const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..
 const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
 const POLL_FAILURE_RETRY_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_CONSECUTIVE_POLL_FAILURES = 3;
+const LINEAR_RECONCILIATION_PENDING_EVENT = "linear_reconciliation_pending";
+const LINEAR_RECONCILIATION_COMPLETED_EVENT = "linear_reconciliation_completed";
 
 export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Promise<string> {
   const response = await client.auth.test();
@@ -220,41 +223,70 @@ export async function reconcileSlackStatusTransition({
   });
   if (!linearIssue?.state || !linearIssue.stateType) {
     if (previousTask) {
-      return store.restoreTaskState(
+      const restored = store.restoreTaskState(
         task.id,
         previousTask.status,
         previousTask.linearStateType,
         transitionEventId,
         task.status,
       );
+      if (restored) markLinearReconciliationPending(store, task, previousTask);
+      return restored;
     }
     return false;
   }
 
-  await publishWatcherEvent(
-    slackClient,
-    store,
-    slackChannelId,
-    {
-      type: "updated",
-      service: task.serviceName,
-      issueIdentifier: task.issueIdentifier,
-      issueTitle: linearIssue.title,
-      issueUrl: linearIssue.url ?? task.linkUrl,
-      resolvedState: linearIssue.state,
-      resolvedStateType: normalizeStatus(linearIssue.stateType),
-      pullRequest: linearIssue.pullRequest,
-      relatedIssues: linearIssue.relatedIssues,
-    },
-    undefined,
-    {
-      statusTypeOverrides: config.statusTypeOverrides,
-      transitionPreviousTask: previousTask,
-      transitionEventId,
-      transitionExpectedStatus: task.status,
-    },
-  );
+  try {
+    await publishWatcherEvent(
+      slackClient,
+      store,
+      slackChannelId,
+      {
+        type: "updated",
+        service: task.serviceName,
+        issueIdentifier: task.issueIdentifier,
+        issueTitle: linearIssue.title,
+        issueUrl: linearIssue.url ?? task.linkUrl,
+        resolvedState: linearIssue.state,
+        resolvedStateType: normalizeStatus(linearIssue.stateType),
+        pullRequest: linearIssue.pullRequest,
+        relatedIssues: linearIssue.relatedIssues,
+      },
+      undefined,
+      {
+        statusTypeOverrides: config.statusTypeOverrides,
+        transitionPreviousTask: previousTask,
+        transitionEventId,
+        transitionExpectedStatus: task.status,
+      },
+    );
+  } catch (error) {
+    if (previousTask) {
+      markLinearReconciliationPending(store, store.getTask(task.id) ?? task, previousTask);
+    }
+    throw error;
+  }
   return false;
+}
+
+function markLinearReconciliationPending(
+  store: WatcherStore,
+  task: Task,
+  previousTask: Task,
+): void {
+  const existing = store.getUncompletedEvents(
+    LINEAR_RECONCILIATION_PENDING_EVENT,
+    LINEAR_RECONCILIATION_COMPLETED_EVENT,
+    task.id,
+  );
+  if (existing.length > 0) return;
+  store.addEvent({
+    taskId: task.id,
+    type: LINEAR_RECONCILIATION_PENDING_EVENT,
+    fromStatus: previousTask.status,
+    toStatus: task.status,
+    body: previousTask.linearStateType,
+  });
 }
 
 interface RunOnceOptions {
@@ -351,10 +383,20 @@ async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
+  const pendingReconciliations = new Map(
+    store
+      .getUncompletedEvents(
+        LINEAR_RECONCILIATION_PENDING_EVENT,
+        LINEAR_RECONCILIATION_COMPLETED_EVENT,
+      )
+      .map((event) => [event.taskId, event]),
+  );
   const tasks = store
-    .getTasksForLinearSync(new Set(), config.statusTypeOverrides)
+    .getTasksForLinearSync(new Set(pendingReconciliations.keys()), config.statusTypeOverrides)
     .filter((task) => {
+      const hasPendingReconciliation = pendingReconciliations.has(task.id);
       const hasCurrentLinearState =
+        !hasPendingReconciliation &&
         skipTaskIds.has(task.id) &&
         Boolean(task.linearStateType) &&
         !shouldFetchReviewComments(config, task.status);
@@ -389,6 +431,7 @@ async function reconcileLinearStatuses({
   }
 
   for (const task of tasks) {
+    const pendingReconciliation = pendingReconciliations.get(task.id);
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
     if (teamName && rateLimitedTeams.has(teamName)) continue;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
@@ -402,7 +445,7 @@ async function reconcileLinearStatuses({
         summary.state,
         config.statusTypeOverrides,
       );
-      if (sameStatus && !enteredTerminalState && !fetchReviewComments) {
+      if (sameStatus && !enteredTerminalState && !fetchReviewComments && !pendingReconciliation) {
         if (summary.stateType) {
           store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
         }
@@ -426,7 +469,12 @@ async function reconcileLinearStatuses({
       config.statusTypeOverrides,
     );
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
-    if (detailedSameStatus && !detailedEnteredTerminalState && !fetchDetailedReviewComments) {
+    if (
+      detailedSameStatus &&
+      !detailedEnteredTerminalState &&
+      !fetchDetailedReviewComments &&
+      !pendingReconciliation
+    ) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
       }
@@ -457,7 +505,12 @@ async function reconcileLinearStatuses({
       relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewComment(config, store, event);
-    if (detailedSameStatus && !reviewDecision.shouldRequeue && !detailedEnteredTerminalState) {
+    if (
+      detailedSameStatus &&
+      !reviewDecision.shouldRequeue &&
+      !detailedEnteredTerminalState &&
+      !pendingReconciliation
+    ) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
       }
@@ -474,6 +527,7 @@ async function reconcileLinearStatuses({
       event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
+      pendingReconciliation,
     });
   }
 }
@@ -486,6 +540,7 @@ async function processWatcherEvent({
   event,
   reviewDecision,
   updateLinearStatus,
+  pendingReconciliation,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -494,7 +549,17 @@ async function processWatcherEvent({
   event: WatcherEvent;
   reviewDecision: ReviewCommentDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  pendingReconciliation?: TaskEvent;
 }): Promise<void> {
+  const persistedTask = store.getTask(taskIdFor(event.service, event.issueIdentifier));
+  const transitionPreviousTask =
+    pendingReconciliation && persistedTask
+      ? {
+          ...persistedTask,
+          status: pendingReconciliation.fromStatus ?? persistedTask.status,
+          linearStateType: pendingReconciliation.body || undefined,
+        }
+      : undefined;
   await publishWatcherEvent(
     slackClient,
     store,
@@ -504,6 +569,7 @@ async function processWatcherEvent({
     {
       defaultAssignees: config.defaultAssignees ?? [],
       statusTypeOverrides: config.statusTypeOverrides,
+      transitionPreviousTask,
       createStatusTransitionEvent: (task, fromStatus) =>
         createPendingStatusHookEvent(
           config.statusHooks ?? [],
@@ -520,6 +586,13 @@ async function processWatcherEvent({
           watcherChannelId: slackChannelId,
           taskId: task.id,
         });
+        if (pendingReconciliation) {
+          store.addEvent({
+            taskId: task.id,
+            type: LINEAR_RECONCILIATION_COMPLETED_EVENT,
+            body: String(pendingReconciliation.id),
+          });
+        }
       },
     },
   );

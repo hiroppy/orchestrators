@@ -60,7 +60,10 @@ not part of Symphony's active work set. By default, tasks whose Linear state typ
 `watcher.statusTypeOverrides` entry replaces that classification inside the watcher, so it can
 promote a status to terminal or demote one back to nonterminal without changing Linear. The same
 effective type controls Slack status summaries, closure announcements, and related follow-up issue
-filtering.
+filtering. If an immediate Slack status-action reconciliation cannot confirm or publish a terminal
+state, the event log keeps that task eligible for periodic reconciliation until publication
+succeeds. This retry marker preserves the pre-transition classification so terminal-to-terminal
+actions do not produce a false closure announcement.
 
 ## Polling and API calls
 
