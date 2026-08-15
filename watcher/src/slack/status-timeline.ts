@@ -6,9 +6,9 @@ import type { PullRequest, Task, TaskEvent } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
-import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
+import { resolveSlackDisplayName } from "./users.ts";
 import { escapeSlack, truncate } from "./view-formatting.ts";
-import { formatAssignees, formatParentPullRequestField } from "./views.ts";
+import { formatParentPullRequestField } from "./views.ts";
 
 const STATUS_TIMELINE_EVENT = "status_timeline";
 const MAX_TIMELINE_EVENTS = 10;
@@ -35,7 +35,6 @@ type StatusEventSource =
     };
 
 interface StatusCardFacts {
-  assignees: readonly string[];
   pullRequest?: PullRequest;
 }
 
@@ -119,7 +118,7 @@ async function deliverStatusTimelineEvent(
   const fallbackText = storedEvents[0]?.body ?? `${latest.fromStatus} → ${latest.toStatus}`;
   const card = {
     events: [latest, ...history],
-    facts: await loadStatusCardFacts(client, store, task),
+    facts: loadStatusCardFacts(task),
   } satisfies StatusCard;
   const blocks = buildStatusCard(card);
 
@@ -170,7 +169,7 @@ export async function reloadStatusTimeline(
     text: storedEvents[0]?.body ?? `${latest.fromStatus} → ${latest.toStatus}`,
     blocks: buildStatusCard({
       events: [latest, ...history],
-      facts: await loadStatusCardFacts(client, store, task),
+      facts: loadStatusCardFacts(task),
     }),
   });
 }
@@ -194,9 +193,9 @@ export function buildStatusCard(card: StatusCard): KnownBlock[] {
   ];
   const occurredAt = formatTimelineTime(latest.occurredAt);
   const primaryFields = [
-    `*Event*\n\`${occurredAt}\` ${formatEventSource(source)}`,
-    card.facts.assignees.length ? formatAssignees(card.facts.assignees) : undefined,
-  ].filter((value): value is string => value !== undefined);
+    `*Event*\n${formatEventSource(source)}`,
+    `*Updated at*\n\`${occurredAt}\``,
+  ];
   blocks.push({
     type: "section",
     fields: primaryFields.map((text) => ({ type: "mrkdwn", text })),
@@ -256,13 +255,8 @@ async function toStatusCardEvent(client: SlackClient, event: TaskEvent): Promise
   };
 }
 
-async function loadStatusCardFacts(
-  client: SlackClient,
-  store: WatcherStore,
-  task: Task,
-): Promise<StatusCardFacts> {
+function loadStatusCardFacts(task: Task): StatusCardFacts {
   return {
-    assignees: await resolveSlackAssigneeLabels(client, store.getTaskAssignees(task.id)),
     pullRequest: task.pullRequest,
   };
 }

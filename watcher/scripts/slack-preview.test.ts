@@ -138,7 +138,8 @@ describe("Slack preview", () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].text, "*In Review* → *Rework* by Hiroppy");
-    assert.match(JSON.stringify(calls[0].blocks), /\*Event\*\\n`\d{2}:\d{2}` Changed by Hiroppy/);
+    assert.match(JSON.stringify(calls[0].blocks), /\*Event\*\\nChanged by Hiroppy/);
+    assert.match(JSON.stringify(calls[0].blocks), /\*Updated at\*\\n`\d{2}:\d{2}`/);
   });
 
   it("previews the consolidated status timeline card", () => {
@@ -146,8 +147,9 @@ describe("Slack preview", () => {
     const blocks = JSON.stringify(message.blocks);
 
     assert.match(blocks, /\*In Review → Done\*/);
-    assert.match(blocks, /\*Event\*\\n`\d{2}:\d{2}` Updated/);
-    assert.match(blocks, /\*Assignees\*\\n@Hiroppy @Reviewer/);
+    assert.match(blocks, /\*Event\*\\nUpdated/);
+    assert.match(blocks, /\*Updated at\*\\n`11:00`/);
+    assert.doesNotMatch(blocks, /Assignees/);
     assert.match(blocks, /\*Error\*\\nTemporary orchestrator failure/);
     assert.match(blocks, /\*PR#123\*/);
     assert.match(blocks, /Consolidate Slack status updates/);
