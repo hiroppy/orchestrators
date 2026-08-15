@@ -384,6 +384,74 @@ describe("Slack status actions", () => {
       );
       assert.equal(errors.length, 1);
       assert.match(String(errors[0]), /Simulated Slack failure/);
+      const updates = calls.filter(({ method }) => method === "update");
+      assert.match(JSON.stringify(updates.at(-1)?.args.blocks), /"initial_option".*In Progress/);
+      assert.match(
+        String(
+          calls.find(
+            ({ method, args }) =>
+              method === "postMessage" &&
+              String(args.text).startsWith("[error] Watcher processing"),
+          )?.args.text,
+        ),
+        /restored In Progress.*Linear remains In Review/,
+      );
+    });
+  });
+
+  it("restores the Slack card when post-action reconciliation is incomplete", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          store.restoreTaskState(
+            task.id,
+            previousTask.status,
+            previousTask.linearStateType,
+            transitionEventId,
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      const updates = calls.filter(({ method }) => method === "update");
+      assert.equal(updates.length, 2);
+      assert.match(JSON.stringify(updates.at(-1)?.args.blocks), /"initial_option".*In Progress/);
+      assert.match(
+        String(calls.at(-1)?.args.text),
+        /restored In Progress.*Linear remains In Review/,
+      );
     });
   });
 

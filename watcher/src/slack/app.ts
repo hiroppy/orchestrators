@@ -237,18 +237,67 @@ export async function handleStatusAction(
       };
     });
     if (statusTransition) {
-      await onStatusTransition?.(
-        statusTransition.task,
-        statusTransition.fromStatus,
-        selectedStatus,
-        client,
-        statusTransition.previousTask,
-        statusTransition.transitionEventId,
-      );
+      let transitionError: unknown;
+      try {
+        await onStatusTransition?.(
+          statusTransition.task,
+          statusTransition.fromStatus,
+          selectedStatus,
+          client,
+          statusTransition.previousTask,
+          statusTransition.transitionEventId,
+        );
+      } catch (error) {
+        transitionError = error;
+      }
+      await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
+      if (transitionError) throw transitionError;
     }
   } catch (error) {
     logger.error(error);
   }
+}
+
+async function restoreStatusActionSlackView(
+  client: SlackClient,
+  store: WatcherStore,
+  taskId: string,
+  selectedStatus: string,
+  logger: { error(error: unknown): void },
+): Promise<void> {
+  await withTaskCardQueue(taskId, async () => {
+    const task = store.getTask(taskId);
+    if (
+      !task?.parentChannelId ||
+      !task.parentMessageTs ||
+      normalizeStatus(task.status) === normalizeStatus(selectedStatus)
+    ) {
+      return;
+    }
+    const card = buildTaskCard(
+      task,
+      store.getSelectableStatuses(task.serviceName),
+      {
+        type: "updated",
+        service: task.serviceName,
+        issueIdentifier: task.issueIdentifier,
+        resolvedState: task.status,
+      },
+      await resolveSlackAssigneeLabels(client, store.getTaskAssignees(taskId), logger),
+    );
+    await client.chat.update({
+      channel: task.parentChannelId,
+      ts: task.parentMessageTs,
+      ...card,
+    });
+    store.setRenderedSummary(task.id, JSON.stringify(card));
+    await postSlackOperationError(
+      client,
+      { channel: task.parentChannelId, threadTs: task.parentMessageTs },
+      `Watcher processing for ${escapeSlack(selectedStatus)} did not complete. The watcher restored ${escapeSlack(task.status)} so it can retry; Linear remains ${escapeSlack(selectedStatus)}.`,
+      logger,
+    );
+  });
 }
 
 function linearStatusErrorDetails(error: unknown): string {
