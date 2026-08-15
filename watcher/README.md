@@ -70,6 +70,33 @@ discoverable Linear semantics. Startup verifies that every configured name
 exists in each enabled team's fetched workflow and fails with a configuration
 error if it does not.
 
+### Linear state type overrides
+
+Use `watcher.statusTypeOverrides` when the watcher should interpret a Linear
+status differently from the workflow state type returned by Linear:
+
+```ts
+{
+  watcher: {
+    statusTypeOverrides: {
+      "In Staging Check": "completed",
+      Reopened: "started",
+    },
+  },
+}
+```
+
+Status names are trimmed and matched case-insensitively. Allowed override values
+are `triage`, `backlog`, `unstarted`, `started`, `completed`, and `canceled`.
+Duplicate normalized names, unknown statuses, and unsupported values fail
+startup validation.
+
+Overrides affect watcher reconciliation, Slack status summaries, `Task closed`
+announcements, and the related follow-up issues shown with closure messages.
+They do not change the Linear workflow or rewrite the raw state type stored by
+the watcher. Statuses without an override keep the type returned by Linear;
+native `completed`, `canceled`, and `duplicate` types remain terminal.
+
 ### Review reaction requeue
 
 Set `watcher.reviewReaction` to move review work back into Symphony while a

@@ -133,6 +133,95 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("retries an overridden terminal announcement after the Linear read fails", async (context) => {
+    await withStore(async (store) => {
+      let linearFetches = 0;
+      context.mock.method(globalThis, "fetch", async () => {
+        linearFetches += 1;
+        if (linearFetches === 1) return new Response("temporary failure", { status: 500 });
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Staging Check", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "In Staging Check"]),
+        statusHooks: [
+          {
+            id: "notify-staging",
+            status: "In Staging Check",
+            run: () => {},
+          },
+        ],
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: closedTask, transitionEvent } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        (updatedTask, fromStatus) =>
+          createPendingStatusHookEvent(
+            config.statusHooks,
+            updatedTask,
+            fromStatus,
+            updatedTask.status,
+          ),
+      );
+      const calls: Array<Record<string, unknown>> = [];
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: closedTask,
+        previousTask,
+        transitionEventId: transitionEvent?.id,
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.countEvents(task.id, "status_hook_pending"), 0);
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: store.getTask(task.id)!,
+      });
+
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+      );
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

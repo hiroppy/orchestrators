@@ -223,8 +223,19 @@ export async function reconcileSlackStatusTransition({
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
     includeCreator: false,
     maxAttempts: 1,
+    statusTypeOverrides: config.statusTypeOverrides,
   });
-  if (!linearIssue?.state || !linearIssue.stateType) return;
+  if (!linearIssue?.state || !linearIssue.stateType) {
+    if (previousTask) {
+      store.restoreTaskState(
+        task.id,
+        previousTask.status,
+        previousTask.linearStateType,
+        transitionEventId,
+      );
+    }
+    return;
+  }
 
   await publishWatcherEvent(
     slackClient,
@@ -426,6 +437,7 @@ async function reconcileLinearStatuses({
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
       includeCreator: true,
       maxAttempts: 1,
+      statusTypeOverrides: config.statusTypeOverrides,
     });
     if (!linearIssue?.state) continue;
     const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
