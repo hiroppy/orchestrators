@@ -213,29 +213,16 @@ describe("watcher configuration", () => {
       symphonyGitHubLogins: ["symphony-bot"],
     });
 
-    assert.throws(
-      () =>
-        resolveWatcherConfig(
-          {
-            ...baseConfig(),
-            watcher: {
-              reviewComment: {
-                inReviewStatus: "In Review",
-                inProgressStatus: "In Progress",
-                symphonyGitHubLogins: [" "],
-              },
-            },
-          },
-          { requireSlack: false },
-        ),
-      /symphonyGitHubLogins/,
-    );
-
     for (const reviewComment of [
       { inReviewStatus: "", inProgressStatus: "In Progress" },
       { inReviewStatus: "In Review", inProgressStatus: "" },
       { inReviewStatus: " ", inProgressStatus: "In Progress" },
       { inReviewStatus: "In Review", inProgressStatus: " " },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        symphonyGitHubLogins: [" "],
+      },
     ]) {
       assert.throws(
         () =>
