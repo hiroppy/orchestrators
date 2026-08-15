@@ -502,7 +502,7 @@ function formatError(error: string): string {
   return escapeSlack(truncate(error, MAX_ERROR_LENGTH));
 }
 
-export function formatAssignees(assignees: readonly string[]): string {
+function formatAssignees(assignees: readonly string[]): string {
   const label = "*Assignees*\n";
   const availableLength = MAX_FIELD_LENGTH - label.length;
   const targets: string[] = [];
