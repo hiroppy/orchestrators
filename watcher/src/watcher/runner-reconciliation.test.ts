@@ -222,6 +222,75 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("does not roll back a newer Slack status action after an earlier Linear read fails", async (context) => {
+    await withStore(async (store) => {
+      const fetchStarted = Promise.withResolvers<void>();
+      const releaseFetch = Promise.withResolvers<void>();
+      context.mock.method(globalThis, "fetch", async () => {
+        fetchStarted.resolve();
+        await releaseFetch.promise;
+        return new Response("temporary failure", { status: 500 });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Staging Check", "Done"]),
+        statusHooks: [
+          {
+            id: "notify-staging",
+            status: "In Staging Check",
+            run: () => {},
+          },
+        ],
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: firstActionTask, transitionEvent } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        (updatedTask, fromStatus) =>
+          createPendingStatusHookEvent(
+            config.statusHooks,
+            updatedTask,
+            fromStatus,
+            updatedTask.status,
+          ),
+      );
+
+      const firstReconciliation = reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        task: firstActionTask,
+        previousTask,
+        transitionEventId: transitionEvent?.id,
+      });
+      await fetchStarted.promise;
+      store.updateTaskStatusAtomically(task.id, "Done", () => undefined);
+      releaseFetch.resolve();
+      await firstReconciliation;
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.countEvents(task.id, "status_hook_pending"), 1);
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

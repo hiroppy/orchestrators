@@ -423,6 +423,7 @@ export async function publishWatcherEvent(
             transitionPreviousTask.status,
             transitionPreviousTask.linearStateType,
             transitionEvent?.id ?? options.transitionEventId,
+            task.status,
           );
         }
         throw error;

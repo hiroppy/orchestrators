@@ -232,6 +232,7 @@ export async function reconcileSlackStatusTransition({
         previousTask.status,
         previousTask.linearStateType,
         transitionEventId,
+        task.status,
       );
     }
     return;

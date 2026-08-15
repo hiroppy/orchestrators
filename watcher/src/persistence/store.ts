@@ -404,9 +404,16 @@ export class WatcherStore {
     statusName: string,
     stateType: string | undefined,
     transitionEventId?: number,
+    expectedCurrentStatus?: string,
     now = new Date(),
   ): void {
     this.db.transaction(() => {
+      if (
+        expectedCurrentStatus !== undefined &&
+        this.requireTask(taskId).status !== expectedCurrentStatus
+      ) {
+        return;
+      }
       const status = this.db
         .select({ id: statuses.id })
         .from(statuses)
