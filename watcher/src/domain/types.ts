@@ -8,7 +8,7 @@ export type {
   LinearWorkflowStateType,
   NotificationsConfig,
   OrchestratorConfig,
-  ReviewReactionConfig,
+  ReviewCommentConfig,
   SlackConfig,
   StatusHookConfig,
   StatusHookContext,
@@ -61,7 +61,7 @@ export interface PullRequest {
   baseRefName?: string | null;
   repository?: string | null;
   labels?: string[];
-  hasConfiguredReaction?: boolean;
+  latestReviewCommentAt?: string | null;
 }
 
 export interface RelatedIssue {

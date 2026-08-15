@@ -89,35 +89,175 @@ describe("findPullRequest", () => {
     });
   });
 
-  it("checks the configured reaction only when requested", async () => {
+  it("loads the latest inline review comment when requested", async () => {
     const result = await findPullRequest(
       { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
       {
-        reaction: "👀",
+        includeLatestReviewComment: true,
+        symphonyGitHubLogins: ["symphony-bot"],
         execFile: async (_command, args) => {
-          assert.deepEqual(args, [
-            "pr",
-            "view",
-            "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
-          ]);
+          if (args[0] === "api") {
+            assert.equal(args[1], "graphql");
+            assert.ok(args.includes("owner=example"));
+            assert.ok(args.includes("repo=service"));
+            assert.ok(args.includes("number=123"));
+            assert.match(args.at(-1) ?? "", /reviewThreads/);
+            return {
+              stdout: JSON.stringify({
+                data: {
+                  repository: {
+                    pullRequest: {
+                      author: { login: "pull-request-author" },
+                      reviewThreads: {
+                        nodes: [
+                          {
+                            isResolved: true,
+                            isOutdated: false,
+                            comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                          },
+                          {
+                            isResolved: false,
+                            isOutdated: true,
+                            comments: { nodes: [{ createdAt: "2026-08-15T06:30:00Z" }] },
+                          },
+                          {
+                            isResolved: false,
+                            isOutdated: false,
+                            comments: {
+                              nodes: [
+                                {
+                                  author: { login: "reviewer" },
+                                  createdAt: "2026-08-15T06:02:10Z",
+                                },
+                                {
+                                  author: { login: "pull-request-author" },
+                                  createdAt: "2026-08-15T06:05:00Z",
+                                },
+                                {
+                                  author: { login: "SYMPHONY-BOT" },
+                                  createdAt: "2026-08-15T06:06:00Z",
+                                },
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              }),
+            };
+          }
           return {
             stdout: JSON.stringify({
               url: "https://github.com/example/service/pull/123",
+              number: 123,
               headRefName: "eng-65-contact-form",
               labels: [{ name: "stg-deploy" }],
-              reactionGroups: [
-                { content: "THUMBS_UP", users: { totalCount: 2 } },
-                { content: "EYES", users: { totalCount: 1 } },
-              ],
             }),
           };
         },
       },
     );
 
-    assert.equal(result?.hasConfiguredReaction, true);
+    assert.equal(result?.latestReviewCommentAt, "2026-08-15T06:02:10Z");
     assert.deepEqual(result?.labels, ["stg-deploy"]);
+  });
+
+  it("ignores comments added to resolved review threads", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => ({
+          stdout:
+            args[0] === "api"
+              ? JSON.stringify({
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        reviewThreads: {
+                          nodes: [
+                            {
+                              isResolved: true,
+                              isOutdated: false,
+                              comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                })
+              : JSON.stringify({
+                  url: "https://github.com/example/service/pull/123",
+                  number: 123,
+                  headRefName: "eng-65-contact-form",
+                }),
+        }),
+      },
+    );
+
+    assert.equal(result?.latestReviewCommentAt, null);
+  });
+
+  it("ignores comments in outdated review threads", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => ({
+          stdout:
+            args[0] === "api"
+              ? JSON.stringify({
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        reviewThreads: {
+                          nodes: [
+                            {
+                              isResolved: false,
+                              isOutdated: true,
+                              comments: { nodes: [{ createdAt: "2026-08-15T07:00:00Z" }] },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                })
+              : JSON.stringify({
+                  url: "https://github.com/example/service/pull/123",
+                  number: 123,
+                  headRefName: "eng-65-contact-form",
+                }),
+        }),
+      },
+    );
+
+    assert.equal(result?.latestReviewCommentAt, null);
+  });
+
+  it("keeps the pull request when loading its latest comment fails", async () => {
+    const result = await findPullRequest(
+      { workspacePath: "/tmp/repo", state: "In Review", issueIdentifier: "ENG-65" },
+      {
+        includeLatestReviewComment: true,
+        execFile: async (_command, args) => {
+          if (args[0] === "api") throw new Error("GitHub API unavailable");
+          return {
+            stdout: JSON.stringify({
+              url: "https://github.com/example/service/pull/123",
+              number: 123,
+              headRefName: "eng-65-contact-form",
+            }),
+          };
+        },
+      },
+    );
+
+    assert.equal(result?.url, "https://github.com/example/service/pull/123");
+    assert.equal(result?.latestReviewCommentAt, null);
   });
 
   it("returns null when gh finds a PR for a stale branch", async () => {
@@ -171,32 +311,25 @@ describe("findPullRequest", () => {
 });
 
 describe("findPullRequestByUrl", () => {
-  it("loads reaction metadata from an attached pull request URL", async () => {
+  it("represents a PR with no inline comments", async () => {
     const url = "https://github.com/example/service/pull/123";
     const result = await findPullRequestByUrl(url, {
-      reaction: "👀",
+      includeLatestReviewComment: true,
       execFile: async (command, args, options) => {
         assert.equal(command, "gh");
-        assert.deepEqual(args, [
-          "pr",
-          "view",
-          url,
-          "--json",
-          "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels,reactionGroups",
-        ]);
+        if (args[0] === "api") return { stdout: "[]" };
         assert.equal(options.cwd, undefined);
         return {
           stdout: JSON.stringify({
             url,
             number: 123,
             labels: [{ name: "symphony" }],
-            reactionGroups: [{ content: "EYES", users: { totalCount: 0 } }],
           }),
         };
       },
     });
 
-    assert.equal(result?.hasConfiguredReaction, false);
+    assert.equal(result?.latestReviewCommentAt, null);
     assert.deepEqual(result?.labels, ["symphony"]);
   });
 
@@ -208,19 +341,5 @@ describe("findPullRequestByUrl", () => {
     });
 
     assert.deepEqual(result?.labels, []);
-  });
-
-  it("maps a configured emoji to GitHub reaction content", async () => {
-    const result = await findPullRequestByUrl("https://github.com/example/service/pull/123", {
-      reaction: "🚀",
-      execFile: async () => ({
-        stdout: JSON.stringify({
-          url: "https://github.com/example/service/pull/123",
-          reactionGroups: [{ content: "ROCKET", users: { totalCount: 1 } }],
-        }),
-      }),
-    });
-
-    assert.equal(result?.hasConfiguredReaction, true);
   });
 });

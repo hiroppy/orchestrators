@@ -1,7 +1,7 @@
 # Orchestrator Slack Watcher
 
 See [`../docs/architecture.md`](../docs/architecture.md) for the relationship between Symphony,
-the watcher, Linear, GitHub, Slack, and the review-reaction lifecycle.
+the watcher, Linear, GitHub, Slack, and the inline-review-comment lifecycle.
 
 ## Configuration
 
@@ -64,8 +64,8 @@ imported values, duplicate enabled ports, and missing credentials at startup.
 The watcher fetches the referenced teams' current workflow states from Linear
 before polling.
 
-Workflow-specific behavior remains explicit: `reviewReaction.inReviewStatus`
-and `reviewReaction.inProgressStatus` are business rules rather than
+Workflow-specific behavior remains explicit: `reviewComment.inReviewStatus`
+and `reviewComment.inProgressStatus` are business rules rather than
 discoverable Linear semantics. Startup verifies that every configured name
 exists in each enabled team's fetched workflow and fails with a configuration
 error if it does not.
@@ -97,33 +97,41 @@ They do not change the Linear workflow or rewrite the raw state type stored by
 the watcher. Statuses without an override keep the type returned by Linear;
 native `completed`, `canceled`, and `duplicate` types remain terminal.
 
-### Review reaction requeue
+### Inline review comment requeue
 
-Set `watcher.reviewReaction` to move review work back into Symphony while a
-linked GitHub pull request has the configured reaction:
+Set `watcher.reviewComment` to move review work back into Symphony when an
+unhandled inline review comment is observed in an unresolved thread while the
+issue is in review:
 
 ```ts
 {
   watcher: {
-    // Requeues a Linear issue from review when a linked GitHub PR has this reaction.
-    // Remove this block to disable reaction-based requeueing.
-    reviewReaction: {
+    // Remove this block to disable inline-comment requeueing.
+    reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
-      reaction: "👀", // e.g. Codex code review in progress
-      maxRequeues: 3,
+      symphonyGitHubLogins: ["your-symphony-account"],
     },
   },
 }
 ```
 
-The watcher checks reactions only while the Linear issue is in
-`inReviewStatus`. A matching reaction moves the issue to `inProgressStatus`.
-This repeats until the reaction disappears or `maxRequeues` is reached.
+The watcher checks inline comments only while the Linear issue is in
+`inReviewStatus`. If the newest comment is later than the last handled comment,
+the issue moves to `inProgressStatus`. The handled timestamp is stored in the
+existing event log; comment IDs and deletion state are not tracked. Omit
+`watcher.reviewComment` to disable this behavior.
+Comments in resolved or outdated review threads are ignored. A resolved thread
+becomes eligible again if it is subsequently marked unresolved and is not outdated.
+Comments from the pull request author and accounts listed in
+`symphonyGitHubLogins` are also ignored. Configure the GitHub account used by
+Symphony to reply to reviews so its own replies do not requeue the issue.
 
-Reaching the limit immediately posts a notice in the task thread. Requeue
-counts survive watcher restarts because they are stored in the watcher
-database. Omit `watcher.reviewReaction` to disable this behavior.
+Comment checks run during periodic maintenance, including for tasks that remain
+in the current Symphony snapshot without producing a new snapshot event. The
+single watcher stores the handled timestamp after Linear accepts the status
+update. It intentionally does not implement a separate requeue outbox or
+distributed exactly-once recovery.
 
 ### Status hooks
 
@@ -240,7 +248,7 @@ a status change made by a Slack user, including the actor's display name. A
 configured creator and additional mention targets can be previewed with
 `post attention` or `thread attention`. Pass them as `mentionTarget` and
 `mentions` when using the preview helper; the CLI uses non-notifying
-placeholders. Use `thread reaction`, `thread reaction-limit`, and `thread next`
+placeholders. Use `thread review-comment` and `thread next`
 for task-thread notifications, `post closed` for the top-level task-closed
 notification, and `assignees status` for the status summary.
 Thread previews are posted as
@@ -306,9 +314,8 @@ destination channel. It does not require the root `config.ts` or
   link.
 - Raw worker stdout is not posted. Thread messages are capped at 2,500
   characters, and error details shown on cards are capped at 180 characters.
-- The configured PR reaction's presence is queried only for issues in the
-  configured review status. A matching reaction suppresses the review mention
-  and requeues the issue up to the configured per-issue maximum.
+- Inline PR comments are queried only for issues in the configured review status.
+  A comment newer than the persisted handled timestamp requeues the issue once.
 - Observability and Linear requests time out instead of blocking the polling
   loop indefinitely. A temporary observability failure preserves the last
   known task snapshot and posts a service warning; recovery updates that

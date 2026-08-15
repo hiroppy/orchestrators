@@ -36,11 +36,10 @@ export interface SlackConfig {
   notifications?: NotificationsConfig;
 }
 
-export interface ReviewReactionConfig {
+export interface ReviewCommentConfig {
   inReviewStatus: string;
   inProgressStatus: string;
-  reaction: string;
-  maxRequeues: number;
+  symphonyGitHubLogins?: string[];
 }
 
 export interface StatusHookContext {
@@ -103,7 +102,7 @@ export interface WatcherSettings {
     maxAttempts?: number;
     delayMs?: number;
   };
-  reviewReaction?: ReviewReactionConfig;
+  reviewComment?: ReviewCommentConfig;
   statusHooks?: StatusHookConfig[];
 }
 

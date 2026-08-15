@@ -4,31 +4,16 @@ import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/types.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear-status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
-import { buildReviewRequeueLimitMessage, buildReviewRequeueMessage } from "../slack/views.ts";
+import { buildReviewRequeueMessage } from "../slack/views.ts";
+import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import {
-  deliverPendingReviewLimitNotifications,
-  deliverPendingReviewRequeueNotifications,
-} from "./review-limit-delivery.ts";
-import {
+  REVIEW_COMMENT_HANDLED_EVENT,
   REVIEW_REQUEUE_EVENT,
-  REVIEW_REQUEUE_ATTEMPT_EVENT,
-  REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
-  type ReviewReactionDecision,
-  reviewRequeueAttemptKey,
-} from "./review-reactions.ts";
+  type ReviewCommentDecision,
+} from "./review-comments.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
-
-interface RequeueReviewTaskOptions {
-  config: ResolvedWatcherRuntimeConfig;
-  store: WatcherStore;
-  slackClient: WebClient;
-  watcherChannelId: string;
-  event: WatcherEvent;
-  decision: ReviewReactionDecision;
-  updateLinearStatus: typeof updateLinearIssueStatus;
-}
 
 export async function requeueReviewTask({
   config,
@@ -38,29 +23,65 @@ export async function requeueReviewTask({
   event,
   decision,
   updateLinearStatus,
-}: RequeueReviewTaskOptions): Promise<void> {
-  const review = config.reviewReaction;
+}: {
+  config: ResolvedWatcherRuntimeConfig;
+  store: WatcherStore;
+  slackClient: WebClient;
+  watcherChannelId: string;
+  event: WatcherEvent;
+  decision: ReviewCommentDecision;
+  updateLinearStatus: typeof updateLinearIssueStatus;
+}): Promise<void> {
+  const review = config.reviewComment;
   if (!decision.shouldRequeue || !review) return;
 
-  const taskId = taskIdFor(event.service, event.issueIdentifier);
-  const task = store.getTask(taskId)!;
+  const task = store.getTask(taskIdFor(event.service, event.issueIdentifier))!;
   const team = linearTeamForService(config, task.serviceName);
   await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
     apiKey: team?.apiKey,
     issueId: event.linearIssueId,
     teamId: team?.teamId,
   });
-  const { task: requeuedTask, fromStatus } = store.updateTaskStatusAtomically(
+  const message = buildReviewRequeueMessage(task.status, review.inProgressStatus);
+  const { task: requeuedTask } = store.updateTaskStatusAtomically(
     task.id,
     review.inProgressStatus,
-    (updatedTask, previousStatus) =>
-      createPendingStatusHookEvent(
+    (updatedTask, fromStatus) => {
+      const statusHookEvent = createPendingStatusHookEvent(
         config.statusHooks ?? [],
         updatedTask,
-        previousStatus,
+        fromStatus,
         updatedTask.status,
         event.pullRequest,
-      ),
+      );
+      return [
+        ...(statusHookEvent ? [statusHookEvent] : []),
+        {
+          taskId: task.id,
+          type: REVIEW_REQUEUE_EVENT,
+          actor: "watcher",
+          fromStatus,
+          toStatus: updatedTask.status,
+          body: message,
+        },
+        {
+          taskId: task.id,
+          type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
+          actor: "watcher",
+          fromStatus,
+          toStatus: updatedTask.status,
+          body: JSON.stringify({ message, event }),
+        },
+        {
+          taskId: task.id,
+          type: REVIEW_COMMENT_HANDLED_EVENT,
+          actor: "watcher",
+          fromStatus,
+          toStatus: updatedTask.status,
+          body: decision.commentAt,
+        },
+      ];
+    },
   );
   await deliverPendingStatusHooksSafely({
     hooks: config.statusHooks ?? [],
@@ -69,70 +90,5 @@ export async function requeueReviewTask({
     watcherChannelId,
     taskId: requeuedTask.id,
   });
-
-  const requeueEvent = {
-    taskId: task.id,
-    type: REVIEW_REQUEUE_EVENT,
-    actor: "watcher",
-    fromStatus,
-    toStatus: requeuedTask.status,
-    body: buildReviewRequeueMessage(review.reaction, fromStatus, requeuedTask.status),
-  };
-  const attemptEvent = {
-    taskId: task.id,
-    type: REVIEW_REQUEUE_ATTEMPT_EVENT,
-    actor: "watcher",
-    body: reviewRequeueAttemptKey(event, review.reaction),
-  };
-
-  if (decision.reachesLimit) {
-    const limitMessage = buildReviewRequeueLimitMessage(
-      review.reaction,
-      review.maxRequeues,
-      fromStatus,
-      requeuedTask.status,
-    );
-    store.addEvents([
-      attemptEvent,
-      requeueEvent,
-      {
-        taskId: task.id,
-        type: REVIEW_REQUEUE_LIMIT_PENDING_EVENT,
-        actor: "watcher",
-        fromStatus,
-        toStatus: requeuedTask.status,
-        body: JSON.stringify({
-          message: limitMessage,
-          event: withoutCreatorDetails(event),
-          reaction: review.reaction,
-          maxRequeues: review.maxRequeues,
-        }),
-      },
-    ]);
-    await deliverPendingReviewLimitNotifications(store, slackClient, task.id);
-    return;
-  }
-
-  store.addEvents([
-    attemptEvent,
-    requeueEvent,
-    {
-      taskId: task.id,
-      type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
-      actor: "watcher",
-      fromStatus,
-      toStatus: requeuedTask.status,
-      body: JSON.stringify({
-        message: requeueEvent.body,
-        event: withoutCreatorDetails(event),
-        reaction: review.reaction,
-      }),
-    },
-  ]);
   await deliverPendingReviewRequeueNotifications(store, slackClient, task.id);
-}
-
-function withoutCreatorDetails(event: WatcherEvent): WatcherEvent {
-  const { creatorName: _name, creatorEmail: _email, ...safeEvent } = event;
-  return safeEvent;
 }

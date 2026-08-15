@@ -413,6 +413,38 @@ describe("WatcherStore", () => {
       );
     });
   });
+
+  it("rolls back a status update when an atomic event cannot be recorded", async () => {
+    await withStore((store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
+        {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-a",
+            statuses: ["In Progress", "In Review"],
+          },
+        },
+      );
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+
+      assert.throws(
+        () =>
+          store.updateTaskStatusAtomically("service-a:ENG-62", "In Progress", () => [
+            { taskId: "service-a:ENG-62", type: "review_requeued" },
+            { taskId: "service-a:missing", type: "review_comment_handled" },
+          ]),
+        /Task not found/,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(store.countEvents("service-a:ENG-62", "review_requeued"), 0);
+    });
+  });
 });
 
 async function withStore(run: (store: WatcherStore) => void | Promise<void>): Promise<void> {

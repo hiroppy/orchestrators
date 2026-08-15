@@ -40,10 +40,10 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
   for (const status of Object.keys(config.statusTypeOverrides)) {
     rules.push(["watcher.statusTypeOverrides", status]);
   }
-  if (config.reviewReaction) {
+  if (config.reviewComment) {
     rules.push(
-      ["watcher.reviewReaction.inReviewStatus", config.reviewReaction.inReviewStatus],
-      ["watcher.reviewReaction.inProgressStatus", config.reviewReaction.inProgressStatus],
+      ["watcher.reviewComment.inReviewStatus", config.reviewComment.inReviewStatus],
+      ["watcher.reviewComment.inProgressStatus", config.reviewComment.inProgressStatus],
     );
   }
   for (const status of config.notifications?.statuses ?? []) {

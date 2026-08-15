@@ -540,14 +540,16 @@ export class WatcherStore {
   updateTaskStatusAtomically(
     taskId: string,
     statusName: string,
-    createEvent: (task: Task, fromStatus: string) => TaskEventInput | undefined,
+    createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; fromStatus: string; transitionEvent: TaskEvent | undefined } {
     return this.db.transaction(() => {
       const transition = this.updateTaskStatus(taskId, statusName, now);
-      const eventInput = createEvent(transition.task, transition.fromStatus);
-      const transitionEvent = eventInput ? this.addEvent(eventInput) : undefined;
-      return { ...transition, transitionEvent };
+      const events = createEvents(transition.task, transition.fromStatus);
+      const transitionEvents = events
+        ? (Array.isArray(events) ? events : [events]).map((event) => this.addEvent(event))
+        : [];
+      return { ...transition, transitionEvent: transitionEvents[0] };
     });
   }
 

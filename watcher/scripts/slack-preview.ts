@@ -12,8 +12,6 @@ import { DEFAULT_DATABASE_PATH, WatcherStore } from "../src/persistence/store.ts
 import {
   buildRelatedIssuesMessage,
   buildRelatedIssuesMessageBlocks,
-  buildReviewRequeueLimitMessage,
-  buildReviewRequeueLimitMessageBlocks,
   buildReviewRequeueMessage,
   buildReviewRequeueMessageBlocks,
   buildTaskCard,
@@ -44,8 +42,7 @@ export const SLACK_PREVIEW_TYPES = [
   ...SLACK_PREVIEW_EVENT_TYPES,
   "manual",
   "attention",
-  "reaction",
-  "reaction-limit",
+  "review-comment",
   "closed",
   "next",
   "status",
@@ -124,7 +121,7 @@ export function resolveSlackPreviewCase(
       : "Missing Slack preview type.";
     throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
   }
-  const threadOnly = ["manual", "reaction", "reaction-limit", "next"];
+  const threadOnly = ["manual", "review-comment", "next"];
   if (category === "post" && threadOnly.includes(type)) {
     throw new Error(`Slack preview type ${type} is only available for thread previews.\n${usage}`);
   }
@@ -185,16 +182,10 @@ export function buildSlackPreviewMessage(
       blocks: buildStatusChangedMessageBlocks("Hiroppy", "In Review", "Rework"),
     };
   }
-  if (type === "reaction") {
+  if (type === "review-comment") {
     return {
-      text: buildReviewRequeueMessage("👀", "In Review", "In Progress"),
-      blocks: buildReviewRequeueMessageBlocks("👀", "In Review", "In Progress"),
-    };
-  }
-  if (type === "reaction-limit") {
-    return {
-      text: buildReviewRequeueLimitMessage("👀", 3, "In Review", "In Progress"),
-      blocks: buildReviewRequeueLimitMessageBlocks("👀", 3, "In Review", "In Progress"),
+      text: buildReviewRequeueMessage("In Review", "In Progress"),
+      blocks: buildReviewRequeueMessageBlocks("In Review", "In Progress"),
     };
   }
   if (type === "closed") {

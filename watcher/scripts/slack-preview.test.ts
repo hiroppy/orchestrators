@@ -146,8 +146,7 @@ describe("Slack preview", () => {
 
   it("previews every standalone notification with blocks", () => {
     const cases = [
-      { category: "thread", type: "reaction" },
-      { category: "thread", type: "reaction-limit" },
+      { category: "thread", type: "review-comment" },
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
       { category: "assignees", type: "status" },
@@ -156,27 +155,21 @@ describe("Slack preview", () => {
 
     for (const message of messages.slice(0, 3)) {
       assert.ok(message.blocks.length >= 2);
-      assert.deepEqual(
-        message.blocks.map(({ type }) => type),
-        ["section", "section"],
-      );
     }
-    assert.match(JSON.stringify(messages[0].blocks), /Review reaction detected/);
-    assert.match(JSON.stringify(messages[1].blocks), /Review requeue limit reached/);
-    assert.match(JSON.stringify(messages[1].blocks), /\*Requeues\*\\n3\/3/);
-    assert.match(JSON.stringify(messages[2].blocks), /\*Task closed\*/);
-    assert.match(JSON.stringify(messages[3].blocks), /\*Next task\*/);
+    assert.match(JSON.stringify(messages[0].blocks), /Inline review comment detected/);
+    assert.match(JSON.stringify(messages[1].blocks), /\*Task closed\*/);
+    assert.match(JSON.stringify(messages[2].blocks), /\*Next task\*/);
     assert.deepEqual(
-      messages[3].blocks.map(({ type }) => type),
+      messages[2].blocks.map(({ type }) => type),
       ["section", "section", "section", "section"],
     );
     assert.equal(
       messages[3].blocks.some(({ fields }) => fields !== undefined),
       false,
     );
-    assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125.*PREVIEW-126/);
+    assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125/);
     assert.equal(
-      messages[4].text,
+      messages[3].text,
       [
         "*Running services (Started at 08/12 11:00)*",
         "• service-a",
@@ -202,7 +195,7 @@ describe("Slack preview", () => {
       ].join("\n"),
     );
     assert.deepEqual(
-      messages[4].blocks?.map(({ type }) => type),
+      messages[3].blocks?.map(({ type }) => type),
       ["section", "section", "section", "section"],
     );
   });
@@ -274,8 +267,7 @@ describe("Slack preview", () => {
       "recover",
       "manual",
       "attention",
-      "reaction",
-      "reaction-limit",
+      "review-comment",
       "closed",
       "next",
       "status",

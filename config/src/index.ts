@@ -6,7 +6,7 @@ export type {
   NotificationsConfig,
   OrchestratorConfig,
   OrchestratorConfigInput,
-  ReviewReactionConfig,
+  ReviewCommentConfig,
   SlackConfig,
   StatusHookConfig,
   StatusHookContext,
