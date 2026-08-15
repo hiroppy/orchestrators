@@ -49,7 +49,7 @@ export type StatusTransitionHandler = (
   client: SlackClient,
   previousTask: Task,
   transitionEventId?: number,
-) => Promise<void>;
+) => Promise<boolean | void>;
 export type StatusTransitionEventFactory = (
   task: Task,
   fromStatus: string,
@@ -238,19 +238,26 @@ export async function handleStatusAction(
     });
     if (statusTransition) {
       let transitionError: unknown;
+      let transitionRolledBack = false;
       try {
-        await onStatusTransition?.(
-          statusTransition.task,
-          statusTransition.fromStatus,
-          selectedStatus,
-          client,
-          statusTransition.previousTask,
-          statusTransition.transitionEventId,
-        );
+        transitionRolledBack =
+          (await onStatusTransition?.(
+            statusTransition.task,
+            statusTransition.fromStatus,
+            selectedStatus,
+            client,
+            statusTransition.previousTask,
+            statusTransition.transitionEventId,
+          )) === true;
       } catch (error) {
         transitionError = error;
+        transitionRolledBack =
+          normalizeStatus(store.getTask(taskId)?.status ?? "") ===
+          normalizeStatus(statusTransition.previousTask.status);
       }
-      await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
+      if (transitionRolledBack) {
+        await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
+      }
       if (transitionError) throw transitionError;
     }
   } catch (error) {
@@ -418,11 +425,14 @@ export async function publishWatcherEvent(
         }
       } catch (error) {
         if (transitionPreviousTask && (statusChanged || announceTerminalParent)) {
+          const transitionEventIds = [transitionEvent?.id, options.transitionEventId].filter(
+            (eventId): eventId is number => eventId !== undefined,
+          );
           store.restoreTaskState(
             task.id,
             transitionPreviousTask.status,
             transitionPreviousTask.linearStateType,
-            transitionEvent?.id ?? options.transitionEventId,
+            transitionEventIds,
             task.status,
           );
         }

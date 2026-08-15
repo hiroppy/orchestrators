@@ -114,7 +114,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       previousTask,
       transitionEventId,
     ) => {
-      await reconcileSlackStatusTransition({
+      const rolledBack = await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,
         slackClient,
@@ -130,6 +130,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         watcherChannelId: slackConfig.channelId,
         taskId: task.id,
       });
+      return rolledBack;
     },
   });
 
@@ -210,7 +211,7 @@ export async function reconcileSlackStatusTransition({
   task: Task;
   previousTask?: Task;
   transitionEventId?: number;
-}): Promise<void> {
+}): Promise<boolean> {
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
     includeCreator: false,
@@ -219,7 +220,7 @@ export async function reconcileSlackStatusTransition({
   });
   if (!linearIssue?.state || !linearIssue.stateType) {
     if (previousTask) {
-      store.restoreTaskState(
+      return store.restoreTaskState(
         task.id,
         previousTask.status,
         previousTask.linearStateType,
@@ -227,7 +228,7 @@ export async function reconcileSlackStatusTransition({
         task.status,
       );
     }
-    return;
+    return false;
   }
 
   await publishWatcherEvent(
@@ -252,6 +253,7 @@ export async function reconcileSlackStatusTransition({
       transitionEventId,
     },
   );
+  return false;
 }
 
 interface RunOnceOptions {

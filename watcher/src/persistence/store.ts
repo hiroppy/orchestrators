@@ -404,16 +404,16 @@ export class WatcherStore {
     taskId: string,
     statusName: string,
     stateType: string | undefined,
-    transitionEventId?: number,
+    transitionEventIds?: number | readonly number[],
     expectedCurrentStatus?: string,
     now = new Date(),
-  ): void {
-    this.db.transaction(() => {
+  ): boolean {
+    return this.db.transaction(() => {
       if (
         expectedCurrentStatus !== undefined &&
         this.requireTask(taskId).status !== expectedCurrentStatus
       ) {
-        return;
+        return false;
       }
       const status = this.db
         .select({ id: statuses.id })
@@ -432,9 +432,12 @@ export class WatcherStore {
         })
         .where(eq(tasks.id, taskId))
         .run();
-      if (transitionEventId !== undefined) {
-        this.db.delete(taskEvents).where(eq(taskEvents.id, transitionEventId)).run();
+      const eventIds =
+        typeof transitionEventIds === "number" ? [transitionEventIds] : (transitionEventIds ?? []);
+      for (const eventId of new Set(eventIds)) {
+        this.db.delete(taskEvents).where(eq(taskEvents.id, eventId)).run();
       }
+      return true;
     });
   }
 
