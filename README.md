@@ -31,36 +31,26 @@ The default `customize` workflow follows this cycle:
 
 ```mermaid
 flowchart TD
-  create["User: Create an issue in the Omakase project<br/>from @Linear or the Linear website"]
-  backlog["Linear: Issue starts in Backlog"]
-  todo["User: Check the request and move it to Todo"]
-  thread["Watcher: Create the Slack parent post<br/>on the first observed task event"]
-  implement["Symphony: Move to In Progress<br/>and start or resume implementation"]
-  review["Symphony: Finish implementation,<br/>clear review feedback, and pass checks"]
-  inReview["Symphony: Move the issue to In Review"]
-  reaction{"Configured reaction on the PR?<br/>For example, Codex's 👀"}
-  limit{"Has this PR head already reached<br/>the automatic requeue limit?"}
-  requeue["Watcher: Move the issue back to In Progress<br/>and record the attempt; notify on the final one"]
-  limitNotice["Watcher: Keep the issue in In Review<br/>until the reaction is removed or status changes"]
-  notify["Slack: Notify configured assignees<br/>including the creator when resolved"]
-  verify["User: Verify the implementation"]
-  expected{"Does it work as expected?"}
-  feedback["User: Explain the problem in the parent post thread"]
-  acknowledged["Watcher: Copy the reply to the Linear Workpad<br/>and acknowledge it with ✅"]
-  resume["User: Move the issue back to In Progress<br/>from Slack or Linear"]
-  devReview["Development team: Review and approve the pull request"]
-  merging["User: Move the issue to Merging"]
-  land["Symphony: Run the land workflow"]
-  done["Linear: Move the issue to Done"]
+  create["📝 Create a Linear issue<br/>Backlog → Todo"]
+  implement["🤖 Symphony implements it<br/>Todo → In Progress"]
+  slack["💬 Follow progress and give instructions<br/>in the Slack task thread"]
+  review["Ready for human review<br/>In Review"]
+  automated{"Automated review feedback?"}
+  notify["🔔 Slack notifies the reviewers"]
+  verify{"Does it work as expected?"}
+  feedback["Reply in Slack<br/>and move back to In Progress"]
+  merging["Approve and move to Merging"]
+  done["🚀 Symphony lands the pull request<br/>Done"]
 
-  create --> backlog --> todo --> thread --> implement --> review --> inReview --> reaction
-  reaction -- Yes --> limit
-  limit -- Yes --> limitNotice
-  limit -- No --> requeue --> implement
-  reaction -- No --> notify --> verify --> expected
-  expected -- No --> feedback --> acknowledged --> resume --> implement
-  expected -- Yes --> devReview --> merging --> land --> done
+  create --> implement --> slack --> review --> automated
+  automated -- Yes --> implement
+  automated -- No --> notify --> verify
+  verify -- No --> feedback --> implement
+  verify -- Yes --> merging --> done
 ```
+
+See [Architecture](docs/architecture.md#review-reaction-lifecycle) for polling,
+reaction limits, persistence, and recovery details.
 
 ## Requirements
 
