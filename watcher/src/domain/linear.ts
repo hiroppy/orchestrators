@@ -30,13 +30,19 @@ export function effectiveLinearStateType(
     : stateType;
 }
 
-export function enteredTerminalLinearState(
-  previousStateType?: string | null,
-  currentStateType?: string | null,
-  previousStatus?: string | null,
-  currentStatus?: string | null,
-  statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
-): boolean {
+export function enteredTerminalLinearState({
+  previousStateType,
+  currentStateType,
+  previousStatus,
+  currentStatus,
+  statusTypeOverrides = {},
+}: {
+  previousStateType?: string | null;
+  currentStateType?: string | null;
+  previousStatus?: string | null;
+  currentStatus?: string | null;
+  statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
+}): boolean {
   return (
     !isTerminalLinearState(previousStateType, previousStatus, statusTypeOverrides) &&
     isTerminalLinearState(currentStateType, currentStatus, statusTypeOverrides)

@@ -78,11 +78,13 @@ describe("Slack status actions", () => {
           return undefined;
         },
         (task, previousTask) => ({
-          taskId: task.id,
-          type: "linear_reconciliation_pending",
-          fromStatus: previousTask.status,
-          toStatus: task.status,
-          body: previousTask.linearStateType,
+          pending: {
+            taskId: task.id,
+            type: "linear_reconciliation_pending",
+            fromStatus: previousTask.status,
+            toStatus: task.status,
+            body: previousTask.linearStateType,
+          },
         }),
       );
 

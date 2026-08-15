@@ -49,13 +49,21 @@ export type StatusTransitionHandler = (
   client: SlackClient,
   previousTask: Task,
   transitionEventId?: number,
+  reconciliationEventId?: number,
 ) => Promise<boolean | void>;
 export type StatusTransitionEventFactory = (
   task: Task,
   fromStatus: string,
   toStatus: string,
 ) => TaskEventInput | undefined;
-export type StatusReconciliationEventFactory = (task: Task, previousTask: Task) => TaskEventInput;
+export interface StatusReconciliationEvents {
+  pending: TaskEventInput;
+  superseded?: TaskEventInput[];
+}
+export type StatusReconciliationEventsFactory = (
+  task: Task,
+  previousTask: Task,
+) => StatusReconciliationEvents;
 
 export interface SlackAppOptions {
   botToken: string;
@@ -65,7 +73,7 @@ export interface SlackAppOptions {
   store: WatcherStore;
   botUserId: string;
   createStatusTransitionEvent?: StatusTransitionEventFactory;
-  createStatusReconciliationEvent?: StatusReconciliationEventFactory;
+  createStatusReconciliationEvents?: StatusReconciliationEventsFactory;
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
@@ -80,7 +88,7 @@ export function createSlackApp({
   store,
   botUserId,
   createStatusTransitionEvent,
-  createStatusReconciliationEvent,
+  createStatusReconciliationEvents,
   onStatusTransition,
   takePr,
   statusSummary,
@@ -96,7 +104,7 @@ export function createSlackApp({
     store,
     updateLinearStatus,
     createStatusTransitionEvent,
-    createStatusReconciliationEvent,
+    createStatusReconciliationEvents,
     onStatusTransition,
   );
   app.action(TAKE_PR_SERVICE_ACTION_ID, async ({ ack }) => {
@@ -119,7 +127,7 @@ function registerStatusAction(
   store: WatcherStore,
   updateLinearStatus: LinearStatusUpdater,
   createStatusTransitionEvent?: StatusTransitionEventFactory,
-  createStatusReconciliationEvent?: StatusReconciliationEventFactory,
+  createStatusReconciliationEvents?: StatusReconciliationEventsFactory,
   onStatusTransition?: StatusTransitionHandler,
 ): void {
   app.action(TASK_STATUS_ACTION_ID, async (args) => {
@@ -129,7 +137,7 @@ function registerStatusAction(
       updateLinearStatus,
       onStatusTransition,
       createStatusTransitionEvent,
-      createStatusReconciliationEvent,
+      createStatusReconciliationEvents,
     );
   });
 }
@@ -140,7 +148,7 @@ export async function handleStatusAction(
   updateLinearStatus: LinearStatusUpdater,
   onStatusTransition?: StatusTransitionHandler,
   createStatusTransitionEvent?: StatusTransitionEventFactory,
-  createStatusReconciliationEvent?: StatusReconciliationEventFactory,
+  createStatusReconciliationEvents?: StatusReconciliationEventsFactory,
 ): Promise<void> {
   await ack();
 
@@ -208,25 +216,31 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
-      let hasTransitionEvent = false;
-      const { task, fromStatus, transitionEvent } = store.updateTaskStatusAtomically(
+      let transitionEventInput: TaskEventInput | undefined;
+      let reconciliationEventInput: TaskEventInput | undefined;
+      const { task, fromStatus, transitionEvents } = store.updateTaskStatusAtomically(
         taskId,
         selectedStatus,
         (updatedTask, previousStatus) => {
-          const transitionEvent = createStatusTransitionEvent?.(
+          transitionEventInput = createStatusTransitionEvent?.(
             updatedTask,
             previousStatus,
             selectedStatus,
           );
-          hasTransitionEvent = transitionEvent !== undefined;
+          const reconciliationEvents = createStatusReconciliationEvents?.(
+            updatedTask,
+            existingTask,
+          );
+          reconciliationEventInput = reconciliationEvents?.pending;
           return [
-            ...(transitionEvent ? [transitionEvent] : []),
-            ...(createStatusReconciliationEvent
-              ? [createStatusReconciliationEvent(updatedTask, existingTask)]
-              : []),
+            ...(transitionEventInput ? [transitionEventInput] : []),
+            ...(reconciliationEvents?.superseded ?? []),
+            ...(reconciliationEventInput ? [reconciliationEventInput] : []),
           ];
         },
       );
+      const eventIdFor = (event: TaskEventInput | undefined): number | undefined =>
+        event ? transitionEvents.find(({ type }) => type === event.type)?.id : undefined;
       store.setRenderedSummary(task.id, JSON.stringify(card));
       return {
         task,
@@ -234,7 +248,8 @@ export async function handleStatusAction(
         parentChannelId: existingTask.parentChannelId,
         parentMessageTs: existingTask.parentMessageTs,
         previousTask: existingTask,
-        transitionEventId: hasTransitionEvent ? transitionEvent?.id : undefined,
+        transitionEventId: eventIdFor(transitionEventInput),
+        reconciliationEventId: eventIdFor(reconciliationEventInput),
       };
     });
     if (statusTransition) {
@@ -249,6 +264,7 @@ export async function handleStatusAction(
             client,
             statusTransition.previousTask,
             statusTransition.transitionEventId,
+            statusTransition.reconciliationEventId,
           )) === true;
       } catch (error) {
         transitionError = error;
@@ -354,14 +370,17 @@ export async function publishWatcherEvent(
     transitionPreviousTask?: Task;
     transitionEventId?: number;
     transitionExpectedStatus?: string;
+    shouldPublish?: (currentTask: Task | undefined) => boolean;
+    afterCardPublish?: (task: Task) => Promise<void> | void;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
     afterPublish?: (task: Task) => Promise<void>;
   } = {},
-): Promise<void> {
+): Promise<boolean> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
-  await withTaskCardQueue(taskId, async () => {
+  return withTaskCardQueue(taskId, async () => {
+    if (options.shouldPublish && !options.shouldPublish(store.getTask(taskId))) return false;
     const isNewPullRequest =
       event.pullRequest !== undefined &&
       !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
@@ -416,13 +435,13 @@ export async function publishWatcherEvent(
       normalizeStatus(task.status) === normalizeStatus(options.transitionExpectedStatus);
     const announceTerminalParent =
       Boolean(transitionPreviousTask?.parentMessageTs) &&
-      enteredTerminalLinearState(
-        transitionPreviousTask?.linearStateType,
-        task.linearStateType,
-        transitionPreviousTask?.status,
-        task.status,
-        options.statusTypeOverrides ?? {},
-      );
+      enteredTerminalLinearState({
+        previousStateType: transitionPreviousTask?.linearStateType,
+        currentStateType: task.linearStateType,
+        previousStatus: transitionPreviousTask?.status,
+        currentStatus: task.status,
+        statusTypeOverrides: options.statusTypeOverrides,
+      });
     if (!task.parentChannelId || !task.parentMessageTs) {
       const parent = await client.chat.postMessage({
         channel: destinationChannel,
@@ -475,6 +494,7 @@ export async function publishWatcherEvent(
         throw error;
       }
     }
+    await options.afterCardPublish?.(task);
 
     const threadEvent =
       isNewPullRequest || statusChanged ? event : { ...event, pullRequest: undefined };
@@ -507,6 +527,7 @@ export async function publishWatcherEvent(
       body: threadBody,
       slackThreadTs: reply?.ts,
     });
+    return true;
   });
 }
 

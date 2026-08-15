@@ -10,10 +10,10 @@ import {
 describe("Linear terminal states", () => {
   it("recognizes every built-in terminal state type", () => {
     for (const stateType of ["completed", "canceled", "duplicate"]) {
-      assert.equal(isTerminalLinearState(stateType, "Any status", []), true);
+      assert.equal(isTerminalLinearState(stateType, "Any status", {}), true);
     }
     for (const stateType of ["triage", "backlog", "unstarted", "started", undefined]) {
-      assert.equal(isTerminalLinearState(stateType, "In Progress", []), false);
+      assert.equal(isTerminalLinearState(stateType, "In Progress", {}), false);
     }
   });
 
@@ -25,7 +25,7 @@ describe("Linear terminal states", () => {
       developing: "started",
       released: "completed",
       rejected: "canceled",
-    };
+    } as const;
 
     for (const [status, expectedType] of Object.entries(statusTypeOverrides)) {
       assert.equal(effectiveLinearStateType("started", status, statusTypeOverrides), expectedType);
@@ -49,7 +49,7 @@ describe("Linear terminal states", () => {
     const statusTypeOverrides = {
       "in staging check": "completed",
       released: "completed",
-    };
+    } as const;
     const cases = [
       {
         name: "configured terminal status",
@@ -91,13 +91,13 @@ describe("Linear terminal states", () => {
 
     for (const testCase of cases) {
       assert.equal(
-        enteredTerminalLinearState(
-          testCase.previous[0],
-          testCase.current[0],
-          testCase.previous[1],
-          testCase.current[1],
+        enteredTerminalLinearState({
+          previousStateType: testCase.previous[0],
+          currentStateType: testCase.current[0],
+          previousStatus: testCase.previous[1],
+          currentStatus: testCase.current[1],
           statusTypeOverrides,
-        ),
+        }),
         testCase.expected,
         testCase.name,
       );

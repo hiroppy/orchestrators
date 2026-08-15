@@ -19,7 +19,12 @@ import {
   findPullRequestByUrl as findPullRequestByUrlDefault,
   requireGitHubCli,
 } from "../integrations/github.ts";
-import { createSlackApp, publishWatcherEvent, type SlackClient } from "../slack/app.ts";
+import {
+  createSlackApp,
+  publishWatcherEvent,
+  type SlackClient,
+  type StatusReconciliationEvents,
+} from "../slack/app.ts";
 import {
   DEFAULT_DATABASE_PATH,
   taskIdFor,
@@ -114,7 +119,8 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     statusTypeOverrides: runtimeConfig.statusTypeOverrides,
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
-    createStatusReconciliationEvent: linearReconciliationPendingEvent,
+    createStatusReconciliationEvents: (task, previousTask) =>
+      linearReconciliationEvents(store, task, previousTask),
     onStatusTransition: async (
       task,
       _fromStatus,
@@ -122,6 +128,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       slackClient,
       previousTask,
       transitionEventId,
+      reconciliationEventId,
     ) => {
       const rolledBack = await reconcileSlackStatusTransition({
         config: runtimeConfig,
@@ -131,6 +138,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         task,
         previousTask,
         transitionEventId,
+        reconciliationEventId,
       });
       await deliverPendingStatusHooksSafely({
         hooks: runtimeConfig.statusHooks,
@@ -212,6 +220,7 @@ export async function reconcileSlackStatusTransition({
   task,
   previousTask,
   transitionEventId,
+  reconciliationEventId,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -220,6 +229,7 @@ export async function reconcileSlackStatusTransition({
   task: Task;
   previousTask?: Task;
   transitionEventId?: number;
+  reconciliationEventId?: number;
 }): Promise<boolean> {
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
@@ -242,8 +252,9 @@ export async function reconcileSlackStatusTransition({
     return false;
   }
 
+  let cardPublished = false;
   try {
-    await publishWatcherEvent(
+    const published = await publishWatcherEvent(
       slackClient,
       store,
       slackChannelId,
@@ -264,15 +275,35 @@ export async function reconcileSlackStatusTransition({
         transitionPreviousTask: previousTask,
         transitionEventId,
         transitionExpectedStatus: task.status,
+        shouldPublish: (currentTask) =>
+          normalizeStatus(currentTask?.status ?? "") === normalizeStatus(task.status) &&
+          (reconciliationEventId === undefined ||
+            isPendingLinearReconciliation(store, task.id, reconciliationEventId)),
+        afterCardPublish: () => {
+          cardPublished = true;
+          if (reconciliationEventId !== undefined) {
+            completeLinearReconciliation(store, task.id, reconciliationEventId);
+          }
+        },
       },
     );
+    if (!published) {
+      if (reconciliationEventId !== undefined) {
+        completeLinearReconciliation(store, task.id, reconciliationEventId);
+      }
+      return false;
+    }
   } catch (error) {
-    if (previousTask) {
+    if (
+      previousTask &&
+      !cardPublished &&
+      (reconciliationEventId === undefined ||
+        isPendingLinearReconciliation(store, task.id, reconciliationEventId))
+    ) {
       markLinearReconciliationPending(store, store.getTask(task.id) ?? task, previousTask);
     }
     throw error;
   }
-  completePendingLinearReconciliations(store, task.id);
   return false;
 }
 
@@ -300,18 +331,49 @@ function linearReconciliationPendingEvent(task: Task, previousTask: Task): TaskE
   };
 }
 
-function completePendingLinearReconciliations(store: WatcherStore, taskId: string): void {
-  for (const event of store.getUncompletedEvents(
-    LINEAR_RECONCILIATION_PENDING_EVENT,
-    LINEAR_RECONCILIATION_COMPLETED_EVENT,
-    taskId,
-  )) {
-    store.addEvent({
+function linearReconciliationEvents(
+  store: WatcherStore,
+  task: Task,
+  previousTask: Task,
+): StatusReconciliationEvents {
+  const superseded = store
+    .getUncompletedEvents(
+      LINEAR_RECONCILIATION_PENDING_EVENT,
+      LINEAR_RECONCILIATION_COMPLETED_EVENT,
+      task.id,
+    )
+    .map((event) => linearReconciliationCompletedEvent(task.id, event.id));
+  return {
+    pending: linearReconciliationPendingEvent(task, previousTask),
+    ...(superseded.length > 0 ? { superseded } : {}),
+  };
+}
+
+function isPendingLinearReconciliation(
+  store: WatcherStore,
+  taskId: string,
+  eventId: number,
+): boolean {
+  return store
+    .getUncompletedEvents(
+      LINEAR_RECONCILIATION_PENDING_EVENT,
+      LINEAR_RECONCILIATION_COMPLETED_EVENT,
       taskId,
-      type: LINEAR_RECONCILIATION_COMPLETED_EVENT,
-      body: String(event.id),
-    });
-  }
+    )
+    .some(({ id }) => id === eventId);
+}
+
+function completeLinearReconciliation(store: WatcherStore, taskId: string, eventId: number): void {
+  if (!isPendingLinearReconciliation(store, taskId, eventId)) return;
+  store.addEvent(linearReconciliationCompletedEvent(taskId, eventId));
+}
+
+function linearReconciliationCompletedEvent(taskId: string, eventId: number): TaskEventInput {
+  return {
+    taskId,
+    type: LINEAR_RECONCILIATION_COMPLETED_EVENT,
+    body: String(eventId),
+  };
 }
 
 interface RunOnceOptions {
@@ -463,13 +525,13 @@ async function reconcileLinearStatuses({
     if (summary?.state) {
       const fetchReviewComments = shouldFetchReviewComments(config, summary.state);
       const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
-      const enteredTerminalState = enteredTerminalLinearState(
-        task.linearStateType,
-        summary.stateType,
-        task.status,
-        summary.state,
-        config.statusTypeOverrides,
-      );
+      const enteredTerminalState = enteredTerminalLinearState({
+        previousStateType: task.linearStateType,
+        currentStateType: summary.stateType,
+        previousStatus: task.status,
+        currentStatus: summary.state,
+        statusTypeOverrides: config.statusTypeOverrides,
+      });
       if (sameStatus && !enteredTerminalState && !fetchReviewComments && !pendingReconciliation) {
         if (summary.stateType) {
           store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
@@ -486,13 +548,13 @@ async function reconcileLinearStatuses({
     });
     if (!linearIssue?.state) continue;
     const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
-    const detailedEnteredTerminalState = enteredTerminalLinearState(
-      task.linearStateType,
-      linearIssue.stateType,
-      task.status,
-      linearIssue.state,
-      config.statusTypeOverrides,
-    );
+    const detailedEnteredTerminalState = enteredTerminalLinearState({
+      previousStateType: task.linearStateType,
+      currentStateType: linearIssue.stateType,
+      previousStatus: task.status,
+      currentStatus: linearIssue.state,
+      statusTypeOverrides: config.statusTypeOverrides,
+    });
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
     if (
       detailedSameStatus &&
@@ -595,6 +657,22 @@ async function processWatcherEvent({
       defaultAssignees: config.defaultAssignees ?? [],
       statusTypeOverrides: config.statusTypeOverrides,
       transitionPreviousTask,
+      shouldPublish: () =>
+        pendingReconciliation === undefined ||
+        isPendingLinearReconciliation(
+          store,
+          pendingReconciliation.taskId,
+          pendingReconciliation.id,
+        ),
+      afterCardPublish: () => {
+        if (pendingReconciliation) {
+          completeLinearReconciliation(
+            store,
+            pendingReconciliation.taskId,
+            pendingReconciliation.id,
+          );
+        }
+      },
       createStatusTransitionEvent: (task, fromStatus) =>
         createPendingStatusHookEvent(
           config.statusHooks ?? [],
@@ -611,7 +689,6 @@ async function processWatcherEvent({
           watcherChannelId: slackChannelId,
           taskId: task.id,
         });
-        if (pendingReconciliation) completePendingLinearReconciliations(store, task.id);
       },
     },
   );

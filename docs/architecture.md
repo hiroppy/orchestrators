@@ -63,7 +63,10 @@ effective type controls Slack status summaries, closure announcements, and relat
 filtering. If an immediate Slack status-action reconciliation cannot confirm or publish a terminal
 state, the event log keeps that task eligible for periodic reconciliation until publication
 succeeds. This retry marker preserves the pre-transition classification so terminal-to-terminal
-actions do not produce a false closure announcement.
+actions do not produce a false closure announcement. Each newer Slack action supersedes the prior
+marker, and reconciliation rechecks that marker after entering the task queue so stale Linear reads
+cannot overwrite a newer action. The marker completes after the task card and closure announcement
+publish successfully; a later thread-message failure therefore does not repeat the closure.
 
 ## Polling and API calls
 

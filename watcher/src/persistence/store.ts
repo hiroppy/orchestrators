@@ -411,7 +411,7 @@ export class WatcherStore {
     return this.db.transaction(() => {
       if (
         expectedCurrentStatus !== undefined &&
-        this.requireTask(taskId).status !== expectedCurrentStatus
+        normalizeStatus(this.requireTask(taskId).status) !== normalizeStatus(expectedCurrentStatus)
       ) {
         return false;
       }
@@ -435,7 +435,10 @@ export class WatcherStore {
       const eventIds =
         typeof transitionEventIds === "number" ? [transitionEventIds] : (transitionEventIds ?? []);
       for (const eventId of new Set(eventIds)) {
-        this.db.delete(taskEvents).where(eq(taskEvents.id, eventId)).run();
+        this.db
+          .delete(taskEvents)
+          .where(and(eq(taskEvents.id, eventId), eq(taskEvents.taskId, taskId)))
+          .run();
       }
       return true;
     });
@@ -545,14 +548,19 @@ export class WatcherStore {
     statusName: string,
     createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
-  ): { task: Task; fromStatus: string; transitionEvent: TaskEvent | undefined } {
+  ): {
+    task: Task;
+    fromStatus: string;
+    transitionEvent: TaskEvent | undefined;
+    transitionEvents: TaskEvent[];
+  } {
     return this.db.transaction(() => {
       const transition = this.updateTaskStatus(taskId, statusName, now);
       const events = createEvents(transition.task, transition.fromStatus);
       const transitionEvents = events
         ? (Array.isArray(events) ? events : [events]).map((event) => this.addEvent(event))
         : [];
-      return { ...transition, transitionEvent: transitionEvents[0] };
+      return { ...transition, transitionEvent: transitionEvents[0], transitionEvents };
     });
   }
 
