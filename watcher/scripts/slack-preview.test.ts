@@ -145,10 +145,11 @@ describe("Slack preview", () => {
   it("previews the consolidated status timeline card", () => {
     const message = buildSlackPreviewMessage({ category: "thread", type: "timeline" });
     const blocks = JSON.stringify(message.blocks);
+    const expectedUpdatedAt = new Date("2026-08-15T02:00:00.000Z").toTimeString().slice(0, 5);
 
     assert.match(blocks, /\*In Review → Done\*/);
     assert.match(blocks, /\*Event\*\\nUpdated/);
-    assert.match(blocks, /\*Updated at\*\\n`11:00`/);
+    assert.match(blocks, new RegExp(`\\*Updated at\\*\\\\n\`${expectedUpdatedAt}\``));
     assert.doesNotMatch(blocks, /Assignees/);
     assert.match(blocks, /\*Error\*\\nTemporary orchestrator failure/);
     assert.match(blocks, /\*PR#123\*/);

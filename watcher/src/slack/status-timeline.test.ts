@@ -30,12 +30,13 @@ it("keeps the ten newest status timeline entries", () => {
 });
 
 it("shows the latest event and update time without an assignee section", () => {
+  const occurredAt = new Date(2026, 7, 15, 12).toISOString();
   const blocks = buildStatusCard({
     events: [
       {
         fromStatus: "Todo",
         toStatus: "In Progress",
-        occurredAt: "2026-08-15T12:00:00Z",
+        occurredAt,
         source: { type: "automatic", label: "Started" },
       },
     ],
@@ -44,7 +45,7 @@ it("shows the latest event and update time without an assignee section", () => {
   const rendered = JSON.stringify(blocks);
 
   assert.match(rendered, /\*Event\*\\nStarted/);
-  assert.match(rendered, /\*Updated at\*\\n`21:00`/);
+  assert.match(rendered, /\*Updated at\*\\n`12:00`/);
   assert.doesNotMatch(rendered, /Assignees/);
 });
 
