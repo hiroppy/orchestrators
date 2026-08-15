@@ -97,11 +97,10 @@ Comments in resolved or outdated review threads are ignored. A resolved thread
 becomes eligible again if it is subsequently marked unresolved and is not outdated.
 
 Comment checks run during periodic maintenance, including for tasks that remain
-in the current Symphony snapshot without producing a new snapshot event. Before
-updating Linear, the watcher stores a pending requeue event. After a restart it
-checks Linear's current status before retrying: the original review status is
-requeued, an already-applied target is completed locally, and a newer different
-status is preserved.
+in the current Symphony snapshot without producing a new snapshot event. The
+single watcher stores the handled timestamp after Linear accepts the status
+update. It intentionally does not implement a separate requeue outbox or
+distributed exactly-once recovery.
 
 ### Status hooks
 

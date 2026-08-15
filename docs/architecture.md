@@ -112,7 +112,6 @@ sequenceDiagram
   W->>G: Read latest inline review comment
   G-->>W: Latest comment creation time
   alt Comment is newer than the handled timestamp
-    W->>DB: Store pending requeue event
     W->>L: Move issue to In Progress
     W->>DB: Atomically store status, handled timestamp, and pending notifications
     Note over S,L: Issue becomes eligible for Symphony again
@@ -128,12 +127,10 @@ if it is marked unresolved and is not outdated. This catches comments that arriv
 entering `In Review` and the watcher's next poll, while an already handled comment cannot requeue
 the task again. Comment IDs are not persisted.
 
-Before updating Linear, the watcher records a pending requeue event. Periodic maintenance retries
-unfinished events, so an exit between the Linear mutation and the local transaction cannot lose the
-handled timestamp or Slack notification. Recovery first reads the current Linear status. It retries
-the mutation only when the issue remains in the original review status, completes local bookkeeping
-when the target status was already applied, and retires the pending event without changing Linear
-when the issue has advanced to another status.
+The watcher runs as a single process. After Linear accepts the status update, the local status,
+handled timestamp, and pending notifications are stored together. A process exit between the Linear
+update and that local transaction can cause the same comment to be considered again after the task
+returns to review; this recovery gap is accepted to keep the internal tool simple.
 
 ## Persistence and recovery
 

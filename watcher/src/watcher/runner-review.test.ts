@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { decideReviewComment, parseReviewRequeuePendingPayload } from "./review-comments.ts";
-import { recoverPendingReviewRequeues, requeueReviewTask } from "./review-requeue.ts";
+import { requeueReviewTask } from "./review-requeue.ts";
 import { runOnce } from "./runner.ts";
 import {
   dataUrl,
@@ -90,46 +90,6 @@ describe("watcher inline review comments", () => {
     });
   });
 
-  it("does not create another decision for a comment claimed by a pending requeue", async () => {
-    await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Review",
-      });
-      store.addEvent({
-        taskId: "service-a:ENG-62",
-        type: "review_requeue_pending",
-        fromStatus: "In Review",
-        toStatus: "In Progress",
-        body: JSON.stringify({
-          event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
-          commentAt: "2026-08-15T00:00:00.000Z",
-        }),
-      });
-
-      const decision = decideReviewComment(config, store, {
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        resolvedState: "In Review",
-        pullRequest: {
-          url: "https://github.com/acme/example/pull/42",
-          latestReviewCommentAt: "2026-08-15T00:00:00.000Z",
-        },
-      });
-
-      assert.equal(decision.shouldRequeue, false);
-    });
-  });
-
   it("requeues a comment that arrives before the watcher first observes In Review", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({
@@ -208,192 +168,6 @@ describe("watcher inline review comments", () => {
     });
   });
 
-  it("recovers a requeue interrupted after recording its pending intent", async () => {
-    await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Review",
-      });
-      store.setParentMessage(task.id, "C123", "1.000", "{}");
-      const event = {
-        type: "updated" as const,
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        resolvedState: "In Review",
-      };
-
-      await assert.rejects(
-        requeueReviewTask({
-          config,
-          store,
-          slackClient: fakeSlackClient([]),
-          watcherChannelId: "C123",
-          event,
-          decision: { shouldRequeue: true, commentAt: "2026-08-15T00:00:00.000Z" },
-          updateLinearStatus: async () => {
-            throw new Error("interrupted");
-          },
-        }),
-        /interrupted/,
-      );
-
-      await recoverPendingReviewRequeues({
-        config,
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "C123",
-        updateLinearStatus: async () => {},
-        fetchLinearState: async () => ({
-          state: "In Review",
-          title: "Review me",
-        }),
-      });
-
-      assert.equal(store.getTask(task.id)?.status, "In Progress");
-      assert.equal(
-        store.getLatestEvent(task.id, "review_comment_handled")?.body,
-        "2026-08-15T00:00:00.000Z",
-      );
-      assert.equal(
-        store.getUncompletedEvents("review_requeue_pending", "review_requeue_completed").length,
-        0,
-      );
-    });
-  });
-
-  it("retires a pending requeue when Linear has advanced to another status", async () => {
-    await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Review",
-      });
-      const pending = store.addEvent({
-        taskId: task.id,
-        type: "review_requeue_pending",
-        fromStatus: "In Review",
-        toStatus: "In Progress",
-        body: JSON.stringify({
-          event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
-          commentAt: "2026-08-15T00:00:00.000Z",
-        }),
-      });
-      let updates = 0;
-
-      await recoverPendingReviewRequeues({
-        config,
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "C123",
-        updateLinearStatus: async () => {
-          updates += 1;
-        },
-        fetchLinearState: async () => ({ state: "Done", title: "Done" }),
-      });
-
-      assert.equal(updates, 0);
-      assert.equal(store.hasEvent(task.id, "review_requeue_completed", String(pending.id)), true);
-      assert.equal(
-        store.getLatestEvent(task.id, "review_comment_handled")?.body,
-        "2026-08-15T00:00:00.000Z",
-      );
-    });
-  });
-
-  it("recovers to the target stored before the configuration changed", async () => {
-    await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "Needs Work", "In Review"]),
-        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "Needs Work" },
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Review",
-      });
-      store.addEvent({
-        taskId: task.id,
-        type: "review_requeue_pending",
-        fromStatus: "In Review",
-        toStatus: "In Progress",
-        body: JSON.stringify({
-          event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
-          commentAt: "2026-08-15T00:00:00.000Z",
-        }),
-      });
-
-      await recoverPendingReviewRequeues({
-        config,
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "C123",
-        updateLinearStatus: async () => assert.fail("old target was already applied"),
-        fetchLinearState: async () => ({ state: "In Progress", title: "Review me" }),
-      });
-
-      assert.equal(store.getTask(task.id)?.status, "In Progress");
-    });
-  });
-
-  it("retires a pending requeue after review-comment handling is disabled", async () => {
-    await withStore(async (store) => {
-      const config = runtimeConfig({
-        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
-        linearTeams: linearTeams(["In Progress", "In Review"]),
-      });
-      store.syncDefinitions(config.services, config.linearTeams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Review",
-      });
-      store.addEvent({
-        taskId: task.id,
-        type: "review_requeue_pending",
-        fromStatus: "In Review",
-        toStatus: "In Progress",
-        body: JSON.stringify({
-          event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
-          commentAt: "2026-08-15T00:00:00.000Z",
-        }),
-      });
-
-      await recoverPendingReviewRequeues({
-        config,
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "C123",
-        updateLinearStatus: async () => assert.fail("disabled requeue must not update Linear"),
-        fetchLinearState: async () => assert.fail("disabled requeue must not fetch Linear"),
-      });
-
-      assert.equal(
-        store.getUncompletedEvents("review_requeue_pending", "review_requeue_completed").length,
-        0,
-      );
-      assert.equal(store.getTask(task.id)?.status, "In Review");
-    });
-  });
-
   it("checks for new comments while an In Review task remains in the snapshot", async (context) => {
     await withStore(async (store) => {
       const snapshot = {
@@ -440,7 +214,6 @@ describe("watcher inline review comments", () => {
         resolvedStateType: "started",
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
-      store.addEvent({ taskId: task.id, type: "review_requeue_pending", body: "invalid" });
       const updates: string[] = [];
 
       await runOnce({

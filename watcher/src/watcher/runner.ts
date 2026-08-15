@@ -39,7 +39,7 @@ import {
   type ReviewCommentDecision,
 } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
-import { recoverPendingReviewRequeues, requeueReviewTask } from "./review-requeue.ts";
+import { requeueReviewTask } from "./review-requeue.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
@@ -239,13 +239,6 @@ export async function runOnce({
   runPeriodicMaintenance = true,
 }: RunOnceOptions) {
   if (runPeriodicMaintenance) {
-    await recoverPendingReviewRequeues({
-      config,
-      store,
-      slackClient,
-      watcherChannelId: slackChannelId,
-      updateLinearStatus,
-    });
     await deliverPendingStatusHooksSafely({
       hooks: config.statusHooks ?? [],
       store,

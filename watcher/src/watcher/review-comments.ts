@@ -5,8 +5,6 @@ import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
 export const REVIEW_COMMENT_HANDLED_EVENT = "review_comment_handled";
-export const REVIEW_REQUEUE_PENDING_EVENT = "review_requeue_pending";
-export const REVIEW_REQUEUE_COMPLETED_EVENT = "review_requeue_completed";
 export const REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT = "review_requeue_notification_pending";
 export const REVIEW_REQUEUE_NOTIFIED_EVENT = "review_requeue_notified";
 export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notification_delivered";
@@ -34,24 +32,10 @@ export function decideReviewComment(
   );
   const latestCommentAt = event.pullRequest?.latestReviewCommentAt ?? undefined;
   const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
-  const pendingCommentAt = store
-    .getUncompletedEvents(REVIEW_REQUEUE_PENDING_EVENT, REVIEW_REQUEUE_COMPLETED_EVENT, taskId)
-    .flatMap(({ body }) => {
-      try {
-        const payload = JSON.parse(body ?? "") as { commentAt?: unknown };
-        return typeof payload.commentAt === "string" ? [payload.commentAt] : [];
-      } catch {
-        return [];
-      }
-    })
-    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
-  const claimedCommentAt = [handledCommentAt, pendingCommentAt]
-    .filter((value): value is string => Boolean(value))
-    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
   const shouldRequeue = Boolean(
     isInReview &&
     latestCommentAt &&
-    (!claimedCommentAt || Date.parse(latestCommentAt) > Date.parse(claimedCommentAt)),
+    (!handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)),
   );
 
   return { shouldRequeue, commentAt: shouldRequeue ? latestCommentAt : undefined };
