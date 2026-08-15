@@ -21,6 +21,16 @@ Node.js 24+ and pnpm 11+ are required. Copy `config.example.ts` to the ignored `
 
 Use ESM TypeScript with explicit `.ts` imports, strict typing, two-space indentation, double quotes, and trailing commas as produced by Oxfmt. Name files and directories in kebab-case (except required convention files such as `AGENTS.md`), functions and variables in camelCase, and types/interfaces in PascalCase. Keep modules focused and place domain-specific code in the matching `watcher/src/<area>/` directory.
 
+## Documentation Guidelines
+
+Update the relevant documentation in the same change whenever implementation,
+configuration, commands, workflows, or runtime behavior changes. Keep the
+high-level product flow in `README.md`, installation steps in `SETUP.md`,
+watcher-specific behavior in `watcher/README.md`, Symphony workflow details in
+`docs/workflows.md`, and system internals in `docs/architecture.md`. Ensure
+diagrams and examples remain consistent with the code and default
+configuration.
+
 ## Testing Guidelines
 
 Use `node:test` with `node:assert/strict`; name tests `*.test.ts` beside the code under test. Add focused regression tests for fixes and cover important branches, state transitions, boundaries, and integration failure paths. Before opening a PR, run `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm format:check`.
