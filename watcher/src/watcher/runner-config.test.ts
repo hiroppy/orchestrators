@@ -45,12 +45,12 @@ describe("watcher configuration", () => {
     );
 
     assert.deepEqual(config.statusTypeOverrides, {
-      "In Staging Check": "completed",
-      Released: "canceled",
+      "in staging check": "completed",
+      released: "canceled",
     });
     await assert.rejects(
       resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
-      /watcher\.statusTypeOverrides references unknown Linear status "In Staging Check"/,
+      /watcher\.statusTypeOverrides references unknown Linear status "in staging check"/,
     );
     assert.throws(
       () =>
@@ -70,6 +70,19 @@ describe("watcher configuration", () => {
           { requireSlack: false },
         ),
       /must be a valid Linear workflow state type/,
+    );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: {
+              statusTypeOverrides: { Done: "completed", " done ": "started" },
+            },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.statusTypeOverrides cannot contain duplicate statuses/,
     );
   });
 

@@ -1,5 +1,7 @@
 import type { LinearWorkflowStateType } from "orchestrator-config";
 
+import { normalizeStatus } from "./status.ts";
+
 export const TERMINAL_LINEAR_STATE_TYPES = ["completed", "canceled", "duplicate"] as const;
 
 export function isTerminalLinearStateType(stateType?: string | null): boolean {
@@ -22,12 +24,8 @@ export function effectiveLinearStateType(
   status: string | null | undefined,
   statusTypeOverrides: Record<string, LinearWorkflowStateType>,
 ): string | null | undefined {
-  const normalizedStatus = status?.trim().toLowerCase();
-  return (
-    Object.entries(statusTypeOverrides).find(
-      ([configuredStatus]) => configuredStatus.trim().toLowerCase() === normalizedStatus,
-    )?.[1] ?? stateType
-  );
+  const normalizedStatus = normalizeStatus(status);
+  return statusTypeOverrides[normalizedStatus ?? ""] ?? stateType;
 }
 
 export function enteredTerminalLinearState(

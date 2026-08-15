@@ -9,6 +9,9 @@ import { WatcherStore } from "../persistence/store.ts";
 export function fakeClient(
   calls: Array<{ method: string; args: Record<string, unknown> }>,
   userNames: Record<string, string> = {},
+  options: {
+    rejectPostMessage?: (args: Record<string, unknown>) => boolean;
+  } = {},
 ) {
   let timestamp = 0;
   return {
@@ -40,6 +43,7 @@ export function fakeClient(
         };
       },
       async postMessage(args: Record<string, unknown>) {
+        if (options.rejectPostMessage?.(args)) throw new Error("Simulated Slack failure");
         timestamp += 1;
         calls.push({ method: "postMessage", args });
         return { ok: true, channel: String(args.channel), ts: `${timestamp}.000` };

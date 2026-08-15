@@ -113,6 +113,46 @@ describe("WatcherStore", () => {
     });
   });
 
+  it("selects Linear sync tasks by their effective state type", async () => {
+    await withStore((store) => {
+      const teams = {
+        "workspace-a-eng": {
+          apiKey: "lin_test",
+          teamId: "team-a",
+          statuses: ["In Staging Check", "Done"],
+        },
+      };
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
+        teams,
+      );
+      store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Staging Check",
+        resolvedStateType: "started",
+      });
+      const demoted = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+      });
+
+      const tasks = store.getTasksForLinearSync(new Set(), {
+        "in staging check": "completed",
+        done: "started",
+      });
+
+      assert.deepEqual(
+        tasks.map(({ id }) => id),
+        [demoted.id],
+      );
+    });
+  });
+
   it("round-trips normalized observations and removes tasks no longer observed", async () => {
     await withStore((store) => {
       store.syncDefinitions(

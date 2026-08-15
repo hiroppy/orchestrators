@@ -1,9 +1,10 @@
-import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { asc, and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
-import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import { isTerminalLinearState, TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
 import type {
+  LinearWorkflowStateType,
   ResolvedLinearTeamConfig,
   ServiceDefinition,
   Snapshot,
@@ -245,10 +246,17 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(includedTaskIds: ReadonlySet<string> = new Set()): Task[] {
+  getTasksForLinearSync(
+    includedTaskIds: ReadonlySet<string> = new Set(),
+    statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
+  ): Task[] {
+    const overriddenStatuses = Object.keys(statusTypeOverrides);
     const activeOrIncluded = or(
       isNull(tasks.linearStateType),
       notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+      overriddenStatuses.length > 0
+        ? inArray(sql<string>`lower(trim(${statuses.name}))`, overriddenStatuses)
+        : undefined,
       includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
     );
 
@@ -265,8 +273,11 @@ export class WatcherStore {
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
       .where(and(eq(services.active, true), activeOrIncluded))
       .all()
-      .map((row) =>
-        taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
+      .map((row) => taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl))
+      .filter(
+        (task) =>
+          includedTaskIds.has(task.id) ||
+          !isTerminalLinearState(task.linearStateType, task.status, statusTypeOverrides),
       );
   }
 
@@ -366,6 +377,31 @@ export class WatcherStore {
     this.db
       .update(tasks)
       .set({
+        linearStateType: stateType ?? null,
+        updatedAt: now.toISOString(),
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
+  restoreTaskState(
+    taskId: string,
+    statusName: string,
+    stateType: string | undefined,
+    now = new Date(),
+  ): void {
+    const status = this.db
+      .select({ id: statuses.id })
+      .from(statuses)
+      .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
+      .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
+      .get();
+    if (!status) throw new Error(`Previous status not found for ${taskId}: ${statusName}`);
+
+    this.db
+      .update(tasks)
+      .set({
+        statusId: status.id,
         linearStateType: stateType ?? null,
         updatedAt: now.toISOString(),
       })

@@ -14,6 +14,7 @@ import type {
   StatusHookConfig,
 } from "../domain/types.ts";
 import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
+import { normalizeStatus } from "../domain/status.ts";
 
 const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
@@ -126,7 +127,9 @@ function resolveStatusTypeOverrides(
   if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
     throw new Error("watcher.statusTypeOverrides must be an object.");
   }
-  const entries = Object.entries(overrides);
+  const entries = Object.entries(overrides).map(
+    ([status, stateType]) => [normalizeStatus(status), stateType] as const,
+  );
   validateStatuses(
     "watcher.statusTypeOverrides",
     entries.map(([status]) => status),
@@ -138,7 +141,7 @@ function resolveStatusTypeOverrides(
       );
     }
   }
-  return Object.fromEntries(entries.map(([status, stateType]) => [status.trim(), stateType]));
+  return Object.fromEntries(entries);
 }
 
 function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedStatusHookConfig[] {

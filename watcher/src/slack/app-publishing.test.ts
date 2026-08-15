@@ -318,7 +318,7 @@ describe("Slack event publishing", () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
-      const terminalOptions = { statusTypeOverrides: { "In Staging Check": "completed" } };
+      const terminalOptions = { statusTypeOverrides: { "in staging check": "completed" } };
 
       await publishWatcherEvent(
         client,
@@ -357,6 +357,54 @@ describe("Slack event publishing", () => {
       );
       assert.equal(closurePosts.length, 1);
       assert.match(String(closurePosts[0].args.text), /Task closed \| \*In Staging Check\*/);
+    });
+  });
+
+  it("retries a configured terminal announcement after Slack fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let rejectClosure = true;
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => {
+            if (!rejectClosure || !String(args.text).startsWith("Task closed")) return false;
+            rejectClosure = false;
+            return true;
+          },
+        },
+      );
+      const terminalOptions = { statusTypeOverrides: { "in staging check": "completed" } };
+      const startedEvent = {
+        type: "started" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Verify staging",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      };
+      const endedEvent = {
+        ...startedEvent,
+        type: "ended" as const,
+        resolvedState: "In Staging Check",
+      };
+
+      await publishWatcherEvent(client, store, "C123", startedEvent, undefined, terminalOptions);
+      await assert.rejects(
+        publishWatcherEvent(client, store, "C123", endedEvent, undefined, terminalOptions),
+        /Simulated Slack failure/,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+
+      await publishWatcherEvent(client, store, "C123", endedEvent, undefined, terminalOptions);
+
+      const closurePosts = calls.filter(
+        ({ method, args }) =>
+          method === "postMessage" && String(args.text).startsWith("Task closed"),
+      );
+      assert.equal(closurePosts.length, 1);
     });
   });
 });

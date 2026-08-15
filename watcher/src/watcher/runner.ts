@@ -346,15 +346,17 @@ async function reconcileLinearStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
   reviewReconciliationTaskIds: ReadonlySet<string>;
 }): Promise<void> {
-  const tasks = store.getTasksForLinearSync(reviewReconciliationTaskIds).filter((task) => {
-    const hasCurrentLinearState = skipTaskIds.has(task.id) && Boolean(task.linearStateType);
-    return !(
-      hasCurrentLinearState ||
-      task.issueIdentifier.startsWith("watcher:") ||
-      !task.parentChannelId ||
-      !task.parentMessageTs
-    );
-  });
+  const tasks = store
+    .getTasksForLinearSync(reviewReconciliationTaskIds, config.statusTypeOverrides)
+    .filter((task) => {
+      const hasCurrentLinearState = skipTaskIds.has(task.id) && Boolean(task.linearStateType);
+      return !(
+        hasCurrentLinearState ||
+        task.issueIdentifier.startsWith("watcher:") ||
+        !task.parentChannelId ||
+        !task.parentMessageTs
+      );
+    });
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
@@ -524,6 +526,7 @@ async function processWatcherEvent({
           fromStatus,
           task.status,
           event.pullRequest,
+          store,
         ),
       afterPublish: async (task) => {
         await deliverPendingStatusHooksSafely({

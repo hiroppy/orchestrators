@@ -19,12 +19,12 @@ describe("Linear terminal states", () => {
 
   it("overrides every supported workflow state category by status name", () => {
     const statusTypeOverrides = {
-      Triage: "triage",
-      Backlog: "backlog",
-      Planned: "unstarted",
-      Developing: "started",
-      Released: "completed",
-      Rejected: "canceled",
+      triage: "triage",
+      backlog: "backlog",
+      planned: "unstarted",
+      developing: "started",
+      released: "completed",
+      rejected: "canceled",
     };
 
     for (const [status, expectedType] of Object.entries(statusTypeOverrides)) {
@@ -35,14 +35,15 @@ describe("Linear terminal states", () => {
       "completed",
     );
     assert.equal(effectiveLinearStateType("started", "Unlisted", statusTypeOverrides), "started");
+    assert.equal(effectiveLinearStateType("started", "  ", statusTypeOverrides), "started");
     assert.equal(isTerminalLinearState("started", "Released", statusTypeOverrides), true);
     assert.equal(isTerminalLinearState("completed", "Developing", statusTypeOverrides), false);
   });
 
   it("announces only transitions from nonterminal to terminal", () => {
     const statusTypeOverrides = {
-      "In Staging Check": "completed",
-      Released: "completed",
+      "in staging check": "completed",
+      released: "completed",
     };
     const cases = [
       {

@@ -352,8 +352,8 @@ export async function publishWatcherEvent(
           );
         }
       } catch (error) {
-        if (announceTerminalParent) {
-          store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+        if (announceTerminalParent && previousTask) {
+          store.restoreTaskState(task.id, previousTask.status, previousTask.linearStateType);
         }
         throw error;
       }

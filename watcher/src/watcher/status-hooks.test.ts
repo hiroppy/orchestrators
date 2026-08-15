@@ -41,11 +41,31 @@ function queueStatusHook(
   toStatus: string,
   pullRequest?: Parameters<typeof createPendingStatusHookEvent>[4],
 ): void {
-  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest);
+  const event = createPendingStatusHookEvent(hooks, task, fromStatus, toStatus, pullRequest, store);
   if (event) store.addEvent(event);
 }
 
 describe("status hooks", () => {
+  it("does not queue the same incomplete transition twice", async () => {
+    await withStore((store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "In Review",
+      });
+      const hooks = [{ id: "review", status: "In Review", run: () => undefined }];
+
+      queueStatusHook(store, hooks, task, "In Progress", "In Review");
+      queueStatusHook(store, hooks, task, "In Progress", "In Review");
+
+      assert.equal(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed", task.id).length,
+        1,
+      );
+    });
+  });
+
   it("runs matching TypeScript hooks with context and returns their message", async () => {
     const results = await runStatusHooks(
       [
