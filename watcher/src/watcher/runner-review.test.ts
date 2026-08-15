@@ -168,6 +168,42 @@ describe("watcher inline review comments", () => {
     });
   });
 
+  it("identifies the issue and transition when a comment requeue fails", async () => {
+    await withStore(async (store) => {
+      const config = reviewConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+
+      await assert.rejects(
+        requeueReviewTask({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          watcherChannelId: "C123",
+          event: {
+            type: "updated",
+            service: "service-a",
+            issueIdentifier: "ENG-62",
+            resolvedState: "In Review",
+          },
+          decision: { shouldRequeue: true, commentAt: "2026-08-15T00:00:00.000Z" },
+          updateLinearStatus: async () => {
+            throw new Error("Linear returned HTTP 400. Linear GraphQL error: invalid state");
+          },
+        }),
+        {
+          message: "Failed to requeue ENG-62 from In Review to In Progress.",
+          cause: new Error("Linear returned HTTP 400. Linear GraphQL error: invalid state"),
+        },
+      );
+    });
+  });
+
   it("checks for new comments while an In Review task remains in the snapshot", async (context) => {
     await withStore(async (store) => {
       const snapshot = {

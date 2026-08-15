@@ -22,20 +22,22 @@ export async function linearRequest<T>(
       }
     | undefined;
   const rateLimited = body?.errors?.some((error) => error.extensions?.code === "RATELIMITED");
+  const graphQlError = body?.errors?.length
+    ? `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`
+    : null;
   if (!response.ok) {
     if (rateLimited || response.status === 429) {
       throw new LinearRateLimitError(response.status);
     }
     throw new LinearHttpError(
-      `Linear returned HTTP ${response.status}.`,
+      `Linear returned HTTP ${response.status}.${graphQlError ? ` ${graphQlError}` : ""}`,
       shouldRetryResponse(response.status),
     );
   }
 
-  if (body?.errors?.length) {
-    const message = `Linear GraphQL error: ${body.errors[0]?.message ?? "unknown error"}`;
+  if (graphQlError) {
     if (rateLimited) throw new LinearRateLimitError();
-    throw new Error(message);
+    throw new Error(graphQlError);
   }
   if (!body?.data) throw new Error("Linear response did not include data.");
   return body.data;

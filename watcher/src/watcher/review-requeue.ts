@@ -37,11 +37,18 @@ export async function requeueReviewTask({
 
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier))!;
   const team = linearTeamForService(config, task.serviceName);
-  await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
-    apiKey: team?.apiKey,
-    issueId: event.linearIssueId,
-    teamId: team?.teamId,
-  });
+  try {
+    await updateLinearStatus(task.issueIdentifier, review.inProgressStatus, {
+      apiKey: team?.apiKey,
+      issueId: event.linearIssueId,
+      teamId: team?.teamId,
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to requeue ${task.issueIdentifier} from ${task.status} to ${review.inProgressStatus}.`,
+      { cause: error },
+    );
+  }
   const message = buildReviewRequeueMessage(task.status, review.inProgressStatus);
   const { task: requeuedTask } = store.updateTaskStatusAtomically(
     task.id,
