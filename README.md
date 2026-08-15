@@ -30,7 +30,7 @@ see what needs attention and respond without opening each Symphony dashboard.
 The default `customize` workflow follows this cycle:
 
 ```mermaid
-flowchart TD
+flowchart LR
   create["📝 Create a Linear issue<br/>Backlog → Todo"]
   implement["🤖 Symphony implements it<br/>Todo → In Progress"]
   slack["💬 Follow progress and give instructions<br/>in the Slack task thread"]
