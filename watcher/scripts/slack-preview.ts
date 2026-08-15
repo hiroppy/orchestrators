@@ -333,7 +333,7 @@ export function buildSlackPreviewMessage(
               },
             },
           ],
-          facts: { assignees: context.assignees },
+          facts: {},
         }),
       };
     }
