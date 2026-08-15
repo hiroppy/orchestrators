@@ -35,16 +35,16 @@ export function createPendingStatusHookEvent(
   const hookIds = hooks
     .filter(({ status }) => normalizeStatus(status) === normalizeStatus(toStatus))
     .map(({ id }) => id);
-  return hookIds.length > 0
-    ? {
-        taskId: task.id,
-        type: STATUS_HOOK_PENDING_EVENT,
-        actor: "watcher",
-        fromStatus,
-        toStatus,
-        body: JSON.stringify({ pullRequest, hookIds }),
-      }
-    : undefined;
+  if (hookIds.length === 0) return undefined;
+
+  return {
+    taskId: task.id,
+    type: STATUS_HOOK_PENDING_EVENT,
+    actor: "watcher",
+    fromStatus,
+    toStatus,
+    body: JSON.stringify({ pullRequest, hookIds }),
+  };
 }
 
 export async function deliverPendingStatusHooks({

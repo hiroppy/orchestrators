@@ -1,6 +1,15 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
 
 export type EventType = "started" | "updated" | "retrying" | "blocked" | "ended" | "recovered";
+export const LINEAR_WORKFLOW_STATE_TYPES = [
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+] as const;
+export type LinearWorkflowStateType = (typeof LINEAR_WORKFLOW_STATE_TYPES)[number];
 
 export interface LinearTeamConfig {
   apiKey: string;
@@ -88,6 +97,7 @@ export interface StatusHookConfig {
 }
 
 export interface WatcherSettings {
+  statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
   endedTaskRetry?: {
     maxAttempts?: number;
     delayMs?: number;

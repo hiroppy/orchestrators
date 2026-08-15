@@ -46,6 +46,47 @@ function queueStatusHook(
 }
 
 describe("status hooks", () => {
+  it("preserves a later transition with the same statuses while the first is pending", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "ios",
+        issueIdentifier: "APP-42",
+        resolvedState: "In Review",
+      });
+      store.setParentMessage(task.id, "CTASK", "10.000", "{}");
+      let runs = 0;
+      const hooks = [
+        {
+          id: "review",
+          status: "In Review",
+          run: () => {
+            runs += 1;
+          },
+        },
+      ];
+
+      queueStatusHook(store, hooks, task, "In Progress", "In Review");
+      store.updateTaskStatus(task.id, "In Progress");
+      const laterTransition = store.updateTaskStatus(task.id, "In Review").task;
+      queueStatusHook(store, hooks, laterTransition, "In Progress", "In Review");
+
+      assert.equal(
+        store.getUncompletedEvents("status_hook_pending", "status_hook_completed", task.id).length,
+        2,
+      );
+      await deliverPendingStatusHooks({
+        hooks,
+        store,
+        slackClient: { chat: { postMessage: async () => {} } },
+        watcherChannelId: "CWATCHER",
+        taskId: task.id,
+      });
+
+      assert.equal(runs, 2);
+    });
+  });
+
   it("runs matching TypeScript hooks with context and returns their message", async () => {
     const results = await runStatusHooks(
       [

@@ -52,11 +52,15 @@ state and, when relevant, GitHub pull-request metadata.
 
 Once a task has been published to Slack, the watcher keeps it in its database. Leaving Symphony's
 active snapshot does not delete that record. During periodic maintenance, approximately every 30
-seconds, the watcher reconciles stored nonterminal tasks with Linear.
+seconds, the watcher reconciles stored tasks whose effective Linear state type is nonterminal.
 
 This allows the watcher to continue tracking states such as `In Review`, even when those states are
-not part of Symphony's active work set. Tasks whose Linear state type is `completed`, `canceled`, or
-`duplicate` are normally excluded from later reconciliation.
+not part of Symphony's active work set. By default, tasks whose Linear state type is `completed`,
+`canceled`, or `duplicate` are excluded from later reconciliation. A configured
+`watcher.statusTypeOverrides` entry replaces that classification inside the watcher, so it can
+promote a status to terminal or demote one back to nonterminal without changing Linear. The same
+effective type controls Slack status summaries, closure announcements, and related follow-up issue
+filtering.
 
 ## Polling and API calls
 

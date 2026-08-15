@@ -2,6 +2,8 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
+    // Override how the watcher interprets workflow state types without changing Linear itself.
+    statusTypeOverrides: {},
     // Requeues a Linear issue when a new inline review comment appears on its GitHub PR.
     // Remove this block to disable comment-based requeueing.
     reviewComment: {

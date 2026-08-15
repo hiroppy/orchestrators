@@ -1,9 +1,18 @@
 import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
-import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import {
+  services,
+  statuses,
+  taskAssignees,
+  taskEvents,
+  taskObservations,
+  tasks,
+} from "./schema.ts";
+import { isTerminalLinearState, TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type {
+  LinearWorkflowStateType,
   ResolvedLinearTeamConfig,
   ServiceDefinition,
   Snapshot,
@@ -245,11 +254,25 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(includedTaskIds: ReadonlySet<string> = new Set()): Task[] {
-    const activeOrIncluded = or(
+  getTasksForLinearSync(
+    includedTaskIds: ReadonlySet<string> = new Set(),
+    statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
+  ): Task[] {
+    const normalizedOverrideStatuses = new Set(Object.keys(statusTypeOverrides));
+    const overrideStatusNames =
+      normalizedOverrideStatuses.size === 0
+        ? []
+        : this.db
+            .selectDistinct({ name: statuses.name })
+            .from(statuses)
+            .all()
+            .filter(({ name }) => normalizedOverrideStatuses.has(normalizeStatus(name)))
+            .map(({ name }) => name);
+    const rawStateFilter = or(
       isNull(tasks.linearStateType),
       notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
       includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+      overrideStatusNames.length > 0 ? inArray(statuses.name, overrideStatusNames) : undefined,
     );
 
     return this.db
@@ -263,10 +286,14 @@ export class WatcherStore {
       .innerJoin(services, eq(tasks.serviceId, services.id))
       .innerJoin(statuses, eq(tasks.statusId, statuses.id))
       .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(and(eq(services.active, true), activeOrIncluded))
+      .where(and(eq(services.active, true), rawStateFilter))
       .all()
-      .map((row) =>
-        taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
+      .map((row) => taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl))
+      .filter(
+        (task) =>
+          includedTaskIds.has(task.id) ||
+          task.linearStateType == null ||
+          !isTerminalLinearState(task.linearStateType, task.status, statusTypeOverrides),
       );
   }
 
@@ -320,13 +347,13 @@ export class WatcherStore {
     event: WatcherEvent,
     createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
     now = new Date(),
-  ): { task: Task; previousTask: Task | undefined } {
+  ): { task: Task; previousTask: Task | undefined; transitionEvent: TaskEvent | undefined } {
     return this.db.transaction(() => {
       const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
       const task = this.upsertTaskFromEvent(event, now);
-      const transitionEvent = createEvent(task, previousTask);
-      if (transitionEvent) this.addEvent(transitionEvent);
-      return { task, previousTask };
+      const eventInput = createEvent(task, previousTask);
+      const transitionEvent = eventInput ? this.addEvent(eventInput) : undefined;
+      return { task, previousTask, transitionEvent };
     });
   }
 
@@ -371,6 +398,47 @@ export class WatcherStore {
       })
       .where(eq(tasks.id, taskId))
       .run();
+  }
+
+  restoreTaskState(
+    taskId: string,
+    statusName: string,
+    stateType: string | undefined,
+    transitionEventIds?: number | readonly number[],
+    expectedCurrentStatus?: string,
+    now = new Date(),
+  ): boolean {
+    return this.db.transaction(() => {
+      if (
+        expectedCurrentStatus !== undefined &&
+        this.requireTask(taskId).status !== expectedCurrentStatus
+      ) {
+        return false;
+      }
+      const status = this.db
+        .select({ id: statuses.id })
+        .from(statuses)
+        .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
+        .where(and(eq(tasks.id, taskId), eq(statuses.name, statusName)))
+        .get();
+      if (!status) throw new Error(`Previous status not found for ${taskId}: ${statusName}`);
+
+      this.db
+        .update(tasks)
+        .set({
+          statusId: status.id,
+          linearStateType: stateType ?? null,
+          updatedAt: now.toISOString(),
+        })
+        .where(eq(tasks.id, taskId))
+        .run();
+      const eventIds =
+        typeof transitionEventIds === "number" ? [transitionEventIds] : (transitionEventIds ?? []);
+      for (const eventId of new Set(eventIds)) {
+        this.db.delete(taskEvents).where(eq(taskEvents.id, eventId)).run();
+      }
+      return true;
+    });
   }
 
   assignTask(taskId: string, slackUserId: string, now = new Date()): boolean {
@@ -477,14 +545,14 @@ export class WatcherStore {
     statusName: string,
     createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
-  ): { task: Task; fromStatus: string } {
+  ): { task: Task; fromStatus: string; transitionEvent: TaskEvent | undefined } {
     return this.db.transaction(() => {
       const transition = this.updateTaskStatus(taskId, statusName, now);
       const events = createEvents(transition.task, transition.fromStatus);
-      if (events) {
-        for (const event of Array.isArray(events) ? events : [events]) this.addEvent(event);
-      }
-      return transition;
+      const transitionEvents = events
+        ? (Array.isArray(events) ? events : [events]).map((event) => this.addEvent(event))
+        : [];
+      return { ...transition, transitionEvent: transitionEvents[0] };
     });
   }
 

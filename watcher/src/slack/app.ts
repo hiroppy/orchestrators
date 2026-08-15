@@ -1,5 +1,6 @@
 import { App } from "@slack/bolt";
 import type { ChatPostMessageResponse } from "@slack/web-api";
+import type { LinearWorkflowStateType } from "orchestrator-config";
 
 import { TASK_STATUS_ACTION_ID, taskIdFromBlockId } from "./interactions.ts";
 import {
@@ -46,7 +47,9 @@ export type StatusTransitionHandler = (
   fromStatus: string,
   toStatus: string,
   client: SlackClient,
-) => Promise<void>;
+  previousTask: Task,
+  transitionEventId?: number,
+) => Promise<boolean | void>;
 export type StatusTransitionEventFactory = (
   task: Task,
   fromStatus: string,
@@ -64,6 +67,7 @@ export interface SlackAppOptions {
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
+  statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
 }
 
 export function createSlackApp({
@@ -77,6 +81,7 @@ export function createSlackApp({
   onStatusTransition,
   takePr,
   statusSummary,
+  statusTypeOverrides,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -97,7 +102,7 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, botUserId, takePr, statusSummary);
+    await handleAppMention(args, store, botUserId, takePr, statusSummary, statusTypeOverrides);
   });
   app.message(async (args) => {
     await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
@@ -196,7 +201,7 @@ export async function handleStatusAction(
         ts: existingTask.parentMessageTs,
         ...card,
       });
-      const { task, fromStatus } = store.updateTaskStatusAtomically(
+      const { task, fromStatus, transitionEvent } = store.updateTaskStatusAtomically(
         taskId,
         selectedStatus,
         (updatedTask, previousStatus) =>
@@ -224,19 +229,82 @@ export async function handleStatusAction(
         body: statusChangedLine,
         slackThreadTs: reply.ts,
       });
-      return { task, fromStatus };
+      return {
+        task,
+        fromStatus,
+        previousTask: existingTask,
+        transitionEventId: transitionEvent?.id,
+      };
     });
     if (statusTransition) {
-      await onStatusTransition?.(
-        statusTransition.task,
-        statusTransition.fromStatus,
-        selectedStatus,
-        client,
-      );
+      let transitionError: unknown;
+      let transitionRolledBack = false;
+      try {
+        transitionRolledBack =
+          (await onStatusTransition?.(
+            statusTransition.task,
+            statusTransition.fromStatus,
+            selectedStatus,
+            client,
+            statusTransition.previousTask,
+            statusTransition.transitionEventId,
+          )) === true;
+      } catch (error) {
+        transitionError = error;
+        transitionRolledBack =
+          normalizeStatus(store.getTask(taskId)?.status ?? "") ===
+          normalizeStatus(statusTransition.previousTask.status);
+      }
+      if (transitionRolledBack) {
+        await restoreStatusActionSlackView(client, store, taskId, selectedStatus, logger);
+      }
+      if (transitionError) throw transitionError;
     }
   } catch (error) {
     logger.error(error);
   }
+}
+
+async function restoreStatusActionSlackView(
+  client: SlackClient,
+  store: WatcherStore,
+  taskId: string,
+  selectedStatus: string,
+  logger: { error(error: unknown): void },
+): Promise<void> {
+  await withTaskCardQueue(taskId, async () => {
+    const task = store.getTask(taskId);
+    if (
+      !task?.parentChannelId ||
+      !task.parentMessageTs ||
+      normalizeStatus(task.status) === normalizeStatus(selectedStatus)
+    ) {
+      return;
+    }
+    const card = buildTaskCard(
+      task,
+      store.getSelectableStatuses(task.serviceName),
+      {
+        type: "updated",
+        service: task.serviceName,
+        issueIdentifier: task.issueIdentifier,
+        resolvedState: task.status,
+      },
+      await resolveSlackAssigneeLabels(client, store.getTaskAssignees(taskId), logger),
+    );
+    await client.chat.update({
+      channel: task.parentChannelId,
+      ts: task.parentMessageTs,
+      ...card,
+    });
+    store.setRenderedSummary(task.id, JSON.stringify(card));
+    await postSlackOperationError(
+      client,
+      { channel: task.parentChannelId, threadTs: task.parentMessageTs },
+      `Watcher processing for ${escapeSlack(selectedStatus)} did not complete. The watcher restored ${escapeSlack(task.status)} so it can retry; Linear remains ${escapeSlack(selectedStatus)}.`,
+      logger,
+    );
+  });
 }
 
 function linearStatusErrorDetails(error: unknown): string {
@@ -254,6 +322,10 @@ export async function publishWatcherEvent(
   notificationConfig?: ResolvedNotificationConfig,
   options: {
     defaultAssignees?: string[];
+    statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
+    transitionPreviousTask?: Task;
+    transitionEventId?: number;
+    transitionExpectedStatus?: string;
     forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
@@ -265,12 +337,14 @@ export async function publishWatcherEvent(
     const isNewPullRequest =
       event.pullRequest !== undefined &&
       !store.hasRecordedPullRequest(taskId, event.pullRequest.url);
-    const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
-      event,
-      (task, previous) =>
-        previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
-          ? options.createStatusTransitionEvent?.(task, previous.status)
-          : undefined,
+    const {
+      task: persistedTask,
+      previousTask,
+      transitionEvent,
+    } = store.upsertTaskFromEventAtomically(event, (task, previous) =>
+      previous && normalizeStatus(previous.status) !== normalizeStatus(task.status)
+        ? options.createStatusTransitionEvent?.(task, previous.status)
+        : undefined,
     );
     if (!persistedTask.parentMessageTs && store.getTaskAssignees(taskId).length === 0) {
       for (const assignee of initialTaskAssignees(
@@ -308,9 +382,20 @@ export async function publishWatcherEvent(
       assigneeLabels,
     );
     const summary = JSON.stringify(card);
+    const transitionPreviousTask = options.transitionPreviousTask ?? previousTask;
+    const transitionStillCurrent =
+      options.transitionExpectedStatus === undefined ||
+      normalizeStatus(previousTask?.status ?? "") ===
+        normalizeStatus(options.transitionExpectedStatus);
     const announceTerminalParent =
-      Boolean(previousTask?.parentMessageTs) &&
-      enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
+      Boolean(transitionPreviousTask?.parentMessageTs) &&
+      enteredTerminalLinearState(
+        transitionPreviousTask?.linearStateType,
+        task.linearStateType,
+        transitionPreviousTask?.status,
+        task.status,
+        options.statusTypeOverrides ?? {},
+      );
     if (!task.parentChannelId || !task.parentMessageTs) {
       const parent = await client.chat.postMessage({
         channel: destinationChannel,
@@ -344,8 +429,21 @@ export async function publishWatcherEvent(
           );
         }
       } catch (error) {
-        if (announceTerminalParent) {
-          store.setTaskLinearStateType(task.id, previousTask?.linearStateType);
+        if (
+          transitionPreviousTask &&
+          transitionStillCurrent &&
+          (statusChanged || announceTerminalParent)
+        ) {
+          const transitionEventIds = [transitionEvent?.id, options.transitionEventId].filter(
+            (eventId): eventId is number => eventId !== undefined,
+          );
+          store.restoreTaskState(
+            task.id,
+            transitionPreviousTask.status,
+            transitionPreviousTask.linearStateType,
+            transitionEventIds,
+            task.status,
+          );
         }
         throw error;
       }

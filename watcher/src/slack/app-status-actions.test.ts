@@ -68,8 +68,9 @@ describe("Slack status actions", () => {
           assert.equal(task.issueIdentifier, "ENG-62");
           linearUpdates.push(status);
         },
-        async (task, fromStatus, toStatus) => {
+        async (task, fromStatus, toStatus, _client, previousTask) => {
           assert.equal(task.status, "Rework");
+          assert.equal(previousTask.status, "In Review");
           hookTransitions.push(`${fromStatus} -> ${toStatus}`);
         },
         (task) => {
@@ -298,6 +299,322 @@ describe("Slack status actions", () => {
       assert.equal(
         calls.filter(({ method, args }) => method === "postMessage" && !args.thread_ts).length,
         2,
+      );
+    });
+  });
+
+  it("rolls back the action-created hook event when an overridden closure post fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => String(args.text).startsWith("Task closed"),
+        },
+      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      const errors: unknown[] = [];
+      let pendingBeforePublish = 0;
+      let observedTransitionEventId: number | undefined;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => errors.push(error) },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          pendingBeforePublish = store.countEvents(task.id, "status_hook_pending");
+          observedTransitionEventId = transitionEventId;
+          await publishWatcherEvent(
+            client,
+            store,
+            "C123",
+            {
+              type: "updated",
+              service: task.serviceName,
+              issueIdentifier: task.issueIdentifier,
+              resolvedState: "Done",
+              resolvedStateType: "completed",
+            },
+            undefined,
+            {
+              statusTypeOverrides: { "in review": "completed" },
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+              transitionExpectedStatus: task.status,
+              createStatusTransitionEvent: (updatedTask, fromStatus) => ({
+                taskId: updatedTask.id,
+                type: "status_hook_pending",
+                actor: "watcher",
+                fromStatus,
+                toStatus: updatedTask.status,
+              }),
+            },
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(pendingBeforePublish, 1);
+      assert.equal(typeof observedTransitionEventId, "number");
+      assert.equal(store.countEvents("service-a:ENG-62", "status_hook_pending"), 0);
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        0,
+      );
+      assert.equal(errors.length, 1);
+      assert.match(String(errors[0]), /Simulated Slack failure/);
+      const updates = calls.filter(({ method }) => method === "update");
+      assert.match(JSON.stringify(updates.at(-1)?.args.blocks), /"initial_option".*In Progress/);
+      assert.match(
+        String(
+          calls.find(
+            ({ method, args }) =>
+              method === "postMessage" &&
+              String(args.text).startsWith("[error] Watcher processing"),
+          )?.args.text,
+        ),
+        /restored In Progress.*Linear remains In Review/,
+      );
+    });
+  });
+
+  it("keeps an authoritative status advance without posting a rollback error", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          await publishWatcherEvent(
+            client,
+            store,
+            "C123",
+            {
+              type: "updated",
+              service: task.serviceName,
+              issueIdentifier: task.issueIdentifier,
+              resolvedState: "Done",
+              resolvedStateType: "completed",
+            },
+            undefined,
+            {
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+              transitionExpectedStatus: task.status,
+            },
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
+      assert.equal(
+        calls.some(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("[error] Watcher processing"),
+        ),
+        false,
+      );
+    });
+  });
+
+  it("does not roll back a newer action when stale reconciliation publication fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => String(args.text).startsWith("Task closed"),
+        },
+      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: () => {} },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          store.updateTaskStatusAtomically(task.id, "Done", (updatedTask, fromStatus) => ({
+            taskId: updatedTask.id,
+            type: "status_hook_pending",
+            actor: "watcher",
+            fromStatus,
+            toStatus: updatedTask.status,
+          }));
+          await publishWatcherEvent(
+            client,
+            store,
+            "C123",
+            {
+              type: "updated",
+              service: task.serviceName,
+              issueIdentifier: task.issueIdentifier,
+              resolvedState: "Done",
+              resolvedStateType: "completed",
+            },
+            undefined,
+            {
+              transitionPreviousTask: previousTask,
+              transitionEventId,
+              transitionExpectedStatus: task.status,
+            },
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
+      assert.deepEqual(
+        store
+          .getUncompletedEvents("status_hook_pending", "status_hook_completed", "service-a:ENG-62")
+          .map(({ fromStatus, toStatus }) => `${fromStatus} -> ${toStatus}`),
+        ["In Progress -> In Review", "In Review -> Done"],
+      );
+      assert.equal(
+        calls.some(
+          ({ method, args }) =>
+            method === "postMessage" && String(args.text).startsWith("[error] Watcher processing"),
+        ),
+        false,
+      );
+    });
+  });
+
+  it("restores the Slack card when post-action reconciliation is incomplete", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedStateType: "started",
+      });
+      calls.length = 0;
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "In Review" } },
+          body: {
+            user: { id: "U123" },
+            message: {
+              metadata: { event_payload: { task_id: "service-a:ENG-62" } },
+            },
+          },
+          client,
+          logger: { error: (error) => assert.fail(String(error)) },
+        },
+        store,
+        async () => {},
+        async (task, _fromStatus, _toStatus, _client, previousTask, transitionEventId) => {
+          return store.restoreTaskState(
+            task.id,
+            previousTask.status,
+            previousTask.linearStateType,
+            transitionEventId,
+          );
+        },
+        (task, fromStatus, toStatus) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus,
+        }),
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      const updates = calls.filter(({ method }) => method === "update");
+      assert.equal(updates.length, 2);
+      assert.match(JSON.stringify(updates.at(-1)?.args.blocks), /"initial_option".*In Progress/);
+      assert.match(
+        String(calls.at(-1)?.args.text),
+        /restored In Progress.*Linear remains In Review/,
       );
     });
   });

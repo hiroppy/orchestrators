@@ -72,6 +72,225 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("announces an overridden terminal state after a Slack status change", async (context) => {
+    await withStore(async (store) => {
+      context.mock.method(globalThis, "fetch", async () =>
+        Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Staging Check", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        }),
+      );
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "In Staging Check"]),
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: closedTask } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        () => undefined,
+      );
+      const calls: Array<Record<string, unknown>> = [];
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: closedTask,
+        previousTask,
+      });
+
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+      );
+    });
+  });
+
+  it("retries an overridden terminal announcement after the Linear read fails", async (context) => {
+    await withStore(async (store) => {
+      let linearFetches = 0;
+      context.mock.method(globalThis, "fetch", async () => {
+        linearFetches += 1;
+        if (linearFetches === 1) return new Response("temporary failure", { status: 500 });
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Staging Check", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "In Staging Check"]),
+        statusHooks: [
+          {
+            id: "notify-staging",
+            status: "In Staging Check",
+            run: () => {},
+          },
+        ],
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: closedTask, transitionEvent } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        (updatedTask, fromStatus) =>
+          createPendingStatusHookEvent(
+            config.statusHooks,
+            updatedTask,
+            fromStatus,
+            updatedTask.status,
+          ),
+      );
+      const calls: Array<Record<string, unknown>> = [];
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: closedTask,
+        previousTask,
+        transitionEventId: transitionEvent?.id,
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.countEvents(task.id, "status_hook_pending"), 0);
+
+      await reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        task: store.getTask(task.id)!,
+      });
+
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+      );
+    });
+  });
+
+  it("does not roll back a newer Slack status action after an earlier Linear read fails", async (context) => {
+    await withStore(async (store) => {
+      const fetchStarted = Promise.withResolvers<void>();
+      const releaseFetch = Promise.withResolvers<void>();
+      context.mock.method(globalThis, "fetch", async () => {
+        fetchStarted.resolve();
+        await releaseFetch.promise;
+        return new Response("temporary failure", { status: 500 });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Staging Check", "Done"]),
+        statusHooks: [
+          {
+            id: "notify-staging",
+            status: "In Staging Check",
+            run: () => {},
+          },
+        ],
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const previousTask = store.getTask(task.id)!;
+      const { task: firstActionTask, transitionEvent } = store.updateTaskStatusAtomically(
+        task.id,
+        "In Staging Check",
+        (updatedTask, fromStatus) =>
+          createPendingStatusHookEvent(
+            config.statusHooks,
+            updatedTask,
+            fromStatus,
+            updatedTask.status,
+          ),
+      );
+
+      const firstReconciliation = reconcileSlackStatusTransition({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        task: firstActionTask,
+        previousTask,
+        transitionEventId: transitionEvent?.id,
+      });
+      await fetchStarted.promise;
+      store.updateTaskStatusAtomically(task.id, "Done", () => undefined);
+      releaseFetch.resolve();
+      await firstReconciliation;
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.countEvents(task.id, "status_hook_pending"), 1);
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };
@@ -257,6 +476,63 @@ describe("watcher reconciliation and snapshots", () => {
       assert.equal(
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
         "Task closed | *Canceled*\n<https://example.slack.com/archives/C123/p1000|Canceled task>",
+      );
+    });
+  });
+
+  it("recovers an overridden terminal action after restarting before reconciliation", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Staging Check", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Staging Check"]),
+        statusTypeOverrides: { "in staging check": "completed" as const },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      store.updateTaskStatus(task.id, "In Staging Check");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.linearStateType, "started");
+      assert.equal(
+        calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
     });
   });

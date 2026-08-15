@@ -103,15 +103,25 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       serviceNames: runtimeConfig.services.map(({ name }) => name),
       startedAt,
     },
+    statusTypeOverrides: runtimeConfig.statusTypeOverrides,
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
-    onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
-      await reconcileSlackStatusTransition({
+    onStatusTransition: async (
+      task,
+      _fromStatus,
+      _toStatus,
+      slackClient,
+      previousTask,
+      transitionEventId,
+    ) => {
+      const rolledBack = await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,
         slackClient,
         slackChannelId: slackConfig.channelId,
         task,
+        previousTask,
+        transitionEventId,
       });
       await deliverPendingStatusHooksSafely({
         hooks: runtimeConfig.statusHooks,
@@ -120,6 +130,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         watcherChannelId: slackConfig.channelId,
         taskId: task.id,
       });
+      return rolledBack;
     },
   });
 
@@ -190,31 +201,60 @@ export async function reconcileSlackStatusTransition({
   slackClient,
   slackChannelId,
   task,
+  previousTask,
+  transitionEventId,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   slackClient: SlackClient;
   slackChannelId: string;
   task: Task;
-}): Promise<void> {
+  previousTask?: Task;
+  transitionEventId?: number;
+}): Promise<boolean> {
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
     includeCreator: false,
     maxAttempts: 1,
+    statusTypeOverrides: config.statusTypeOverrides,
   });
-  if (!linearIssue?.state || !linearIssue.stateType) return;
+  if (!linearIssue?.state || !linearIssue.stateType) {
+    if (previousTask) {
+      return store.restoreTaskState(
+        task.id,
+        previousTask.status,
+        previousTask.linearStateType,
+        transitionEventId,
+        task.status,
+      );
+    }
+    return false;
+  }
 
-  await publishWatcherEvent(slackClient, store, slackChannelId, {
-    type: "updated",
-    service: task.serviceName,
-    issueIdentifier: task.issueIdentifier,
-    issueTitle: linearIssue.title,
-    issueUrl: linearIssue.url ?? task.linkUrl,
-    resolvedState: linearIssue.state,
-    resolvedStateType: normalizeStatus(linearIssue.stateType),
-    pullRequest: linearIssue.pullRequest,
-    relatedIssues: linearIssue.relatedIssues,
-  });
+  await publishWatcherEvent(
+    slackClient,
+    store,
+    slackChannelId,
+    {
+      type: "updated",
+      service: task.serviceName,
+      issueIdentifier: task.issueIdentifier,
+      issueTitle: linearIssue.title,
+      issueUrl: linearIssue.url ?? task.linkUrl,
+      resolvedState: linearIssue.state,
+      resolvedStateType: normalizeStatus(linearIssue.stateType),
+      pullRequest: linearIssue.pullRequest,
+      relatedIssues: linearIssue.relatedIssues,
+    },
+    undefined,
+    {
+      statusTypeOverrides: config.statusTypeOverrides,
+      transitionPreviousTask: previousTask,
+      transitionEventId,
+      transitionExpectedStatus: task.status,
+    },
+  );
+  return false;
 }
 
 interface RunOnceOptions {
@@ -311,18 +351,20 @@ async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  const tasks = store.getTasksForLinearSync().filter((task) => {
-    const hasCurrentLinearState =
-      skipTaskIds.has(task.id) &&
-      Boolean(task.linearStateType) &&
-      !shouldFetchReviewComments(config, task.status);
-    return !(
-      hasCurrentLinearState ||
-      task.issueIdentifier.startsWith("watcher:") ||
-      !task.parentChannelId ||
-      !task.parentMessageTs
-    );
-  });
+  const tasks = store
+    .getTasksForLinearSync(new Set(), config.statusTypeOverrides)
+    .filter((task) => {
+      const hasCurrentLinearState =
+        skipTaskIds.has(task.id) &&
+        Boolean(task.linearStateType) &&
+        !shouldFetchReviewComments(config, task.status);
+      return !(
+        hasCurrentLinearState ||
+        task.issueIdentifier.startsWith("watcher:") ||
+        !task.parentChannelId ||
+        !task.parentMessageTs
+      );
+    });
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
@@ -356,6 +398,9 @@ async function reconcileLinearStatuses({
       const enteredTerminalState = enteredTerminalLinearState(
         task.linearStateType,
         summary.stateType,
+        task.status,
+        summary.state,
+        config.statusTypeOverrides,
       );
       if (sameStatus && !enteredTerminalState && !fetchReviewComments) {
         if (summary.stateType) {
@@ -369,12 +414,16 @@ async function reconcileLinearStatuses({
       apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
       includeCreator: true,
       maxAttempts: 1,
+      statusTypeOverrides: config.statusTypeOverrides,
     });
     if (!linearIssue?.state) continue;
     const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
     const detailedEnteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,
       linearIssue.stateType,
+      task.status,
+      linearIssue.state,
+      config.statusTypeOverrides,
     );
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
     if (detailedSameStatus && !detailedEnteredTerminalState && !fetchDetailedReviewComments) {
@@ -454,6 +503,7 @@ async function processWatcherEvent({
     reviewDecision.shouldRequeue ? undefined : config.notifications,
     {
       defaultAssignees: config.defaultAssignees ?? [],
+      statusTypeOverrides: config.statusTypeOverrides,
       createStatusTransitionEvent: (task, fromStatus) =>
         createPendingStatusHookEvent(
           config.statusHooks ?? [],

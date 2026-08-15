@@ -4,8 +4,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 class TransientLinearError extends Error {}
 
-import { isTerminalLinearStateType } from "../domain/linear.ts";
-import type { PullRequest, RelatedIssue } from "../domain/types.ts";
+import { isTerminalLinearState } from "../domain/linear.ts";
+import type { LinearWorkflowStateType, PullRequest, RelatedIssue } from "../domain/types.ts";
 import {
   ISSUE_STATE_QUERY,
   TAKE_PR_ATTACHMENT_CREATE_MUTATION,
@@ -45,6 +45,7 @@ interface FetchLinearOptions extends LinearRequestOptions {
   includeCreator?: boolean;
   maxAttempts?: number;
   retryDelayMs?: number;
+  statusTypeOverrides?: Record<string, LinearWorkflowStateType>;
   throwOnTransientFailure?: boolean;
 }
 
@@ -75,7 +76,7 @@ interface LinearIssueRelation {
     identifier?: string | null;
     title?: string | null;
     url?: string | null;
-    state?: { type?: string | null } | null;
+    state?: { name?: string | null; type?: string | null } | null;
   } | null;
 }
 
@@ -327,7 +328,10 @@ export async function fetchLinearIssueState(
       if (!issue) return null;
 
       const pullRequest = findPullRequestAttachment(issue.attachments?.nodes);
-      const relatedIssues = findNextRelatedIssues(issue.relations?.nodes);
+      const relatedIssues = findNextRelatedIssues(
+        issue.relations?.nodes,
+        options.statusTypeOverrides,
+      );
 
       return {
         ...(issue.id ? { id: issue.id } : {}),
@@ -404,14 +408,17 @@ export async function fetchLinearIssueStateSummaries(
   return summaries;
 }
 
-function findNextRelatedIssues(relations?: LinearIssueRelation[] | null): RelatedIssue[] {
+function findNextRelatedIssues(
+  relations?: LinearIssueRelation[] | null,
+  statusTypeOverrides: Record<string, LinearWorkflowStateType> = {},
+): RelatedIssue[] {
   if (!Array.isArray(relations)) return [];
 
   return relations.flatMap(({ type, relatedIssue }) => {
     if (
       type?.trim().toLowerCase() !== "blocks" ||
       !relatedIssue?.identifier ||
-      isTerminalLinearStateType(relatedIssue.state?.type)
+      isTerminalLinearState(relatedIssue.state?.type, relatedIssue.state?.name, statusTypeOverrides)
     ) {
       return [];
     }

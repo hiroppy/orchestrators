@@ -31,6 +31,7 @@ export async function enrichEvent(
     includeCreator: true,
     maxAttempts: isEnded ? config.endedTaskRetry.maxAttempts : 1,
     retryDelayMs: isEnded ? config.endedTaskRetry.delayMs : 0,
+    statusTypeOverrides: config.statusTypeOverrides,
   });
   const resolvedState = linearIssue?.state ?? event.state;
   const includeLatestReviewComment = shouldFetchReviewComments(config, resolvedState);

@@ -2,6 +2,7 @@ export type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
+  LinearWorkflowStateType,
   NotificationsConfig,
   OrchestratorConfig,
   OrchestratorConfigInput,
@@ -14,4 +15,4 @@ export type {
   StatusHookSlackThreadMessage,
   WatcherSettings,
 } from "./types.ts";
-export { defineConfig } from "./types.ts";
+export { defineConfig, LINEAR_WORKFLOW_STATE_TYPES } from "./types.ts";

@@ -161,7 +161,7 @@ describe("fetchLinearIssueState", () => {
     });
   });
 
-  it("returns nonterminal issues blocked by the current issue as next related work", async (context) => {
+  it("filters issues blocked by the current issue by effective state type", async (context) => {
     context.mock.method(globalThis, "fetch", async () =>
       Response.json({
         data: {
@@ -178,7 +178,7 @@ describe("fetchLinearIssueState", () => {
                     identifier: "ENG-63",
                     title: "Start the follow-up",
                     url: "https://linear.app/example/issue/ENG-63/follow-up",
-                    state: { type: "unstarted" },
+                    state: { name: "Planned", type: "unstarted" },
                   },
                 },
                 {
@@ -187,7 +187,7 @@ describe("fetchLinearIssueState", () => {
                     identifier: "ENG-64",
                     title: "Already finished",
                     url: "https://linear.app/example/issue/ENG-64/finished",
-                    state: { type: "completed" },
+                    state: { name: "Reopened", type: "completed" },
                   },
                 },
                 {
@@ -206,13 +206,16 @@ describe("fetchLinearIssueState", () => {
       }),
     );
 
-    const result = await fetchLinearIssueState("ENG-62", { apiKey: "lin_test" });
+    const result = await fetchLinearIssueState("ENG-62", {
+      apiKey: "lin_test",
+      statusTypeOverrides: { planned: "completed", reopened: "started" },
+    });
 
     assert.deepEqual(result?.relatedIssues, [
       {
-        identifier: "ENG-63",
-        title: "Start the follow-up",
-        url: "https://linear.app/example/issue/ENG-63/follow-up",
+        identifier: "ENG-64",
+        title: "Already finished",
+        url: "https://linear.app/example/issue/ENG-64/finished",
       },
     ]);
   });

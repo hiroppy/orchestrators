@@ -70,6 +70,33 @@ discoverable Linear semantics. Startup verifies that every configured name
 exists in each enabled team's fetched workflow and fails with a configuration
 error if it does not.
 
+### Linear state type overrides
+
+Use `watcher.statusTypeOverrides` when the watcher should interpret a Linear
+status differently from the workflow state type returned by Linear:
+
+```ts
+{
+  watcher: {
+    statusTypeOverrides: {
+      "In Staging Check": "completed",
+      Reopened: "started",
+    },
+  },
+}
+```
+
+Status names are trimmed and matched case-insensitively. Allowed override values
+are `triage`, `backlog`, `unstarted`, `started`, `completed`, and `canceled`.
+Duplicate normalized names, unknown statuses, and unsupported values fail
+startup validation.
+
+Overrides affect watcher reconciliation, Slack status summaries, `Task closed`
+announcements, and the related follow-up issues shown with closure messages.
+They do not change the Linear workflow or rewrite the raw state type stored by
+the watcher. Statuses without an override keep the type returned by Linear;
+native `completed`, `canceled`, and `duplicate` types remain terminal.
+
 ### Inline review comment requeue
 
 Set `watcher.reviewComment` to move review work back into Symphony when an
@@ -248,9 +275,11 @@ destination channel. It does not require the root `config.ts` or
   Synthetic service availability cards are titled `Symphony connection`, show
   the current availability status in their context, and do not include a
   status selector.
-- When Linear moves an issue into a `completed`, `canceled`, or `duplicate`
-  state type, the permalink URL of an existing parent card is posted to the
-  same channel below a `Task closed` line containing the current Linear status.
+- When Linear moves an issue into an effective terminal state type, the
+  permalink URL of an existing parent card is posted to the same channel below
+  a `Task closed` line containing the current Linear status. Native `completed`,
+  `canceled`, and `duplicate` types are terminal, and an override can classify
+  another status as terminal inside the watcher.
   Each nonterminal Linear issue that the closed issue blocks is then posted as
   a separate link in that notification's thread. Repeated observations of the
   same terminal state do not post the notification again.

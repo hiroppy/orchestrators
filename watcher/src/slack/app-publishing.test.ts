@@ -62,7 +62,7 @@ describe("Slack event publishing", () => {
     });
   });
 
-  it("records a status transition before Slack update failure and delivers after recovery", async () => {
+  it("rolls back a status transition after Slack update failure and delivers after recovery", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       let failUpdate = false;
@@ -99,14 +99,14 @@ describe("Slack event publishing", () => {
 
       failUpdate = true;
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
-      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 
       failUpdate = false;
       await publishWatcherEvent(client, store, "C123", event, undefined, options);
-      assert.deepEqual(transitions, ["In Progress -> In Review"]);
+      assert.deepEqual(transitions, ["In Progress -> In Review", "In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
     });
   });
@@ -311,6 +311,178 @@ describe("Slack event publishing", () => {
         calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
         ["1.000", "1.000"],
       );
+    });
+  });
+
+  it("posts a closure message for a configured terminal status with a started state type", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const terminalOptions = { statusTypeOverrides: { "in staging check": "completed" } };
+
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          issueTitle: "Verify staging",
+          resolvedState: "In Review",
+          resolvedStateType: "started",
+        },
+        undefined,
+        terminalOptions,
+      );
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "ended",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          issueTitle: "Verify staging",
+          resolvedState: "In Staging Check",
+          resolvedStateType: "started",
+        },
+        undefined,
+        terminalOptions,
+      );
+
+      const closurePosts = calls.filter(
+        ({ method, args }) =>
+          method === "postMessage" && String(args.text).startsWith("Task closed"),
+      );
+      assert.equal(closurePosts.length, 1);
+      assert.match(String(closurePosts[0].args.text), /Task closed \| \*In Staging Check\*/);
+    });
+  });
+
+  it("retries a configured terminal announcement after Slack fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let rejectClosure = true;
+      const client = fakeClient(
+        calls,
+        {},
+        {
+          rejectPostMessage: (args) => {
+            if (!rejectClosure || !String(args.text).startsWith("Task closed")) return false;
+            rejectClosure = false;
+            return true;
+          },
+        },
+      );
+      const terminalOptions = {
+        statusTypeOverrides: { "in staging check": "completed" },
+        createStatusTransitionEvent: (task: { id: string }, fromStatus: string) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus: "In Staging Check",
+        }),
+      };
+      const startedEvent = {
+        type: "started" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Verify staging",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      };
+      const endedEvent = {
+        ...startedEvent,
+        type: "ended" as const,
+        resolvedState: "In Staging Check",
+      };
+
+      await publishWatcherEvent(client, store, "C123", startedEvent, undefined, terminalOptions);
+      await assert.rejects(
+        publishWatcherEvent(client, store, "C123", endedEvent, undefined, terminalOptions),
+        /Simulated Slack failure/,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        0,
+      );
+
+      await publishWatcherEvent(client, store, "C123", endedEvent, undefined, terminalOptions);
+
+      const closurePosts = calls.filter(
+        ({ method, args }) =>
+          method === "postMessage" && String(args.text).startsWith("Task closed"),
+      );
+      assert.equal(closurePosts.length, 1);
+      assert.equal(
+        store.getUncompletedEvents(
+          "status_hook_pending",
+          "status_hook_completed",
+          "service-a:ENG-62",
+        ).length,
+        1,
+      );
+    });
+  });
+
+  it("retries a status demoted to nonterminal after a Slack update fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let rejectUpdate = false;
+      const client = fakeClient(calls);
+      const update = client.chat.update;
+      client.chat.update = async (args) => {
+        if (rejectUpdate) throw new Error("Simulated Slack failure");
+        return update(args);
+      };
+      const options = {
+        statusTypeOverrides: { done: "started" as const },
+        createStatusTransitionEvent: (task: { id: string }, fromStatus: string) => ({
+          taskId: task.id,
+          type: "status_hook_pending",
+          actor: "watcher",
+          fromStatus,
+          toStatus: "Done",
+        }),
+      };
+      const startedEvent = {
+        type: "started" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      };
+      const demotedEvent = {
+        ...startedEvent,
+        type: "ended" as const,
+        resolvedState: "Done",
+        resolvedStateType: "completed",
+      };
+      await publishWatcherEvent(client, store, "C123", startedEvent, undefined, options);
+
+      rejectUpdate = true;
+      await assert.rejects(
+        publishWatcherEvent(client, store, "C123", demotedEvent, undefined, options),
+        /Simulated Slack failure/,
+      );
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.equal(store.countEvents("service-a:ENG-62", "status_hook_pending"), 0);
+
+      rejectUpdate = false;
+      await publishWatcherEvent(client, store, "C123", demotedEvent, undefined, options);
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "Done");
+      assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "completed");
+      assert.equal(store.countEvents("service-a:ENG-62", "status_hook_pending"), 1);
     });
   });
 });
