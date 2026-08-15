@@ -104,7 +104,6 @@ describe("findPullRequest", () => {
             return {
               stdout: JSON.stringify({
                 data: {
-                  viewer: { login: "symphony-worker" },
                   repository: {
                     pullRequest: {
                       reviewThreads: {
@@ -122,18 +121,7 @@ describe("findPullRequest", () => {
                           {
                             isResolved: false,
                             isOutdated: false,
-                            comments: {
-                              nodes: [
-                                {
-                                  author: { login: "reviewer" },
-                                  createdAt: "2026-08-15T06:02:10Z",
-                                },
-                                {
-                                  author: { login: "symphony-worker" },
-                                  createdAt: "2026-08-15T06:05:00Z",
-                                },
-                              ],
-                            },
+                            comments: { nodes: [{ createdAt: "2026-08-15T06:02:10Z" }] },
                           },
                         ],
                       },
