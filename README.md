@@ -43,7 +43,9 @@ flowchart LR
     direction TB
     review["Ready for human review<br/>In Review"]
     automated{"Automated review feedback?"}
+    requeue["↩ Requeue the issue<br/>In Progress"]
     review --> automated
+    automated -- Yes --> requeue
   end
 
   subgraph verifyCycle["Human review"]
@@ -63,9 +65,7 @@ flowchart LR
   end
 
   slack --> review
-  automated -- Yes --> implement
   automated -- No --> notify
-  feedback --> implement
   verify -- Yes --> merging
 ```
 
