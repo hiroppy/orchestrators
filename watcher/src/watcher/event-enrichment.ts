@@ -20,9 +20,9 @@ export async function enrichEvent(
     findPullRequest: typeof findPullRequestDefault;
     findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   },
-): Promise<{ event: WatcherEvent; isAuthoritative: boolean }> {
+): Promise<WatcherEvent> {
   if (event.issueIdentifier === `watcher:${event.service}`) {
-    return { event, isAuthoritative: true };
+    return event;
   }
 
   const isEnded = event.type === "ended";
@@ -36,33 +36,24 @@ export async function enrichEvent(
   const includeLatestReviewComment = shouldFetchReviewComments(config, resolvedState);
   let pullRequest =
     (await github.findPullRequest(event, { includeLatestReviewComment })) ?? undefined;
-  let commentLookupSucceeded =
-    !includeLatestReviewComment || pullRequest?.latestReviewCommentAt !== undefined;
   if (!pullRequest && linearIssue?.pullRequest) {
     const enrichedPullRequest = await github
       .findPullRequestByUrl(linearIssue.pullRequest.url, { includeLatestReviewComment })
       .catch(() => null);
-    if (includeLatestReviewComment)
-      commentLookupSucceeded = enrichedPullRequest?.latestReviewCommentAt !== undefined;
     pullRequest = enrichedPullRequest ?? linearIssue.pullRequest;
   }
-  return {
-    event: compactObject({
-      ...event,
-      linearIssueId: linearIssue?.id,
-      issueTitle: linearIssue?.title,
-      creatorName: linearIssue?.creatorName,
-      creatorEmail: linearIssue?.creatorEmail,
-      issueUrl: linearIssue?.url ?? event.issueUrl,
-      resolvedState: linearIssue?.state,
-      resolvedStateType: linearIssue?.stateType
-        ? normalizeStatus(linearIssue.stateType)
-        : undefined,
-      pullRequest,
-      relatedIssues: linearIssue?.relatedIssues,
-    }),
-    isAuthoritative: Boolean(linearIssue?.state) && commentLookupSucceeded,
-  };
+  return compactObject({
+    ...event,
+    linearIssueId: linearIssue?.id,
+    issueTitle: linearIssue?.title,
+    creatorName: linearIssue?.creatorName,
+    creatorEmail: linearIssue?.creatorEmail,
+    issueUrl: linearIssue?.url ?? event.issueUrl,
+    resolvedState: linearIssue?.state,
+    resolvedStateType: linearIssue?.stateType ? normalizeStatus(linearIssue.stateType) : undefined,
+    pullRequest,
+    relatedIssues: linearIssue?.relatedIssues,
+  });
 }
 
 export async function enrichCreatorAssignee(

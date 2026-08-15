@@ -5,13 +5,10 @@ import type { WatcherStore } from "../persistence/store.ts";
 import { buildReviewRequeueMessageBlocks, buildTaskCard } from "../slack/views.ts";
 import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 import {
-  hasPendingEvent,
   parseReviewRequeuePendingPayload,
   REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   REVIEW_REQUEUE_NOTIFIED_EVENT,
-  REVIEW_REQUEUE_RECONCILED_EVENT,
-  REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
 } from "./review-comments.ts";
 
 export async function deliverPendingReviewRequeueNotifications(
@@ -93,19 +90,6 @@ async function deliverPendingReviewRequeueNotification(
     body: completionKey,
   });
   return true;
-}
-
-export function markReviewRequeueReconciled(store: WatcherStore, taskId: string): void {
-  if (
-    hasPendingEvent(
-      store,
-      taskId,
-      REVIEW_REQUEUE_RECONCILE_PENDING_EVENT,
-      REVIEW_REQUEUE_RECONCILED_EVENT,
-    )
-  ) {
-    store.addEvent({ taskId, type: REVIEW_REQUEUE_RECONCILED_EVENT, actor: "watcher" });
-  }
 }
 
 function slackClientMessageId(eventId: number): string {

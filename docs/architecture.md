@@ -131,7 +131,7 @@ The watcher database stores:
 - tracked tasks and their current known Linear status;
 - Slack parent-message identifiers;
 - watcher events and review-comment requeues;
-- pending delivery and reconciliation state for recoverable operations.
+- pending delivery state for recoverable Slack notifications.
 
 The database is why review tracking and delivery retries can continue after a watcher restart. If
 the watcher is stopped, no polling or review-comment handling occurs; reconciliation resumes after it
