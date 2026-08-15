@@ -417,7 +417,7 @@ export async function publishWatcherEvent(
           );
         }
       } catch (error) {
-        if (announceTerminalParent && transitionPreviousTask) {
+        if (transitionPreviousTask && (statusChanged || announceTerminalParent)) {
           store.restoreTaskState(
             task.id,
             transitionPreviousTask.status,
