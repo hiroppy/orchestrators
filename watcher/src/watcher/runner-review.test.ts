@@ -90,6 +90,46 @@ describe("watcher inline review comments", () => {
     });
   });
 
+  it("does not create another decision for a comment claimed by a pending requeue", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [{ name: "service-a", url: "", linearTeam: "workspace-a-eng" }],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewComment: { inReviewStatus: "In Review", inProgressStatus: "In Progress" },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      store.addEvent({
+        taskId: "service-a:ENG-62",
+        type: "review_requeue_pending",
+        fromStatus: "In Review",
+        toStatus: "In Progress",
+        body: JSON.stringify({
+          event: { type: "updated", service: "service-a", issueIdentifier: "ENG-62" },
+          commentAt: "2026-08-15T00:00:00.000Z",
+        }),
+      });
+
+      const decision = decideReviewComment(config, store, {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          latestReviewCommentAt: "2026-08-15T00:00:00.000Z",
+        },
+      });
+
+      assert.equal(decision.shouldRequeue, false);
+    });
+  });
+
   it("requeues a comment that arrives before the watcher first observes In Review", async () => {
     await withStore(async (store) => {
       const config = runtimeConfig({

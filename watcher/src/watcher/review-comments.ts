@@ -34,10 +34,24 @@ export function decideReviewComment(
   );
   const latestCommentAt = event.pullRequest?.latestReviewCommentAt ?? undefined;
   const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
+  const pendingCommentAt = store
+    .getUncompletedEvents(REVIEW_REQUEUE_PENDING_EVENT, REVIEW_REQUEUE_COMPLETED_EVENT, taskId)
+    .flatMap(({ body }) => {
+      try {
+        const payload = JSON.parse(body ?? "") as { commentAt?: unknown };
+        return typeof payload.commentAt === "string" ? [payload.commentAt] : [];
+      } catch {
+        return [];
+      }
+    })
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+  const claimedCommentAt = [handledCommentAt, pendingCommentAt]
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
   const shouldRequeue = Boolean(
     isInReview &&
     latestCommentAt &&
-    (!handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)),
+    (!claimedCommentAt || Date.parse(latestCommentAt) > Date.parse(claimedCommentAt)),
   );
 
   return { shouldRequeue, commentAt: shouldRequeue ? latestCommentAt : undefined };
