@@ -267,9 +267,11 @@ destination channel. It does not require the root `config.ts` or
   Synthetic service availability cards are titled `Symphony connection`, show
   the current availability status in their context, and do not include a
   status selector.
-- When Linear moves an issue into a `completed`, `canceled`, or `duplicate`
-  state type, the permalink URL of an existing parent card is posted to the
-  same channel below a `Task closed` line containing the current Linear status.
+- When Linear moves an issue into an effective terminal state type, the
+  permalink URL of an existing parent card is posted to the same channel below
+  a `Task closed` line containing the current Linear status. Native `completed`,
+  `canceled`, and `duplicate` types are terminal, and an override can classify
+  another status as terminal inside the watcher.
   Each nonterminal Linear issue that the closed issue blocks is then posted as
   a separate link in that notification's thread. Repeated observations of the
   same terminal state do not post the notification again.
