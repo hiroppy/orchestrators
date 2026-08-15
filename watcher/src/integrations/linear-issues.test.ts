@@ -1,7 +1,85 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchLinearIssueState } from "./linear.ts";
+import { fetchLinearIssueState, fetchLinearIssueStateSummaries } from "./linear.ts";
+
+describe("fetchLinearIssueStateSummaries", () => {
+  it("fetches multiple issue states in one lightweight GraphQL request", async (context) => {
+    const requests: Array<{ query: string; variables: Record<string, string> }> = [];
+    context.mock.method(globalThis, "fetch", async (_url, options) => {
+      const request = JSON.parse(String(options?.body));
+      requests.push(request);
+      return Response.json({
+        data: {
+          issue0: { identifier: "ENG-1", state: { name: "In Review", type: "started" } },
+          issue1: { identifier: "ENG-2", state: { name: "Done", type: "completed" } },
+        },
+      });
+    });
+
+    const result = await fetchLinearIssueStateSummaries(["ENG-1", "ENG-2"], {
+      apiKey: "lin_test",
+    });
+
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0]?.variables, { id0: "ENG-1", id1: "ENG-2" });
+    assert.doesNotMatch(requests[0]?.query ?? "", /attachments|relations|creator/);
+    assert.deepEqual(
+      [...result.values()],
+      [
+        { identifier: "ENG-1", state: "In Review", stateType: "started" },
+        { identifier: "ENG-2", state: "Done", stateType: "completed" },
+      ],
+    );
+  });
+
+  it("chunks large reconciliations into bounded requests", async (context) => {
+    let requests = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+      requests += 1;
+      return Response.json({ data: {} });
+    });
+
+    await fetchLinearIssueStateSummaries(
+      Array.from({ length: 51 }, (_, index) => `ENG-${index + 1}`),
+      { apiKey: "lin_test" },
+    );
+
+    assert.equal(requests, 2);
+  });
+
+  it("keys summaries by the requested identifier when Linear returns a canonical identifier", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+      Response.json({
+        data: {
+          issue0: {
+            identifier: "NEW-1",
+            state: { name: "In Progress", type: "started" },
+          },
+        },
+      }),
+    );
+
+    const result = await fetchLinearIssueStateSummaries(["OLD-1"], { apiKey: "lin_test" });
+
+    assert.deepEqual(result.get("OLD-1"), {
+      identifier: "NEW-1",
+      state: "In Progress",
+      stateType: "started",
+    });
+  });
+
+  it("preserves a batch rate-limit error for the caller", async (context) => {
+    context.mock.method(globalThis, "fetch", async () =>
+      Response.json({ errors: [{ extensions: { code: "RATELIMITED" } }] }, { status: 400 }),
+    );
+
+    await assert.rejects(
+      fetchLinearIssueStateSummaries(["ENG-1"], { apiKey: "lin_test" }),
+      /rate limit/i,
+    );
+  });
+});
 
 describe("fetchLinearIssueState", () => {
   it("returns current Linear issue state by issue identifier", async (context) => {

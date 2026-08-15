@@ -13,7 +13,7 @@ import {
   TAKE_PR_ISSUE_QUERY,
   TAKE_PR_TARGET_QUERY,
 } from "./linear-queries.ts";
-import { LINEAR_ENDPOINT, linearRequest } from "./linear-client.ts";
+import { isLinearRateLimitError, LINEAR_ENDPOINT, linearRequest } from "./linear-client.ts";
 import { stableLinearUuid } from "./linear-id.ts";
 
 export { fetchLinearWorkflowStates, updateLinearIssueStatus } from "./linear-status.ts";
@@ -60,6 +60,14 @@ interface LinearIssueState {
   pullRequest?: PullRequest;
   relatedIssues?: RelatedIssue[];
 }
+
+export interface LinearIssueStateSummary {
+  identifier: string;
+  state: string | null;
+  stateType: string | null;
+}
+
+const LINEAR_ISSUE_STATE_BATCH_SIZE = 50;
 
 interface LinearIssueRelation {
   type?: string | null;
@@ -346,6 +354,54 @@ export async function fetchLinearIssueState(
   }
 
   return null;
+}
+
+export async function fetchLinearIssueStateSummaries(
+  issueIdentifiers: readonly string[],
+  options: LinearRequestOptions = {},
+): Promise<Map<string, LinearIssueStateSummary>> {
+  const summaries = new Map<string, LinearIssueStateSummary>();
+  if (!options.apiKey) return summaries;
+
+  const identifiers = [...new Set(issueIdentifiers.filter(Boolean))];
+  for (let offset = 0; offset < identifiers.length; offset += LINEAR_ISSUE_STATE_BATCH_SIZE) {
+    const batch = identifiers.slice(offset, offset + LINEAR_ISSUE_STATE_BATCH_SIZE);
+    const declarations = batch.map((_, index) => `$id${index}: String!`).join(", ");
+    const fields = batch
+      .map((_, index) => `issue${index}: issue(id: $id${index}) { identifier state { name type } }`)
+      .join("\n");
+    const variables = Object.fromEntries(
+      batch.map((identifier, index) => [`id${index}`, identifier]),
+    );
+
+    try {
+      const data = await linearRequest<
+        Record<
+          string,
+          { identifier?: string; state?: { name?: string | null; type?: string | null } } | null
+        >
+      >(
+        options.apiKey,
+        `query OrchestratorWatcherIssueStateBatch(${declarations}) { ${fields} }`,
+        variables,
+        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
+      for (const [index, requestedIdentifier] of batch.entries()) {
+        const issue = data[`issue${index}`];
+        if (!issue?.identifier) continue;
+        summaries.set(requestedIdentifier, {
+          identifier: issue.identifier,
+          state: issue.state?.name ?? null,
+          stateType: issue.state?.type ?? null,
+        });
+      }
+    } catch (error) {
+      if (isLinearRateLimitError(error)) throw error;
+      // Periodic reconciliation is best-effort; a later cycle will retry the batch.
+    }
+  }
+
+  return summaries;
 }
 
 function findNextRelatedIssues(relations?: LinearIssueRelation[] | null): RelatedIssue[] {

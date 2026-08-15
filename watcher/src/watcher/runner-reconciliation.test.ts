@@ -197,7 +197,7 @@ describe("watcher reconciliation and snapshots", () => {
           throw new Error("A no-op reconciliation must not fetch PR metadata");
         },
       });
-      assert.equal(linearFetches, 1);
+      assert.equal(linearFetches, 2);
       assert.equal(pullRequestLookups, 1);
     });
   });
@@ -258,6 +258,193 @@ describe("watcher reconciliation and snapshots", () => {
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
         "Task closed | *Canceled*\n<https://example.slack.com/archives/C123/p1000|Canceled task>",
       );
+    });
+  });
+
+  it("uses detailed state when Linear changes after the batch summary", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: {
+                identifier: "ENG-62",
+                state: { name: "In Review", type: "started" },
+              },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "Done", type: "completed" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
+        reviewReaction: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+          reaction: "👀",
+          maxRequeues: 3,
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      assert.equal(
+        calls.filter(({ method, thread_ts }) => method === "postMessage" && !thread_ts).length,
+        1,
+      );
+    });
+  });
+
+  for (const batchFailure of ["request failure", "partial response"] as const) {
+    it(`falls back to detailed reconciliation after a batch ${batchFailure}`, async (context) => {
+      await withStore(async (store) => {
+        const nativeFetch = globalThis.fetch;
+        let linearFetches = 0;
+        context.mock.method(globalThis, "fetch", async (url, options) => {
+          if (String(url).startsWith("data:")) return nativeFetch(url, options);
+          linearFetches += 1;
+          const { query } = JSON.parse(String(options?.body)) as { query: string };
+          if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+            return batchFailure === "request failure"
+              ? new Response("temporary failure", { status: 500 })
+              : Response.json({ data: {} });
+          }
+          return Response.json({
+            data: {
+              issue: {
+                identifier: "ENG-62",
+                title: "Merge the pull request",
+                state: { name: "Done", type: "completed" },
+                url: "https://linear.app/example/issue/ENG-62/example",
+                attachments: { nodes: [] },
+                relations: { nodes: [] },
+              },
+            },
+          });
+        });
+        const config = runtimeConfig({
+          services: [
+            {
+              name: "service-a",
+              url: dataUrl({ running: [], retrying: [], blocked: [] }),
+              linearTeam: "workspace-a-eng",
+            },
+          ],
+          linearTeams: linearTeams(["In Review", "Done"]),
+        });
+        store.syncDefinitions(config.services, config.linearTeams);
+        const task = store.upsertTaskFromEvent({
+          type: "ended",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+          resolvedStateType: "started",
+        });
+        store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+        await runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+        });
+
+        assert.equal(linearFetches, 2);
+        assert.equal(store.getTask(task.id)?.status, "Done");
+        assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      });
+    });
+  }
+
+  it("defers a rate-limited team without issuing per-task fallback requests", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      let linearFetches = 0;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        linearFetches += 1;
+        return Response.json(
+          { errors: [{ extensions: { code: "RATELIMITED" } }] },
+          { status: 400 },
+        );
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const secondTask = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(secondTask.id, "C123", "2.000", "{}");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(linearFetches, 1);
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(store.getTask(secondTask.id)?.status, "In Review");
     });
   });
 
