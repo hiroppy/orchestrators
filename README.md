@@ -39,15 +39,19 @@ flowchart LR
     create --> implement --> slack
   end
 
-  subgraph reviewCycle["Review"]
+  subgraph reviewCycle["Automated review"]
     direction TB
     review["Ready for human review<br/>In Review"]
     automated{"Automated review feedback?"}
+    review --> automated
+  end
+
+  subgraph verifyCycle["Human review"]
+    direction TB
     notify["🔔 Slack notifies the reviewers"]
     verify{"Does it work as expected?"}
     feedback["Reply in Slack<br/>and move back to In Progress"]
-    review --> automated
-    automated -- No --> notify --> verify
+    notify --> verify
     verify -- No --> feedback
   end
 
@@ -60,6 +64,7 @@ flowchart LR
 
   slack --> review
   automated -- Yes --> implement
+  automated -- No --> notify
   feedback --> implement
   verify -- Yes --> merging
 ```
