@@ -132,6 +132,13 @@ handled timestamp, and pending notifications are stored together. A process exit
 update and that local transaction can cause the same comment to be considered again after the task
 returns to review; this recovery gap is accepted to keep the internal tool simple.
 
+The review-comment cursor intentionally remains timestamp-only: comments with the same GitHub
+`createdAt` value are treated as one feedback boundary, and the watcher examines at most the first
+100 review threads returned by GitHub. On a task without a handled cursor, the first current,
+unresolved comment may trigger a requeue even if it predates the current review cycle. These limits
+avoid comment-ID lifecycle tracking, pagination machinery, and per-review baseline state in this
+single-watcher internal deployment.
+
 ## Persistence and recovery
 
 The watcher database stores:
