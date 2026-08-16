@@ -1,3 +1,5 @@
+import { DEFAULT_REVIEW_READY_DELAY_MS } from "orchestrator-config";
+
 import type {
   InstanceConfig,
   LinearTeamConfig,
@@ -125,11 +127,21 @@ function resolveReviewCommentConfig(
 
   const inReviewStatus = config.inReviewStatus?.trim();
   const inProgressStatus = config.inProgressStatus?.trim();
+  const reviewReadyDelayMs = config.reviewReadyDelayMs ?? DEFAULT_REVIEW_READY_DELAY_MS;
   if (!inReviewStatus) {
     throw new Error("watcher.reviewComment.inReviewStatus must be a non-empty string.");
   }
   if (!inProgressStatus) {
     throw new Error("watcher.reviewComment.inProgressStatus must be a non-empty string.");
+  }
+  if (
+    typeof reviewReadyDelayMs !== "number" ||
+    !Number.isFinite(reviewReadyDelayMs) ||
+    reviewReadyDelayMs < 0
+  ) {
+    throw new Error(
+      "watcher.reviewComment.reviewReadyDelayMs must be a finite number zero or greater.",
+    );
   }
 
   const symphonyGitHubLogins = config.symphonyGitHubLogins?.map((login) => login.trim());
@@ -142,6 +154,7 @@ function resolveReviewCommentConfig(
   return {
     inReviewStatus,
     inProgressStatus,
+    reviewReadyDelayMs,
     ...(symphonyGitHubLogins ? { symphonyGitHubLogins: [...new Set(symphonyGitHubLogins)] } : {}),
   };
 }

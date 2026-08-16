@@ -24,6 +24,7 @@ export interface SlackConfig {
 export interface ReviewCommentConfig {
   inReviewStatus: string;
   inProgressStatus: string;
+  reviewReadyDelayMs?: number;
   symphonyGitHubLogins?: string[];
 }
 

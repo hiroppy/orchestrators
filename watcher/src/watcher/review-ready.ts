@@ -1,4 +1,5 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
+import { DEFAULT_REVIEW_READY_DELAY_MS } from "orchestrator-config";
 
 import type { PullRequest, Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
@@ -8,7 +9,7 @@ const REVIEW_READY_OBSERVED_EVENT = "review_ready_observed";
 const REVIEW_READY_NOTIFICATION_PENDING_EVENT = "review_ready_notification_pending";
 export const REVIEW_READY_NOTIFIED_EVENT = "review_ready_notified";
 const REVIEW_READY_NOTIFICATION_DELIVERED_EVENT = "review_ready_notification_delivered";
-export const REVIEW_READY_DELAY_MS = 20 * 60 * 1_000;
+export const REVIEW_READY_DELAY_MS = DEFAULT_REVIEW_READY_DELAY_MS;
 const REVIEW_READY_RESET_BODY = "reset";
 
 interface ReviewReadyPayload {
@@ -29,6 +30,7 @@ export async function checkReviewReadyNotification({
   task,
   inReviewStatus,
   pullRequest,
+  delayMs = REVIEW_READY_DELAY_MS,
   now = new Date(),
 }: {
   store: WatcherStore;
@@ -36,6 +38,7 @@ export async function checkReviewReadyNotification({
   task: Task;
   inReviewStatus: string;
   pullRequest?: PullRequest;
+  delayMs?: number;
   now?: Date;
 }): Promise<void> {
   if (normalizeStatus(task.status) !== normalizeStatus(inReviewStatus)) {
@@ -62,7 +65,7 @@ export async function checkReviewReadyNotification({
     });
     return;
   }
-  if (now.getTime() - Date.parse(observed.createdAt) < REVIEW_READY_DELAY_MS) return;
+  if (now.getTime() - Date.parse(observed.createdAt) < delayMs) return;
   if (store.getTaskAssignees(task.id).length === 0) return;
 
   const body = JSON.stringify(payload);

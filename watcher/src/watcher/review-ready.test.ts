@@ -11,6 +11,72 @@ import {
 } from "./review-ready.ts";
 
 describe("review-ready notifications", () => {
+  it("notifies on the next observation when the configured delay is zero", async () => {
+    await withStore(async (store) => {
+      const { calls, firstSeen, pullRequest, slackClient, task } = setupReviewReadyTask(store);
+
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs: 0,
+        now: firstSeen,
+      });
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs: 0,
+        now: firstSeen,
+      });
+
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
+  it("uses the configured review-ready delay", async () => {
+    await withStore(async (store) => {
+      const { calls, firstSeen, pullRequest, slackClient, task } = setupReviewReadyTask(store);
+      const delayMs = 5_000;
+
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs,
+        now: firstSeen,
+      });
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs,
+        now: new Date(firstSeen.getTime() + delayMs - 1),
+      });
+      assert.equal(calls.length, 0);
+
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs,
+        now: new Date(firstSeen.getTime() + delayMs),
+      });
+
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
   it("mentions assignees once after the same review SHA is quiet for 20 minutes", async () => {
     await withStore(async (store) => {
       store.syncDefinitions([{ name: "service-a", url: "", linearTeam: "team" }], {

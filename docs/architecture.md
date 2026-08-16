@@ -143,9 +143,13 @@ Review requeueing is enabled with:
 reviewComment: {
   inReviewStatus: "In Review",
   inProgressStatus: "In Progress",
+  reviewReadyDelayMs: 20 * 60 * 1_000,
   symphonyGitHubLogins: ["your-symphony-account"],
 }
 ```
+
+`reviewReadyDelayMs` controls how long a pull request revision must remain ready before assignees
+are mentioned. It defaults to 20 minutes and accepts zero for notification on the next observation.
 
 For tasks in `inReviewStatus`, the watcher reads PR mergeability and the latest eligible inline
 review comment. A comment is eligible when it:
