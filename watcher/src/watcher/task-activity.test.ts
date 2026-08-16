@@ -67,6 +67,29 @@ describe("task activity", () => {
     }
   });
 
+  it("bounds work when a workspace has too many untracked files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "task-activity-many-files-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: directory });
+      await Promise.all(
+        Array.from({ length: 3 }, (_, index) =>
+          writeFile(join(directory, `untracked-${index}.txt`), "one\ntwo\n"),
+        ),
+      );
+
+      const summary = await readGitSummary(directory, { maxUntrackedFiles: 2 });
+
+      assert.deepEqual(summary, {
+        changedFiles: [],
+        changedFileCount: 0,
+        additions: 0,
+        deletions: 0,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to an empty summary when a Git command stalls", async () => {
     const directory = await mkdtemp(join(tmpdir(), "task-activity-timeout-"));
     try {

@@ -51,7 +51,7 @@ state and, when relevant, GitHub pull-request metadata.
 The first running observation creates the Slack Timeline card. While the task remains running, the
 watcher refreshes that card at most once every 15 seconds with Symphony's latest activity
 notification and a bounded summary of the local workspace Git diff. Git inspection includes
-untracked text additions and has timeout and output limits. Refreshes replace the current activity
+untracked text additions and bounds command time, output, file count, and bytes read. Refreshes replace the current activity
 in place and do not create audit events or additional thread replies. Synthetic outage snapshots
 do not replace the last successfully observed activity.
 

@@ -116,6 +116,94 @@ describe("Slack event publishing", () => {
     });
   });
 
+  it("backfills a missing Timeline anchor for an existing running task", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const { task } = store.upsertTaskFromEventAtomically(
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+        },
+        () => undefined,
+      );
+      store.setParentMessage(task.id, "C123", "1.000", "existing parent");
+
+      await publishTaskActivities(
+        client,
+        store,
+        {
+          "service-a": {
+            running: [{ issue_identifier: "ENG-62", last_message: "Running tests" }],
+            retrying: [],
+            blocked: [],
+          },
+        },
+        new Date("2026-08-16T01:00:00.000Z"),
+      );
+
+      const timelinePosts = calls.filter(
+        ({ method, args }) => method === "postMessage" && args.thread_ts === "1.000",
+      );
+      assert.equal(timelinePosts.length, 1);
+      assert.match(
+        JSON.stringify(timelinePosts[0]?.args.blocks),
+        /Current activity.*Running tests/,
+      );
+      assert.ok(store.getTask(task.id)?.activityPublishedAt);
+    });
+  });
+
+  it("retries clearing stopped activity after a Timeline update fails", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setTaskActivity("service-a:ENG-62", {
+        message: "Running tests",
+        changedFiles: [],
+        changedFileCount: 0,
+        additions: 0,
+        deletions: 0,
+      });
+      store.markTaskActivityPublished("service-a:ENG-62", new Date("2026-08-16T01:00:00.000Z"));
+
+      const update = client.chat.update;
+      let failTimelineUpdate = true;
+      client.chat.update = async (args) => {
+        if (failTimelineUpdate && args.ts === "2.000") {
+          throw new Error("Simulated Timeline failure");
+        }
+        return update(args);
+      };
+      const blocked = {
+        type: "blocked" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      };
+
+      await assert.rejects(publishWatcherEvent(client, store, "C123", blocked));
+      assert.equal(store.getTask("service-a:ENG-62")?.currentActivity?.message, "Running tests");
+      assert.equal(
+        store.getTask("service-a:ENG-62")?.activityPublishedAt,
+        "2026-08-16T01:00:00.000Z",
+      );
+
+      failTimelineUpdate = false;
+      await publishWatcherEvent(client, store, "C123", blocked);
+      assert.equal(store.getTask("service-a:ENG-62")?.currentActivity, undefined);
+      assert.equal(store.getTask("service-a:ENG-62")?.activityPublishedAt, undefined);
+    });
+  });
+
   it("preserves the last activity during a synthetic observability outage", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

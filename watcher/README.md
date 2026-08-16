@@ -270,8 +270,9 @@ destination channel. It does not require the root `config.ts` or
   activity and local workspace diff summary above any pull request details. The watcher updates that section in
   place no more than once every 15 seconds. At most three changed paths are shown;
   additional paths are summarized as `+N more`, and aggregate additions include
-  untracked text files. Git inspection has bounded runtime and output and falls
-  back to no diff when it fails. During an observability outage, the last activity
+  untracked text files. Git inspection bounds command runtime, output, untracked
+  file count, and bytes read, and falls back to no diff when a limit is exceeded
+  or inspection fails. During an observability outage, the last activity
   remains visible until Symphony reports a new value. Token counts, turns, retries,
   and raw worker output are intentionally omitted.
 - Manual status history renders the actor's Slack display name as plain text,

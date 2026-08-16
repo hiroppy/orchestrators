@@ -265,8 +265,10 @@ export async function publishWatcherEvent(
   await withTaskCardQueue(taskId, async () => {
     const clearsActivity =
       event.type === "ended" || event.type === "retrying" || event.type === "blocked";
-    const activityCleared = clearsActivity && Boolean(store.getTask(taskId)?.currentActivity);
-    if (clearsActivity) store.setTaskActivity(taskId, undefined);
+    const taskBeforeEvent = clearsActivity ? store.getTask(taskId) : undefined;
+    const previousActivity = taskBeforeEvent?.currentActivity;
+    const previousActivityPublishedAt = taskBeforeEvent?.activityPublishedAt;
+    const activityCleared = Boolean(previousActivity);
 
     const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
       event,
@@ -355,24 +357,39 @@ export async function publishWatcherEvent(
       toStatus: task.status,
     };
     const statusBody = buildThreadMessage(statusEvent, threadContext);
-    const initialObservation = previousTask === undefined && event.type === "started";
-    if (statusChanged || initialObservation) {
-      await publishStatusTimeline(client, store, {
-        taskId: task.id,
-        event: {
-          fromStatus: previousTask?.status ?? task.status,
-          toStatus: task.status,
-          occurredAt: new Date().toISOString(),
-          source: {
-            type: "automatic",
-            label: parentEventLabel(statusEvent),
-            error: statusEvent.error,
+    const needsTimelineAnchor =
+      store.getLatestEventsByType(task.id, "status_timeline", 1).length === 0;
+    if (activityCleared) store.setTaskActivity(task.id, undefined);
+    try {
+      if (statusChanged || needsTimelineAnchor) {
+        await publishStatusTimeline(client, store, {
+          taskId: task.id,
+          event: {
+            fromStatus: previousTask?.status ?? task.status,
+            toStatus: task.status,
+            occurredAt: new Date().toISOString(),
+            source: {
+              type: "automatic",
+              label: parentEventLabel(statusEvent),
+              error: statusEvent.error,
+            },
           },
-        },
-        fallbackText: statusBody,
-      });
-    } else if (pullRequestChanged || activityCleared) {
-      await reloadStatusTimeline(client, store, task.id);
+          fallbackText: statusBody,
+        });
+      } else if (pullRequestChanged || activityCleared) {
+        const reloaded = await reloadStatusTimeline(client, store, task.id);
+        if (activityCleared && !reloaded) {
+          throw new Error(`Task has no delivered Timeline anchor: ${task.id}`);
+        }
+      }
+    } catch (error) {
+      if (previousActivity) {
+        store.setTaskActivity(task.id, previousActivity);
+        if (previousActivityPublishedAt) {
+          store.markTaskActivityPublished(task.id, new Date(previousActivityPublishedAt));
+        }
+      }
+      throw error;
     }
 
     const standaloneContext = { assignees: notificationAssignees };
