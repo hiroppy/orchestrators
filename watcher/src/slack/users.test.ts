@@ -31,7 +31,31 @@ describe("Slack users", () => {
     assert.equal(await resolveSlackAssigneeId(client, "<!subteam^S123>"), "!subteam^S123");
     assert.equal(await resolveSlackAssigneeId(client, "ME", "UCURRENT"), "UCURRENT");
     assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), "UHIROPPY");
-    assert.deepEqual(cursors, [undefined, "next-page"]);
+    assert.equal(await resolveSlackAssigneeId(client, "@Hiroppy"), "UHIROPPY");
+    assert.deepEqual(cursors, [undefined, "next-page", undefined, "next-page"]);
+  });
+
+  it("ignores inactive identities when resolving a bare name", async () => {
+    const client = {
+      users: {
+        async info() {
+          return { ok: true };
+        },
+        async list() {
+          return {
+            ok: true,
+            members: [
+              { id: "UACTIVE", name: "hiroppy", profile: {} },
+              { id: "UDELETED", name: "hiroppy", deleted: true, profile: {} },
+              { id: "UBOT", name: "hiroppy", is_bot: true, profile: {} },
+              { id: "UAPP", name: "hiroppy", is_app_user: true, profile: {} },
+            ],
+          };
+        },
+      },
+    } as never;
+
+    assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), "UACTIVE");
   });
 
   it("does not resolve an ambiguous bare name", async () => {

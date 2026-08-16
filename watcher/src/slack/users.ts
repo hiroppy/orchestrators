@@ -13,7 +13,7 @@ export async function resolveSlackAssigneeId(
   if (value.toLowerCase() === "me") return currentUserId;
   if (!client.users?.list) return undefined;
 
-  const normalizedValue = value.toLowerCase();
+  const normalizedValue = value.replace(/^@/, "").toLowerCase();
   const matchingUserIds = new Set<string>();
   let cursor: string | undefined;
 
@@ -23,7 +23,7 @@ export async function resolveSlackAssigneeId(
       ...(cursor ? { cursor } : {}),
     });
     for (const member of response.members ?? []) {
-      if (!member.id) continue;
+      if (!member.id || member.deleted || member.is_bot || member.is_app_user) continue;
       const names = [
         member.name,
         member.real_name,
