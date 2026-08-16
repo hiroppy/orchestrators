@@ -448,7 +448,10 @@ describe("Slack mention commands", () => {
 
       const lastUpdate = calls.filter(({ method }) => method === "update").at(-1);
       assert.match(JSON.stringify(lastUpdate?.args), /In Review/);
-      assert.match(JSON.stringify(lastUpdate?.args), /@U123/);
+      assert.equal(
+        calls.some(({ method, args }) => method === "update" && /@U123/.test(JSON.stringify(args))),
+        true,
+      );
     });
   });
 
@@ -842,7 +845,7 @@ describe("Slack mention commands", () => {
     });
   });
 
-  it("keeps persisted task assignees visible after default assignees expand", async () => {
+  it("keeps assignees out of the status timeline after default assignees expand", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
         type: "started",
@@ -874,7 +877,8 @@ describe("Slack mention commands", () => {
       const notification = calls.find(
         ({ method, args }) => method === "postMessage" && args.thread_ts === "10.000",
       );
-      assert.match(JSON.stringify(notification?.args.blocks), /@U123/);
+      assert.match(JSON.stringify(notification?.args.blocks), /\*Updated at\*/);
+      assert.doesNotMatch(JSON.stringify(notification?.args.blocks), /Assignees|@U123/);
     });
   });
 });
