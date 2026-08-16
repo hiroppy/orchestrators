@@ -138,25 +138,32 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   });
 
   let nextPeriodicMaintenanceAt = 0;
-  let reconcilePersistedTerminalTasks = true;
+  let pendingPersistedTerminalTaskIds = new Set(
+    store
+      .getTasksForLinearSync(new Set(), new Map(), true)
+      .filter(
+        (task) =>
+          isTerminalLinearStateType(task.linearStateType) &&
+          !task.issueIdentifier.startsWith("watcher:"),
+      )
+      .map(({ id }) => id),
+  );
   try {
     await app.start();
     await runWatcherPollingLoop(
       async () => {
         const runPeriodicMaintenance = performance.now() >= nextPeriodicMaintenanceAt;
-        const { persistedTerminalReconciliationComplete } = await runOnce({
+        const result = await runOnce({
           config: runtimeConfig,
           store,
           slackClient: client,
           slackChannelId: slackConfig.channelId,
           runPeriodicMaintenance,
-          reconcilePersistedTerminalTasks,
+          persistedTerminalTaskIds: pendingPersistedTerminalTaskIds,
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;
-          if (persistedTerminalReconciliationComplete) {
-            reconcilePersistedTerminalTasks = false;
-          }
+          pendingPersistedTerminalTaskIds = result.pendingPersistedTerminalTaskIds;
         }
       },
       runtimeConfig.pollIntervalMs,
@@ -276,7 +283,7 @@ interface RunOnceOptions {
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
-  reconcilePersistedTerminalTasks?: boolean;
+  persistedTerminalTaskIds?: ReadonlySet<string>;
 }
 
 export async function runOnce({
@@ -288,9 +295,9 @@ export async function runOnce({
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
-  reconcilePersistedTerminalTasks = false,
+  persistedTerminalTaskIds = new Set(),
 }: RunOnceOptions) {
-  let persistedTerminalReconciliationComplete = !reconcilePersistedTerminalTasks;
+  let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
     await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
@@ -345,7 +352,7 @@ export async function runOnce({
   store.replaceSnapshots(current);
   await publishTaskActivities(slackClient, store, current);
   if (runPeriodicMaintenance) {
-    persistedTerminalReconciliationComplete = await reconcileLinearStatuses({
+    pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,
       slackClient,
@@ -353,10 +360,15 @@ export async function runOnce({
       skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
       findPullRequestByUrl,
       updateLinearStatus,
-      reconcilePersistedTerminalTasks,
+      persistedTerminalTaskIds,
     });
   }
-  return { events, current, persistedTerminalReconciliationComplete };
+  return {
+    events,
+    current,
+    pendingPersistedTerminalTaskIds,
+    persistedTerminalReconciliationComplete: pendingPersistedTerminalTaskIds.size === 0,
+  };
 }
 
 async function reconcileLinearStatuses({
@@ -367,7 +379,7 @@ async function reconcileLinearStatuses({
   skipTaskIds,
   findPullRequestByUrl,
   updateLinearStatus,
-  reconcilePersistedTerminalTasks,
+  persistedTerminalTaskIds,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -376,22 +388,15 @@ async function reconcileLinearStatuses({
   skipTaskIds: Set<string>;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
-  reconcilePersistedTerminalTasks: boolean;
-}): Promise<boolean> {
+  persistedTerminalTaskIds: ReadonlySet<string>;
+}): Promise<Set<string>> {
+  const pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   const activeStatusesByService = new Map(
     config.services.map(({ name, activeStates }) => [name, activeStates ?? []]),
   );
   const syncCandidates = store.getTasksForLinearSync(
-    new Set(),
+    pendingPersistedTerminalTaskIds,
     activeStatusesByService,
-    reconcilePersistedTerminalTasks,
-  );
-  const persistedTerminalTaskIds = new Set(
-    reconcilePersistedTerminalTasks
-      ? syncCandidates
-          .filter(({ linearStateType }) => isTerminalLinearStateType(linearStateType))
-          .map(({ id }) => id)
-      : [],
   );
   const tasks = syncCandidates
     .map((task) => {
@@ -408,28 +413,14 @@ async function reconcileLinearStatuses({
         return task;
       }
       store.setTaskLinearStateType(task.id, effectiveStateType);
+      pendingPersistedTerminalTaskIds.delete(task.id);
       return { ...task, linearStateType: effectiveStateType };
     })
-    .filter((task) => {
-      const hasCurrentLinearState =
-        skipTaskIds.has(task.id) &&
-        Boolean(task.linearStateType) &&
-        !shouldFetchReviewComments(config, task.status);
-      return !(
-        hasCurrentLinearState ||
-        task.issueIdentifier.startsWith("watcher:") ||
-        !task.parentChannelId ||
-        !task.parentMessageTs
-      );
-    });
-  const pendingPersistedTerminalTaskIds = new Set(
-    tasks
-      .filter(
-        (task) =>
-          persistedTerminalTaskIds.has(task.id) && isTerminalLinearStateType(task.linearStateType),
-      )
-      .map(({ id }) => id),
-  );
+    .filter(
+      (task) =>
+        pendingPersistedTerminalTaskIds.has(task.id) ||
+        isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds),
+    );
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
@@ -454,6 +445,7 @@ async function reconcileLinearStatuses({
   }
 
   for (const task of tasks) {
+    const recoveringPersistedTerminalTask = pendingPersistedTerminalTaskIds.has(task.id);
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
     if (teamName && rateLimitedTeams.has(teamName)) continue;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
@@ -477,6 +469,11 @@ async function reconcileLinearStatuses({
         }
         if (!pendingPersistedTerminalTaskIds.has(task.id)) continue;
       }
+      if (effectiveStateType && recoveringPersistedTerminalTask) {
+        store.setTaskLinearStateType(task.id, effectiveStateType);
+        pendingPersistedTerminalTaskIds.delete(task.id);
+        if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
+      }
     }
 
     const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
@@ -492,8 +489,10 @@ async function reconcileLinearStatuses({
       linearIssue.state,
       linearIssue.stateType,
     );
-    if (effectiveStateType) {
+    if (effectiveStateType && recoveringPersistedTerminalTask) {
+      store.setTaskLinearStateType(task.id, effectiveStateType);
       pendingPersistedTerminalTaskIds.delete(task.id);
+      if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
     }
     const detailedEnteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,
@@ -559,7 +558,24 @@ async function reconcileLinearStatuses({
       updateLinearStatus,
     });
   }
-  return pendingPersistedTerminalTaskIds.size === 0;
+  return pendingPersistedTerminalTaskIds;
+}
+
+function isTaskEligibleForNormalLinearReconciliation(
+  config: ResolvedWatcherRuntimeConfig,
+  task: Task,
+  skipTaskIds: ReadonlySet<string>,
+): boolean {
+  const hasCurrentLinearState =
+    skipTaskIds.has(task.id) &&
+    Boolean(task.linearStateType) &&
+    !shouldFetchReviewComments(config, task.status);
+  return !(
+    hasCurrentLinearState ||
+    task.issueIdentifier.startsWith("watcher:") ||
+    !task.parentChannelId ||
+    !task.parentMessageTs
+  );
 }
 
 async function processWatcherEvent({

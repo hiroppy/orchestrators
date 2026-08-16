@@ -332,7 +332,7 @@ describe("watcher reconciliation and snapshots", () => {
         store,
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
-        reconcilePersistedTerminalTasks: true,
+        persistedTerminalTaskIds: new Set([task.id]),
       });
 
       assert.equal(store.getTask(task.id)?.linearStateType, "started");
@@ -386,7 +386,7 @@ describe("watcher reconciliation and snapshots", () => {
         store,
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
-        reconcilePersistedTerminalTasks: true,
+        persistedTerminalTaskIds: new Set([task.id]),
       });
 
       assert.equal(firstRun.persistedTerminalReconciliationComplete, false);
@@ -398,10 +398,145 @@ describe("watcher reconciliation and snapshots", () => {
         store,
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
-        reconcilePersistedTerminalTasks: true,
+        persistedTerminalTaskIds: firstRun.pendingPersistedTerminalTaskIds,
       });
 
       assert.equal(secondRun.persistedTerminalReconciliationComplete, true);
+      assert.equal(store.getTask(task.id)?.linearStateType, "started");
+    });
+  });
+
+  it("retains only unresolved terminal rows across startup recovery retries", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      const batchRequests: string[][] = [];
+      let recoverMissingIssue = false;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const request = JSON.parse(String(options?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (!request.query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({ data: { issue: null } });
+        }
+        const identifiers = Object.values(request.variables);
+        batchRequests.push(identifiers);
+        const data = Object.fromEntries(
+          identifiers.flatMap((identifier, index) =>
+            identifier === "ENG-63" && !recoverMissingIssue
+              ? []
+              : [
+                  [
+                    `issue${index}`,
+                    {
+                      identifier,
+                      state: { name: "Ready for Release", type: "started" },
+                    },
+                  ],
+                ],
+          ),
+        );
+        return Response.json({ data });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+            terminalStates: ["Done"],
+          },
+        ],
+        linearTeams: linearTeams(["Ready for Release", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const tasks = ["ENG-62", "ENG-63"].map((issueIdentifier) =>
+        store.upsertTaskFromEvent({
+          type: "ended",
+          service: "service-a",
+          issueIdentifier,
+          resolvedState: "Ready for Release",
+          resolvedStateType: "completed",
+        }),
+      );
+
+      const firstRun = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        persistedTerminalTaskIds: new Set(tasks.map(({ id }) => id)),
+      });
+
+      assert.deepEqual([...firstRun.pendingPersistedTerminalTaskIds], [tasks[1]!.id]);
+      assert.equal(store.getTask(tasks[0]!.id)?.linearStateType, "started");
+      assert.equal(store.getTask(tasks[1]!.id)?.linearStateType, "completed");
+
+      recoverMissingIssue = true;
+      const secondRun = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        persistedTerminalTaskIds: firstRun.pendingPersistedTerminalTaskIds,
+      });
+
+      assert.deepEqual(batchRequests, [["ENG-62", "ENG-63"], ["ENG-63"]]);
+      assert.equal(secondRun.persistedTerminalReconciliationComplete, true);
+      assert.equal(store.getTask(tasks[1]!.id)?.linearStateType, "started");
+    });
+  });
+
+  it("recovers a persisted terminal row that is in the current snapshot without Slack metadata", async (context) => {
+    await withStore(async (store) => {
+      const snapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "Ready for Release" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue0: {
+              identifier: "ENG-62",
+              state: { name: "Ready for Release", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl(snapshot),
+            linearTeam: "workspace-a-eng",
+            terminalStates: ["Done"],
+          },
+        ],
+        linearTeams: linearTeams(["Ready for Release", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({ "service-a": snapshot });
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "Ready for Release",
+        resolvedStateType: "completed",
+      });
+
+      const result = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        persistedTerminalTaskIds: new Set([task.id]),
+      });
+
+      assert.equal(result.persistedTerminalReconciliationComplete, true);
       assert.equal(store.getTask(task.id)?.linearStateType, "started");
     });
   });
