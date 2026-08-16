@@ -4,7 +4,7 @@ import type { PullRequest, Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 
-export const REVIEW_READY_OBSERVED_EVENT = "review_ready_observed";
+const REVIEW_READY_OBSERVED_EVENT = "review_ready_observed";
 const REVIEW_READY_NOTIFICATION_PENDING_EVENT = "review_ready_notification_pending";
 export const REVIEW_READY_NOTIFIED_EVENT = "review_ready_notified";
 const REVIEW_READY_NOTIFICATION_DELIVERED_EVENT = "review_ready_notification_delivered";
@@ -72,6 +72,16 @@ export async function checkReviewReadyNotification({
   await deliverPendingReviewReadyNotifications(store, slackClient, task.id, payload.key);
 }
 
+export async function checkReviewReadyNotificationSafely(
+  options: Parameters<typeof checkReviewReadyNotification>[0],
+): Promise<void> {
+  try {
+    await checkReviewReadyNotification(options);
+  } catch (error) {
+    console.error("Review-ready notification check failed; it will be retried:", error);
+  }
+}
+
 function resetQuietWindow(store: WatcherStore, taskId: string, now: Date): void {
   const observed = store.getLatestEvent(taskId, REVIEW_READY_OBSERVED_EVENT);
   if (observed && observed.body !== REVIEW_READY_RESET_BODY) {
@@ -100,8 +110,16 @@ async function deliverPendingReviewReadyNotifications(
       const task = store.getTask(pending.taskId);
       if (!task?.parentChannelId || !task.parentMessageTs || !pending.body) continue;
       const payload = parseReviewReadyPayload(pending.body);
-      if (payload.key !== expectedKey) continue;
       const completionKey = String(pending.id);
+      if (payload.key !== expectedKey) {
+        store.addEvent({
+          taskId: task.id,
+          type: REVIEW_READY_NOTIFICATION_DELIVERED_EVENT,
+          actor: "watcher",
+          body: completionKey,
+        });
+        continue;
+      }
       if (!store.hasEvent(task.id, REVIEW_READY_NOTIFIED_EVENT, payload.key)) {
         const assignees = store.getTaskAssignees(task.id);
         if (assignees.length === 0) continue;

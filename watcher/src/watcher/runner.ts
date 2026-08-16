@@ -42,7 +42,7 @@ import {
 } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
-import { checkReviewReadyNotification } from "./review-ready.ts";
+import { checkReviewReadyNotificationSafely } from "./review-ready.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
@@ -414,7 +414,7 @@ async function reconcileLinearStatuses({
     };
     const reviewDecision = decideReviewRequeue(config, store, event);
     if (!reviewDecision.shouldRequeue && config.reviewComment) {
-      await checkReviewReadyNotification({
+      await checkReviewReadyNotificationSafely({
         store,
         slackClient,
         task: { ...task, status: linearIssue.state },
@@ -491,7 +491,7 @@ async function processWatcherEvent({
   });
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier));
   if (task && config.reviewComment) {
-    await checkReviewReadyNotification({
+    await checkReviewReadyNotificationSafely({
       store,
       slackClient,
       task,
