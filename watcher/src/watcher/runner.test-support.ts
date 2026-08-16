@@ -80,6 +80,20 @@ export function fakeSlackClient(
         return { ok: true, channel: String(args.channel), ts: String(args.ts) };
       },
     },
+    reactions: {
+      async add(args: Record<string, unknown>) {
+        calls.push({ method: "reactions.add", ...args });
+        return { ok: true };
+      },
+      async get(args: Record<string, unknown>) {
+        calls.push({ method: "reactions.get", ...args });
+        return { ok: true, message: { reactions: [] } };
+      },
+      async remove(args: Record<string, unknown>) {
+        calls.push({ method: "reactions.remove", ...args });
+        return { ok: true };
+      },
+    },
   } as never;
 }
 

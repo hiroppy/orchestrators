@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels",
+            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -68,6 +68,11 @@ describe("findPullRequest", () => {
               headRefName: "eng-65-contact-form",
               headRefOid: "abc123",
               labels: [{ name: "stg-deploy" }, { name: "symphony" }],
+              reactionGroups: [
+                { content: "THUMBS_UP", users: { totalCount: 2 } },
+                { content: "HEART", users: { totalCount: 0 } },
+                { content: "ROCKET", users: { totalCount: 1 } },
+              ],
             }),
           };
         },
@@ -88,6 +93,7 @@ describe("findPullRequest", () => {
       baseRefName: null,
       repository: "example/example-service",
       labels: ["stg-deploy", "symphony"],
+      reactions: ["THUMBS_UP", "ROCKET"],
     });
   });
 

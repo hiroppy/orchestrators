@@ -1,11 +1,16 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { PullRequest, WatcherEvent } from "../domain/types.ts";
+import {
+  GITHUB_REACTIONS,
+  type GitHubReaction,
+  type PullRequest,
+  type WatcherEvent,
+} from "../domain/types.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
-  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels";
+  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups";
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
@@ -26,6 +31,7 @@ interface GhPullRequest {
   headRefOid?: string;
   baseRefName?: string;
   labels?: Array<{ name?: string }>;
+  reactionGroups?: Array<{ content?: string; users?: { totalCount?: number } }>;
 }
 
 interface GhReviewThreadsResponse {
@@ -138,7 +144,15 @@ function toPullRequest(parsed: GhPullRequest): PullRequest {
     baseRefName: parsed.baseRefName ?? null,
     repository: repositoryFromPullRequestUrl(parsed.url!),
     labels: parsed.labels?.flatMap(({ name }) => (name ? [name] : [])) ?? [],
+    reactions:
+      parsed.reactionGroups?.flatMap(({ content, users }) =>
+        content && (users?.totalCount ?? 0) > 0 && isGitHubReaction(content) ? [content] : [],
+      ) ?? [],
   };
+}
+
+function isGitHubReaction(value: string): value is GitHubReaction {
+  return GITHUB_REACTIONS.some((reaction) => reaction === value);
 }
 
 async function fetchLatestReviewCommentAt(
