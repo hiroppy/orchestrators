@@ -60,6 +60,11 @@ it("shows concise current activity and truncates the changed-file list upstream"
       },
     ],
     facts: {
+      pullRequest: {
+        url: "https://github.com/example/app/pull/42",
+        number: 42,
+        title: "Show live activity",
+      },
       activity: {
         message: "Running tests",
         changedFiles: ["views.ts", "views.test.ts", "runner.ts"],
@@ -73,6 +78,7 @@ it("shows concise current activity and truncates the changed-file list upstream"
 
   assert.match(rendered, /\*Current activity\*\\nRunning tests/);
   assert.match(rendered, /views\.ts.*views\.test\.ts.*runner\.ts.*\+2 more/);
+  assert.ok(rendered.indexOf("Current activity") < rendered.indexOf("PR#42"));
 });
 
 it("rejects a new timeline card when Slack omits its timestamp", async () => {

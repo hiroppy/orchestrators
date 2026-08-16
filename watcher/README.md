@@ -267,7 +267,7 @@ destination channel. It does not require the root `config.ts` or
   anchor persistence is interrupted. The local task status is persisted only after
   both the Linear update and Slack card update succeed.
 - While Symphony reports a task as running, its Timeline card shows the latest
-  activity and local workspace diff summary. The watcher updates that section in
+  activity and local workspace diff summary above any pull request details. The watcher updates that section in
   place no more than once every 15 seconds. At most three changed paths are shown;
   additional paths are summarized as `+N more`, and aggregate additions include
   untracked text files. Git inspection has bounded runtime and output and falls

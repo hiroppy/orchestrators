@@ -202,16 +202,16 @@ export function buildStatusCard(card: StatusCard): KnownBlock[] {
     type: "section",
     fields: primaryFields.map((text) => ({ type: "mrkdwn", text })),
   });
-  if (card.facts.pullRequest) {
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: formatParentPullRequestField(card.facts.pullRequest) },
-    });
-  }
   if (card.facts.activity) {
     blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: formatCurrentActivity(card.facts.activity) },
+    });
+  }
+  if (card.facts.pullRequest) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: formatParentPullRequestField(card.facts.pullRequest) },
     });
   }
   if (source.type === "automatic" && source.error) {
