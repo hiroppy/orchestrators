@@ -197,10 +197,12 @@ result instead of waiting for CI inside the hook.
 Mention the configured bot to run a command:
 
 - `@bot status` — show tracked Todo, In Progress, and In Review tasks.
-- `@bot assign @user-or-group` — add a user or user group to notifications for
-  a tracked task. Run this in the task thread.
-- `@bot unassign @user-or-group` — remove a user or user group from
-  notifications for a tracked task. Run this in the task thread.
+- `@bot assign @user-or-group|username|me` — add a user or user group to
+  notifications for a tracked task. Usernames work with or without `@`; use
+  `me` to assign yourself. Run this in the task thread.
+- `@bot unassign @user-or-group|username|me` — remove a user or user group from
+  notifications for a tracked task. Usernames work with or without `@`; use
+  `me` to unassign yourself. Run this in the task thread.
 - `@bot take-pr <GitHub PR URL>` — create a Todo Linear issue for an existing
   open pull request. Symphony moves it to In Progress when execution starts.
 - `@bot help` — show the available commands and where to run them.

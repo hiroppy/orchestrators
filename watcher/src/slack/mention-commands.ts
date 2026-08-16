@@ -1,5 +1,4 @@
 import type { WatcherStore } from "../persistence/store.ts";
-import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
@@ -16,7 +15,11 @@ import {
   type TaskCard,
 } from "./views.ts";
 import type { SlackClient } from "./client-types.ts";
-import { resolveSlackAssigneeLabels, resolveSlackDisplayName } from "./users.ts";
+import {
+  resolveSlackAssigneeId,
+  resolveSlackAssigneeLabels,
+  resolveSlackDisplayName,
+} from "./users.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
 import { reloadStatusTimeline } from "./status-timeline.ts";
@@ -73,6 +76,9 @@ export async function handleAppMention(
 }
 
 function commandFailureMessage(command: string): string {
+  if (command === "assign") {
+    return "Failed to assign the user to the task. No assignment was changed.";
+  }
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
   if (command === "unassign") {
@@ -162,12 +168,13 @@ async function handleAssignCommand({
     return;
   }
 
-  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  const slackAssigneeId =
+    args.length === 1 ? await resolveSlackAssigneeId(client, args[0], event.user) : undefined;
   if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`assign @user-or-group\``,
+      `Usage: ${event.botMention} \`assign @user-or-group|username|me\``,
     );
     return;
   }
@@ -211,7 +218,17 @@ async function handleAssignCommand({
     );
     return;
   }
-  await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  try {
+    await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "The user was assigned, but the confirmation reaction could not be added.",
+      logger,
+    );
+  }
 }
 
 async function handleUnassignCommand({
@@ -241,12 +258,13 @@ async function handleUnassignCommand({
     return;
   }
 
-  const slackAssigneeId = args.length === 1 ? slackAssigneeIdFromMention(args[0]) : undefined;
+  const slackAssigneeId =
+    args.length === 1 ? await resolveSlackAssigneeId(client, args[0], event.user) : undefined;
   if (!slackAssigneeId) {
     await postSlackOperationError(
       client,
       { channel: event.channel, threadTs },
-      `Usage: ${event.botMention} \`unassign @user-or-group\``,
+      `Usage: ${event.botMention} \`unassign @user-or-group|username|me\``,
     );
     return;
   }

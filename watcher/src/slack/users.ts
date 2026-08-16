@@ -1,4 +1,55 @@
+import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { SlackClient } from "./client-types.ts";
+
+const USERS_PAGE_SIZE = 200;
+
+export async function resolveSlackAssigneeId(
+  client: Pick<SlackClient, "users">,
+  value: string,
+  currentUserId?: string,
+): Promise<string | undefined> {
+  const mentionedAssigneeId = slackAssigneeIdFromMention(value);
+  if (mentionedAssigneeId) return mentionedAssigneeId;
+  if (value.toLowerCase() === "me") return currentUserId;
+
+  const normalizedValue = value.replace(/^@/, "").toLowerCase();
+  if (!normalizedValue) return undefined;
+  if (!client.users?.list) return undefined;
+
+  const matchingUserIds = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = await client.users.list({
+      limit: USERS_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const member of response.members ?? []) {
+      if (
+        !member.id ||
+        member.id === "USLACKBOT" ||
+        member.deleted ||
+        member.is_bot ||
+        member.is_app_user
+      ) {
+        continue;
+      }
+      const names = [
+        member.name,
+        member.real_name,
+        member.profile?.display_name,
+        member.profile?.real_name,
+      ];
+      if (names.some((name) => name?.toLowerCase() === normalizedValue)) {
+        matchingUserIds.add(member.id);
+      }
+    }
+    cursor = response.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+
+  if (matchingUserIds.size !== 1) return undefined;
+  return matchingUserIds.values().next().value;
+}
 
 export async function resolveSlackDisplayName(
   client: Pick<SlackClient, "users">,

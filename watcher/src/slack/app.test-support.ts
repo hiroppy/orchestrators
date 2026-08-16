@@ -20,6 +20,17 @@ export function fakeClient(
               const name = userNames[String(args.user)];
               return { ok: true, user: name ? { profile: { display_name: name } } : undefined };
             },
+            async list(args: Record<string, unknown>) {
+              calls.push({ method: "usersList", args });
+              return {
+                ok: true,
+                members: Object.entries(userNames).map(([id, name]) => ({
+                  id,
+                  name,
+                  profile: { display_name: name },
+                })),
+              };
+            },
           },
         }
       : {}),
