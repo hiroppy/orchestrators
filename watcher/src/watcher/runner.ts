@@ -42,6 +42,7 @@ import {
 } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
+import { checkReviewReadyNotification } from "./review-ready.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
@@ -412,6 +413,15 @@ async function reconcileLinearStatuses({
       relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewRequeue(config, store, event);
+    if (!reviewDecision.shouldRequeue && config.reviewComment) {
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task: { ...task, status: linearIssue.state },
+        inReviewStatus: config.reviewComment.inReviewStatus,
+        pullRequest,
+      });
+    }
     if (detailedSameStatus && !reviewDecision.shouldRequeue && !detailedEnteredTerminalState) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
@@ -479,6 +489,16 @@ async function processWatcherEvent({
     decision: reviewDecision,
     updateLinearStatus,
   });
+  const task = store.getTask(taskIdFor(event.service, event.issueIdentifier));
+  if (task && config.reviewComment) {
+    await checkReviewReadyNotification({
+      store,
+      slackClient,
+      task,
+      inReviewStatus: config.reviewComment.inReviewStatus,
+      pullRequest: event.pullRequest,
+    });
+  }
 }
 
 function taskIdsInSnapshots(snapshots: SnapshotsByService): string[] {

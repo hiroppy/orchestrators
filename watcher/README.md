@@ -303,6 +303,10 @@ destination channel. It does not require the root `config.ts` or
   characters, and error details shown on cards are capped at 180 characters.
 - Inline PR comments are queried only for issues in the configured review status.
   A comment newer than the persisted handled timestamp requeues the issue once.
+- An open, non-draft pull request that remains in the configured review status at
+  the same head SHA for 20 minutes posts one task-thread notification mentioning
+  the current assignees. A status or SHA change restarts the quiet window, and a
+  SHA that has already produced a notification is never notified again.
 - Observability and Linear requests time out instead of blocking the polling
   loop indefinitely. A temporary observability failure preserves the last
   known task snapshot and posts a service warning; recovery updates that
