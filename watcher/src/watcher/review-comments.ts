@@ -11,7 +11,7 @@ export const REVIEW_REQUEUE_NOTIFICATION_DELIVERED_EVENT = "review_requeue_notif
 
 export type ReviewRequeueDecision =
   | { shouldRequeue: false }
-  | { shouldRequeue: true; reason: "merge-conflict" }
+  | { shouldRequeue: true; reason: "merge-conflict"; commentAt?: string }
   | { shouldRequeue: true; reason: "review-comment"; commentAt: string };
 
 export interface ReviewRequeuePayload {
@@ -34,17 +34,23 @@ export function decideReviewRequeue(
     return { shouldRequeue: false };
   }
 
-  if (event.pullRequest?.mergeable?.toLowerCase() === "conflicting") {
-    return { shouldRequeue: true, reason: "merge-conflict" };
-  }
-
   const latestCommentAt = event.pullRequest?.latestReviewCommentAt;
-  if (!latestCommentAt) return { shouldRequeue: false };
-
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   const handledCommentAt = store.getLatestEvent(taskId, REVIEW_COMMENT_HANDLED_EVENT)?.body;
-  return !handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt)
-    ? { shouldRequeue: true, reason: "review-comment", commentAt: latestCommentAt }
+  const unhandledCommentAt =
+    latestCommentAt &&
+    (!handledCommentAt || Date.parse(latestCommentAt) > Date.parse(handledCommentAt))
+      ? latestCommentAt
+      : undefined;
+
+  if (event.pullRequest?.mergeable?.toLowerCase() === "conflicting") {
+    return unhandledCommentAt
+      ? { shouldRequeue: true, reason: "merge-conflict", commentAt: unhandledCommentAt }
+      : { shouldRequeue: true, reason: "merge-conflict" };
+  }
+
+  return unhandledCommentAt
+    ? { shouldRequeue: true, reason: "review-comment", commentAt: unhandledCommentAt }
     : { shouldRequeue: false };
 }
 

@@ -209,7 +209,7 @@ describe("watcher review requeue", () => {
     });
   });
 
-  it("updates Linear and the stored task after a merge conflict", async () => {
+  it("updates Linear after a merge conflict and handles a concurrent comment", async () => {
     await withStore(async (store) => {
       const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
@@ -221,23 +221,32 @@ describe("watcher review requeue", () => {
       });
       store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
       const updates: string[] = [];
+      const event = {
+        type: "updated" as const,
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          mergeable: "CONFLICTING",
+          latestReviewCommentAt: "2026-08-15T00:00:00.000Z",
+        },
+      };
+      const decision = decideReviewRequeue(config, store, event);
+
+      assert.deepEqual(decision, {
+        shouldRequeue: true,
+        reason: "merge-conflict",
+        commentAt: "2026-08-15T00:00:00.000Z",
+      });
 
       await requeueReviewTask({
         config,
         store,
         slackClient: fakeSlackClient([]),
         watcherChannelId: "C123",
-        event: {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          resolvedState: "In Review",
-          pullRequest: {
-            url: "https://github.com/acme/example/pull/42",
-            mergeable: "CONFLICTING",
-          },
-        },
-        decision: { shouldRequeue: true, reason: "merge-conflict" },
+        event,
+        decision,
         updateLinearStatus: async (_identifier, status) => {
           updates.push(status);
         },
@@ -245,7 +254,17 @@ describe("watcher review requeue", () => {
 
       assert.deepEqual(updates, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
-      assert.equal(store.getLatestEvent("service-a:ENG-62", "review_comment_handled"), undefined);
+      assert.equal(
+        store.getLatestEvent("service-a:ENG-62", "review_comment_handled")?.body,
+        "2026-08-15T00:00:00.000Z",
+      );
+      assert.deepEqual(
+        decideReviewRequeue(config, store, {
+          ...event,
+          pullRequest: { ...event.pullRequest, mergeable: "MERGEABLE" },
+        }),
+        { shouldRequeue: false },
+      );
       const pending = store.getLatestEvent(
         "service-a:ENG-62",
         "review_requeue_notification_pending",

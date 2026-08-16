@@ -66,7 +66,7 @@ export async function requeueReviewTask({
         event.pullRequest,
       );
       const commentHandledEvent =
-        decision.reason === "review-comment"
+        decision.commentAt !== undefined
           ? [
               {
                 taskId: task.id,
