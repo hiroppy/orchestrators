@@ -339,6 +339,146 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("retries persisted terminal recovery after a startup rate limit", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      let rateLimited = true;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        if (rateLimited) {
+          return Response.json(
+            { errors: [{ extensions: { code: "RATELIMITED" } }] },
+            { status: 400 },
+          );
+        }
+        return Response.json({
+          data: {
+            issue0: {
+              identifier: "ENG-62",
+              state: { name: "Ready for Release", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+            terminalStates: ["Done"],
+          },
+        ],
+        linearTeams: linearTeams(["Ready for Release", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "Ready for Release",
+        resolvedStateType: "completed",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      const firstRun = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        reconcilePersistedTerminalTasks: true,
+      });
+
+      assert.equal(firstRun.persistedTerminalReconciliationComplete, false);
+      assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+
+      rateLimited = false;
+      const secondRun = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        reconcilePersistedTerminalTasks: true,
+      });
+
+      assert.equal(secondRun.persistedTerminalReconciliationComplete, true);
+      assert.equal(store.getTask(task.id)?.linearStateType, "started");
+    });
+  });
+
+  it("announces an existing task when its status becomes a terminal override", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      let linearFetches = 0;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        linearFetches += 1;
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "Ready for Release", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+            issue0: {
+              identifier: "ENG-62",
+              state: { name: "Ready for Release", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+            terminalStates: ["Done", "Ready for Release"],
+          },
+        ],
+        linearTeams: linearTeams(["Ready for Release", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "Ready for Release",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const calls: Array<Record<string, unknown>> = [];
+      const reconcile = () =>
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient(calls),
+          slackChannelId: "C123",
+        });
+
+      await reconcile();
+
+      assert.equal(store.getTask(task.id)?.linearStateType, "completed");
+      assert.equal(
+        calls.filter(({ method, thread_ts }) => method === "postMessage" && !thread_ts).length,
+        1,
+      );
+      assert.equal(linearFetches, 2);
+
+      await reconcile();
+
+      assert.equal(linearFetches, 2);
+      assert.equal(
+        calls.filter(({ method, thread_ts }) => method === "postMessage" && !thread_ts).length,
+        1,
+      );
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };
