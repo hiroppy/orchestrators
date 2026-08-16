@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { KnownBlock } from "@slack/web-api";
 
-import type { PullRequest, Task, TaskEvent } from "../domain/types.ts";
+import type { PullRequest, Task, TaskActivity, TaskEvent } from "../domain/types.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
@@ -36,6 +36,7 @@ type StatusEventSource =
 
 interface StatusCardFacts {
   pullRequest?: PullRequest;
+  activity?: TaskActivity;
 }
 
 export interface StatusCard {
@@ -149,7 +150,7 @@ export async function reloadStatusTimeline(
   client: SlackClient,
   store: WatcherStore,
   taskId: string,
-): Promise<void> {
+): Promise<boolean> {
   const task = store.getTask(taskId);
   const storedEvents = store.getLatestDeliveredEventsByType(
     taskId,
@@ -157,11 +158,11 @@ export async function reloadStatusTimeline(
     MAX_TIMELINE_EVENTS + 1,
   );
   const messageTs = storedEvents[0]?.slackThreadTs;
-  if (!task?.parentChannelId || !messageTs) return;
+  if (!task?.parentChannelId || !messageTs) return false;
 
   const events = await Promise.all(storedEvents.map((event) => toStatusCardEvent(client, event)));
   const [latest, ...history] = events;
-  if (!latest) return;
+  if (!latest) return false;
 
   await client.chat.update({
     channel: task.parentChannelId,
@@ -172,6 +173,7 @@ export async function reloadStatusTimeline(
       facts: loadStatusCardFacts(task),
     }),
   });
+  return true;
 }
 
 function stableSlackClientMessageId(eventId: number): string {
@@ -204,6 +206,12 @@ export function buildStatusCard(card: StatusCard): KnownBlock[] {
     blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: formatParentPullRequestField(card.facts.pullRequest) },
+    });
+  }
+  if (card.facts.activity) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: formatCurrentActivity(card.facts.activity) },
     });
   }
   if (source.type === "automatic" && source.error) {
@@ -258,7 +266,24 @@ async function toStatusCardEvent(client: SlackClient, event: TaskEvent): Promise
 function loadStatusCardFacts(task: Task): StatusCardFacts {
   return {
     pullRequest: task.pullRequest,
+    activity: task.currentActivity,
   };
+}
+
+function formatCurrentActivity(activity: TaskActivity): string {
+  const lines = ["*Current activity*", escapeSlack(truncate(activity.message, 120))];
+  const files = activity.changedFiles
+    .map((file) => `\`${escapeSlack(truncate(file, 80))}\``)
+    .join(", ");
+  if (files) {
+    const omitted = activity.changedFileCount - activity.changedFiles.length;
+    lines.push(omitted > 0 ? `${files} +${omitted} more` : files);
+    const fileLabel = activity.changedFileCount === 1 ? "file" : "files";
+    lines.push(
+      `${activity.changedFileCount} ${fileLabel} (+${activity.additions} / −${activity.deletions})`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function formatEventSource(source: StatusEventSource): string {

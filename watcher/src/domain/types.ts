@@ -23,9 +23,18 @@ export interface SnapshotRow {
   started_at?: string;
   blocked_at?: string;
   last_event?: string;
+  last_message?: string;
   last_event_at?: string;
   attempt?: number;
   due_at?: string;
+}
+
+export interface TaskActivity {
+  message: string;
+  changedFiles: string[];
+  changedFileCount: number;
+  additions: number;
+  deletions: number;
 }
 
 export interface Snapshot {
@@ -107,6 +116,8 @@ export interface Task {
   parentMessageTs?: string;
   lastRenderedSummary?: string;
   lastEventAt?: string;
+  currentActivity?: TaskActivity;
+  activityPublishedAt?: string;
   updatedAt: string;
 }
 

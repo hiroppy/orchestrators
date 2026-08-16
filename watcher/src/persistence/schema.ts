@@ -67,6 +67,8 @@ export const tasks = sqliteTable(
     parentMessageTs: text("parent_message_ts"),
     lastRenderedSummary: text("last_rendered_summary"),
     lastEventAt: text("last_event_at"),
+    currentActivity: text("current_activity"),
+    activityPublishedAt: text("activity_published_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

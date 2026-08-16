@@ -32,6 +32,7 @@ import { enteredTerminalLinearState } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
+import { publishTaskActivities } from "./task-activity.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
@@ -282,6 +283,7 @@ export async function runOnce({
   }
 
   store.replaceSnapshots(current);
+  await publishTaskActivities(slackClient, store, current);
   if (runPeriodicMaintenance) {
     await reconcileLinearStatuses({
       config,
@@ -448,6 +450,9 @@ async function processWatcherEvent({
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
+  if (["ended", "retrying", "blocked"].includes(event.type)) {
+    store.setTaskActivity(taskIdFor(event.service, event.issueIdentifier), undefined);
+  }
   await publishWatcherEvent(slackClient, store, slackChannelId, event, {
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>

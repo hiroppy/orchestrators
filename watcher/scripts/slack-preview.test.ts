@@ -161,6 +161,17 @@ describe("Slack preview", () => {
     assert.ok(blocks.indexOf("In Progress → In Review") < blocks.indexOf("Todo → In Progress"));
   });
 
+  it("previews current Symphony activity and a bounded Git diff", () => {
+    const message = buildSlackPreviewMessage(
+      { category: "thread", type: "activity" },
+      new Date("2026-08-16T01:00:12.000Z"),
+    );
+    const blocks = JSON.stringify(message.blocks);
+
+    assert.match(blocks, /\*Current activity\*\\nitem started: command execution/);
+    assert.match(blocks, /status-timeline\.ts.*runner\.ts.*\+2 more/);
+  });
+
   it("previews every standalone notification with blocks", () => {
     const cases = [
       { category: "thread", type: "review-comment" },
@@ -281,6 +292,7 @@ describe("Slack preview", () => {
       "recover",
       "manual",
       "timeline",
+      "activity",
       "attention",
       "review-comment",
       "closed",

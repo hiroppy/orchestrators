@@ -42,6 +42,7 @@ export const SLACK_PREVIEW_TYPES = [
   ...SLACK_PREVIEW_EVENT_TYPES,
   "manual",
   "timeline",
+  "activity",
   "attention",
   "review-comment",
   "closed",
@@ -122,7 +123,7 @@ export function resolveSlackPreviewCase(
       : "Missing Slack preview type.";
     throw new Error(`${detail} Available types: ${SLACK_PREVIEW_TYPES.join(", ")}.\n${usage}`);
   }
-  const threadOnly = ["manual", "timeline", "review-comment", "next"];
+  const threadOnly = ["manual", "timeline", "activity", "review-comment", "next"];
   if (category === "post" && threadOnly.includes(type)) {
     throw new Error(`Slack preview type ${type} is only available for thread previews.\n${usage}`);
   }
@@ -229,6 +230,33 @@ export function buildSlackPreviewMessage(
             url: "https://github.com/example/preview/pull/123",
             number: 123,
             title: "Consolidate Slack status updates",
+          },
+        },
+      }),
+    };
+  }
+  if (type === "activity") {
+    if (category !== "thread") {
+      throw new Error("Slack preview type activity is only available for thread previews.");
+    }
+    return {
+      text: "*Todo* → *In Progress*\nCurrent activity: item started: command execution",
+      blocks: buildStatusCard({
+        events: [
+          {
+            fromStatus: "Todo",
+            toStatus: "In Progress",
+            occurredAt: "2026-08-15T00:00:00.000Z",
+            source: { type: "automatic", label: "Started" },
+          },
+        ],
+        facts: {
+          activity: {
+            message: "item started: command execution",
+            changedFiles: ["watcher/src/slack/status-timeline.ts", "watcher/src/watcher/runner.ts"],
+            changedFileCount: 4,
+            additions: 42,
+            deletions: 8,
           },
         },
       }),

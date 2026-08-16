@@ -218,7 +218,8 @@ pnpm slack:preview thread update
 
 The first argument is `post` or `thread`. Available event types are `start`,
 `update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
-a status change made by a Slack user, including the actor's display name. A
+a status change made by a Slack user, including the actor's display name. Use
+`thread activity` to preview the live Symphony activity and Git diff section. A
 consolidated status card with Event, Updated at, and history can be previewed
 with `thread timeline`. A configured creator and additional mention targets can
 be previewed with `post attention` or `thread attention`. Pass them as `mentionTarget` and
@@ -265,6 +266,11 @@ destination channel. It does not require the root `config.ts` or
   before Slack delivery and retried during periodic maintenance when delivery or
   anchor persistence is interrupted. The local task status is persisted only after
   both the Linear update and Slack card update succeed.
+- While Symphony reports a task as running, its Timeline card shows the latest
+  activity and local workspace diff summary. The watcher updates that section in
+  place no more than once every 15 seconds. At most three changed paths are shown;
+  additional paths are summarized as `+N more`. Token counts, turns, retries, and
+  raw worker output are intentionally omitted.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator

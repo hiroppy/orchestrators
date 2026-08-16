@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
-import type { SnapshotRow, Task, TaskEvent } from "../domain/types.ts";
+import type { SnapshotRow, Task, TaskActivity, TaskEvent } from "../domain/types.ts";
 
 export type TaskEventInput = {
   taskId: string;
@@ -127,6 +127,10 @@ export function taskFromRow(
     parentMessageTs: row.parentMessageTs,
     lastRenderedSummary: row.lastRenderedSummary,
     lastEventAt: row.lastEventAt,
+    currentActivity: row.currentActivity
+      ? (JSON.parse(row.currentActivity) as TaskActivity)
+      : undefined,
+    activityPublishedAt: row.activityPublishedAt,
     updatedAt: row.updatedAt,
   }) as unknown as Task;
 }

@@ -542,6 +542,24 @@ export class WatcherStore {
     setTaskEventSlackThreadTs(this.db, eventId, slackThreadTs);
   }
 
+  setTaskActivity(taskId: string, activity: Task["currentActivity"]): void {
+    this.db
+      .update(tasks)
+      .set({
+        currentActivity: activity ? JSON.stringify(activity) : null,
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
+  markTaskActivityPublished(taskId: string, publishedAt: Date): void {
+    this.db
+      .update(tasks)
+      .set({ activityPublishedAt: publishedAt.toISOString() })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
     return getTaskIdsWithIncompleteEvent(this.db, pendingType, completedType);
   }
