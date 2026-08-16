@@ -200,6 +200,18 @@ export async function reconcileSlackStatusTransition({
   slackChannelId: string;
   task: Task;
 }): Promise<void> {
+  const reviewComment = config.reviewComment;
+  const isInReview =
+    reviewComment && normalizeStatus(task.status) === normalizeStatus(reviewComment.inReviewStatus);
+  if (reviewComment && !isInReview) {
+    await checkReviewReadyNotificationSafely({
+      store,
+      slackClient,
+      task,
+      inReviewStatus: reviewComment.inReviewStatus,
+    });
+  }
+
   const linearIssue = await fetchLinearIssueState(task.issueIdentifier, {
     apiKey: linearTeamForService(config, task.serviceName)?.apiKey,
     includeCreator: false,
@@ -207,12 +219,12 @@ export async function reconcileSlackStatusTransition({
   });
   if (!linearIssue?.state || !linearIssue.stateType) return;
 
-  if (config.reviewComment) {
+  if (reviewComment && isInReview) {
     await checkReviewReadyNotificationSafely({
       store,
       slackClient,
       task,
-      inReviewStatus: config.reviewComment.inReviewStatus,
+      inReviewStatus: reviewComment.inReviewStatus,
       pullRequest: linearIssue.pullRequest,
     });
   }

@@ -20,16 +20,19 @@ describe("watcher reconciliation and snapshots", () => {
       context.mock.method(globalThis, "fetch", async () =>
         Response.json({
           data: {
-            issue: {
-              identifier: "ENG-62",
-              title: "Review the pull request",
-              state: { name: linearState, type: "started" },
-              url: "https://linear.app/example/issue/ENG-62/example",
-              attachments: {
-                nodes: [{ url: "https://github.com/acme/example/pull/42" }],
-              },
-              relations: { nodes: [] },
-            },
+            issue:
+              linearState === "In Progress"
+                ? null
+                : {
+                    identifier: "ENG-62",
+                    title: "Review the pull request",
+                    state: { name: linearState, type: "started" },
+                    url: "https://linear.app/example/issue/ENG-62/example",
+                    attachments: {
+                      nodes: [{ url: "https://github.com/acme/example/pull/42" }],
+                    },
+                    relations: { nodes: [] },
+                  },
           },
         }),
       );
