@@ -104,10 +104,6 @@ describe("watcher reconciliation and snapshots", () => {
           },
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
-        notifications: {
-          statuses: ["In Review"],
-          events: [],
-        },
         statusHooks: [
           {
             id: "capture-attempt",
@@ -472,10 +468,6 @@ describe("watcher reconciliation and snapshots", () => {
         ],
         linearTeams: linearTeams(["Backlog", "Done"]),
         defaultAssignees: ["<@UREVIEWERS>"],
-        notifications: {
-          statuses: [],
-          events: ["retrying", "recovered"],
-        },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": activeSnapshot });
@@ -494,7 +486,6 @@ describe("watcher reconciliation and snapshots", () => {
         [["retrying", "watcher:service-a"]],
       );
       assert.equal(store.getSnapshots()["service-a"]?.running[0]?.issue_identifier, "ENG-62");
-      assert.match(JSON.stringify(calls), /Assignees: <@UREVIEWERS>/);
 
       unavailable = false;
       const recovery = await runOnce({

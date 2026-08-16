@@ -99,10 +99,6 @@ describe("watcher polling", () => {
             statuses: ["Triage", "Building", "Shipped"],
           },
         },
-        notifications: {
-          statuses: [],
-          events: ["started"],
-        },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const slackCalls: Array<Record<string, unknown>> = [];
@@ -195,7 +191,6 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
-        notifications: { statuses: [], events: ["started"] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
 
@@ -240,10 +235,6 @@ describe("watcher polling", () => {
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
         defaultAssignees: ["<@UREVIEWERS>"],
-        notifications: {
-          statuses: [],
-          events: ["started"],
-        },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const calls: Array<Record<string, unknown>> = [];
@@ -256,7 +247,7 @@ describe("watcher polling", () => {
       });
 
       assert.deepEqual(store.getSnapshots()["service-a"], current);
-      assert.match(JSON.stringify(calls), /Assignees: <@UREVIEWERS>/);
+      assert.match(JSON.stringify(calls), /Assignees.*@UREVIEWERS/s);
     });
   });
 
@@ -293,7 +284,6 @@ describe("watcher polling", () => {
       const config = runtimeConfig({
         services: [{ name: "service-a", url: dataUrl(current), linearTeam: "workspace-a-eng" }],
         linearTeams: linearTeams(["In Progress", "Blocked", "Done"]),
-        notifications: { statuses: [], events: ["started"] },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const calls: Array<Record<string, unknown>> = [];

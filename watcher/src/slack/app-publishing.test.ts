@@ -98,14 +98,14 @@ describe("Slack event publishing", () => {
       };
 
       failUpdate = true;
-      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 
       failUpdate = false;
-      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      await publishWatcherEvent(client, store, "C123", event, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
     });
@@ -155,14 +155,14 @@ describe("Slack event publishing", () => {
         },
       };
 
-      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
       assert.deepEqual(deliveries, []);
 
       postFailure = undefined;
-      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      await publishWatcherEvent(client, store, "C123", event, options);
 
       assert.deepEqual(transitions, ["In Progress -> In Review@undefined"]);
       assert.deepEqual(deliveries, ["In Review"]);
@@ -204,14 +204,14 @@ describe("Slack event publishing", () => {
         },
       };
 
-      await assert.rejects(publishWatcherEvent(client, store, "C123", event, undefined, options));
+      await assert.rejects(publishWatcherEvent(client, store, "C123", event, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 
       failThread = false;
-      await publishWatcherEvent(client, store, "C123", event, undefined, options);
+      await publishWatcherEvent(client, store, "C123", event, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
     });

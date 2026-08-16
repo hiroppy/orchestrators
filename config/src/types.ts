@@ -14,17 +14,11 @@ export interface InstanceConfig {
   enabled?: boolean;
 }
 
-export interface NotificationsConfig {
-  statuses?: string[];
-  events?: EventType[];
-}
-
 export interface SlackConfig {
   botToken?: string;
   appToken?: string;
   channelId?: string;
   defaultAssignees?: string[];
-  notifications?: NotificationsConfig;
 }
 
 export interface ReviewCommentConfig {

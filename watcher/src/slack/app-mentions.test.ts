@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  handleAppMention,
-  notificationTargetsForWatcherEvent,
-  publishWatcherEvent,
-} from "./app.ts";
+import { handleAppMention, publishWatcherEvent } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 import { buildTaskCard } from "./views.ts";
 
@@ -293,53 +289,6 @@ describe("Slack mention commands", () => {
             args: { channel: "C123", name: "white_check_mark", timestamp: "21.000" },
           },
         ],
-      );
-
-      const notification = {
-        statuses: ["In Review"],
-        events: [] as const,
-      };
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-        },
-        notification,
-      );
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-63",
-          state: "In Review",
-        },
-        notification,
-      );
-
-      const notificationTexts = calls
-        .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
-        .map(({ args }) => String(args.text));
-      assert.equal(notificationTexts.length, 3);
-      assert.equal(notificationTexts.filter((text) => text.includes("<@UHIROPPY>")).length, 1);
-
-      assert.deepEqual(
-        notificationTargetsForWatcherEvent(
-          notification,
-          "In Progress",
-          "In Review",
-          "updated",
-          ["<@UHIROPPY>"],
-          false,
-        ),
-        ["<@UHIROPPY>"],
       );
     });
   });
@@ -791,42 +740,6 @@ describe("Slack mention commands", () => {
         calls[0].args.text,
         "[error] Failed to unassign the user from the task. No assignment was changed.",
       );
-    });
-  });
-
-  it("keeps persisted task assignees visible after default assignees expand", async () => {
-    await withStore(async (store) => {
-      const task = store.upsertTaskFromEvent({
-        type: "started",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Progress",
-      });
-      store.setParentMessage(task.id, "C123", "10.000", "{}");
-      store.assignTask(task.id, "U123");
-      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-
-      await publishWatcherEvent(
-        fakeClient(calls),
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-        },
-        {
-          targets: [`<!subteam^${"X".repeat(1_975)}>`],
-          statuses: ["In Review"],
-          events: [],
-        },
-      );
-
-      const notification = calls.find(
-        ({ method, args }) => method === "postMessage" && args.thread_ts === "10.000",
-      );
-      assert.match(JSON.stringify(notification?.args.blocks), /@U123/);
     });
   });
 });
