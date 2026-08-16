@@ -48,10 +48,11 @@ A snapshot difference emits a watcher event when a task appears, changes executi
 blocked or retrying, or disappears. The watcher then enriches that event with authoritative Linear
 state and, when relevant, GitHub pull-request metadata.
 
-For running tasks, the watcher also refreshes the existing Slack Timeline card at most once every
-15 seconds. It combines Symphony's latest activity notification with a bounded summary of the local
-workspace Git diff. These refreshes replace the current activity in place and do not create audit
-events or additional thread replies.
+The first running observation creates the Slack Timeline card. While the task remains running, the
+watcher refreshes that card at most once every 15 seconds with Symphony's latest activity
+notification and a bounded summary of the local workspace Git diff. Git inspection includes
+untracked text additions and has timeout and output limits. Refreshes replace the current activity
+in place and do not create audit events or additional thread replies.
 
 ### Watcher tracked tasks
 

@@ -263,6 +263,11 @@ export async function publishWatcherEvent(
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
   await withTaskCardQueue(taskId, async () => {
+    const clearsActivity =
+      event.type === "ended" || event.type === "retrying" || event.type === "blocked";
+    const activityCleared = clearsActivity && Boolean(store.getTask(taskId)?.currentActivity);
+    if (clearsActivity) store.setTaskActivity(taskId, undefined);
+
     const { task: persistedTask, previousTask } = store.upsertTaskFromEventAtomically(
       event,
       (task, previous) =>
@@ -350,11 +355,12 @@ export async function publishWatcherEvent(
       toStatus: task.status,
     };
     const statusBody = buildThreadMessage(statusEvent, threadContext);
-    if (statusChanged) {
+    const initialObservation = previousTask === undefined && event.type === "started";
+    if (statusChanged || initialObservation) {
       await publishStatusTimeline(client, store, {
         taskId: task.id,
         event: {
-          fromStatus: previousTask.status,
+          fromStatus: previousTask?.status ?? task.status,
           toStatus: task.status,
           occurredAt: new Date().toISOString(),
           source: {
@@ -365,7 +371,7 @@ export async function publishWatcherEvent(
         },
         fallbackText: statusBody,
       });
-    } else if (pullRequestChanged) {
+    } else if (pullRequestChanged || activityCleared) {
       await reloadStatusTimeline(client, store, task.id);
     }
 

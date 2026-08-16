@@ -82,17 +82,23 @@ describe("Slack status actions", () => {
       assert.deepEqual(linearUpdates, ["Rework"]);
       assert.deepEqual(hookTransitions, ["In Review -> Rework"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "Rework");
-      assert.equal(calls.filter(({ method }) => method === "update").length, 1);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 2);
       assert.match(
-        JSON.stringify(calls.find(({ method }) => method === "update")?.args.blocks),
+        JSON.stringify(
+          calls.find(({ method, args }) => method === "update" && args.ts === "1.000")?.args.blocks,
+        ),
         /linear\.app/,
       );
       assert.match(
-        String(calls.find(({ method }) => method === "postMessage")?.args.text),
+        String(
+          calls.find(({ method, args }) => method === "update" && args.ts === "2.000")?.args.text,
+        ),
         /\*In Review\* → \*Rework\* by Example User/,
       );
       assert.match(
-        JSON.stringify(calls.find(({ method }) => method === "postMessage")?.args.blocks),
+        JSON.stringify(
+          calls.find(({ method, args }) => method === "update" && args.ts === "2.000")?.args.blocks,
+        ),
         /\*Updated at\*\\n`\d{2}:\d{2}`/,
       );
     });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { publishTaskActivities } from "../watcher/task-activity.ts";
 import { publishWatcherEvent } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 
@@ -39,7 +40,7 @@ describe("Slack event publishing", () => {
 
       assert.equal(topLevelPosts.length, 1);
       assert.equal(threadPosts.length, 1);
-      assert.equal(updates.length, 2);
+      assert.equal(updates.length, 3);
       assert.equal(updates[0].args.ts, "1.000");
       assert.deepEqual(
         (threadPosts[0].args.blocks as Array<{ type: string }>).map(({ type }) => type),
@@ -59,6 +60,56 @@ describe("Slack event publishing", () => {
       };
       assert.notEqual(updatedActions.block_id, initialActions.block_id);
       assert.equal(updatedActions.elements[0].initial_option.value, "In Review");
+    });
+  });
+
+  it("creates an initial Timeline anchor and removes stopped activity from it", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      await publishTaskActivities(
+        client,
+        store,
+        {
+          "service-a": {
+            running: [{ issue_identifier: "ENG-62", last_message: "Running tests" }],
+            retrying: [],
+            blocked: [],
+          },
+        },
+        new Date("2026-08-16T01:00:00Z"),
+      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "blocked",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+
+      const threadPosts = calls.filter(
+        ({ method, args }) => method === "postMessage" && args.thread_ts,
+      );
+      const timelineUpdates = calls.filter(
+        ({ method, args }) => method === "update" && args.ts === "2.000",
+      );
+      const task = store.getTask("service-a:ENG-62");
+
+      assert.equal(threadPosts.length, 2);
+      assert.equal(timelineUpdates.length, 2);
+      assert.match(
+        JSON.stringify(timelineUpdates[0].args.blocks),
+        /Current activity.*Running tests/,
+      );
+      assert.doesNotMatch(JSON.stringify(timelineUpdates[1].args.blocks), /Current activity/);
+      assert.equal(task?.currentActivity, undefined);
+      assert.equal(task?.activityPublishedAt, undefined);
     });
   });
 
@@ -169,7 +220,7 @@ describe("Slack event publishing", () => {
     });
   });
 
-  it("records a transition before Slack thread failure and delivers after recovery", async () => {
+  it("records a transition before Slack Timeline failure and delivers after recovery", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
@@ -181,11 +232,11 @@ describe("Slack event publishing", () => {
         resolvedStateType: "started",
       });
 
-      const postMessage = client.chat.postMessage;
-      let failThread = true;
-      client.chat.postMessage = async (args) => {
-        if (failThread && args.thread_ts) throw new Error("Simulated Slack failure");
-        return postMessage(args);
+      const update = client.chat.update;
+      let failTimeline = true;
+      client.chat.update = async (args) => {
+        if (failTimeline && args.ts === "2.000") throw new Error("Simulated Slack failure");
+        return update(args);
       };
       const transitions: string[] = [];
       const deliveries: string[] = [];
@@ -210,7 +261,7 @@ describe("Slack event publishing", () => {
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 
-      failThread = false;
+      failTimeline = false;
       await publishWatcherEvent(client, store, "C123", event, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
@@ -288,7 +339,7 @@ describe("Slack event publishing", () => {
         unfurl_media: false,
       });
       const nextTaskPosts = calls.filter(
-        ({ method, args }) => method === "postMessage" && args.thread_ts === "2.000",
+        ({ method, args }) => method === "postMessage" && String(args.text).startsWith("Next task"),
       );
       assert.equal(nextTaskPosts.length, 1);
       assert.equal(
@@ -309,7 +360,7 @@ describe("Slack event publishing", () => {
       assert.equal(store.getTask("service-a:ENG-62")?.parentMessageTs, "1.000");
       assert.deepEqual(
         calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
-        ["1.000", "1.000"],
+        ["1.000", "2.000", "1.000"],
       );
     });
   });

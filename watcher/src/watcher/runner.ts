@@ -450,9 +450,6 @@ async function processWatcherEvent({
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  if (["ended", "retrying", "blocked"].includes(event.type)) {
-    store.setTaskActivity(taskIdFor(event.service, event.issueIdentifier), undefined);
-  }
   await publishWatcherEvent(slackClient, store, slackChannelId, event, {
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>

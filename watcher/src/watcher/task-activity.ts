@@ -9,6 +9,8 @@ import { withTaskCardQueue } from "../slack/task-card-queue.ts";
 
 const execFileAsync = promisify(execFile);
 const ACTIVITY_UPDATE_INTERVAL_MS = 15_000;
+const GIT_COMMAND_TIMEOUT_MS = 5_000;
+const GIT_MAX_BUFFER_BYTES = 1024 * 1024;
 const MAX_DISPLAYED_FILES = 3;
 
 export async function publishTaskActivities(
@@ -52,19 +54,32 @@ export function isTaskActivityUpdateDue(publishedAt: string | undefined, now: Da
   return !publishedAt || now.getTime() - Date.parse(publishedAt) >= ACTIVITY_UPDATE_INTERVAL_MS;
 }
 
-async function readGitSummary(workspacePath: string): Promise<GitSummary> {
+export async function readGitSummary(
+  workspacePath: string,
+  options: GitCommandOptions = {},
+): Promise<GitSummary> {
   try {
-    const [{ stdout: status }, { stdout: numstat }] = await Promise.all([
-      execFileAsync("git", ["-C", workspacePath, "status", "--short", "--untracked-files=all"]),
-      execFileAsync("git", ["-C", workspacePath, "diff", "--numstat", "HEAD", "--"]),
+    const [status, trackedNumstat, untrackedOutput] = await Promise.all([
+      runGit(workspacePath, ["status", "--short", "--untracked-files=all"], options),
+      runGit(workspacePath, ["diff", "--numstat", "HEAD", "--"], options),
+      runGit(workspacePath, ["ls-files", "--others", "--exclude-standard", "-z"], options),
     ]);
     const files = status
       .split("\n")
       .filter(Boolean)
       .map((line) => line.slice(3).trim());
+    const untrackedFiles = untrackedOutput.split("\0").filter(Boolean);
+    const untrackedNumstats = await Promise.all(
+      untrackedFiles.map((file) =>
+        runGit(workspacePath, ["diff", "--no-index", "--numstat", "--", "/dev/null", file], {
+          ...options,
+          allowDifferences: true,
+        }),
+      ),
+    );
     let additions = 0;
     let deletions = 0;
-    for (const line of numstat.split("\n")) {
+    for (const line of [trackedNumstat, ...untrackedNumstats].join("\n").split("\n")) {
       const [added, deleted] = line.split("\t");
       if (/^\d+$/.test(added ?? "")) additions += Number(added);
       if (/^\d+$/.test(deleted ?? "")) deletions += Number(deleted);
@@ -78,6 +93,43 @@ async function readGitSummary(workspacePath: string): Promise<GitSummary> {
   } catch {
     return emptyGitSummary();
   }
+}
+
+async function runGit(
+  workspacePath: string,
+  args: string[],
+  options: GitCommandOptions,
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      options.gitExecutable ?? "git",
+      ["-C", workspacePath, ...args],
+      {
+        timeout: options.timeoutMs ?? GIT_COMMAND_TIMEOUT_MS,
+        maxBuffer: GIT_MAX_BUFFER_BYTES,
+      },
+    );
+    return stdout;
+  } catch (error) {
+    if (
+      options.allowDifferences &&
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === 1 &&
+      "stdout" in error &&
+      typeof error.stdout === "string"
+    ) {
+      return error.stdout;
+    }
+    throw error;
+  }
+}
+
+interface GitCommandOptions {
+  gitExecutable?: string;
+  timeoutMs?: number;
+  allowDifferences?: boolean;
 }
 
 interface GitSummary {

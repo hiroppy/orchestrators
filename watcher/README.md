@@ -259,8 +259,8 @@ destination channel. It does not require the root `config.ts` or
   same terminal state do not post the notification again.
 - Slack status changes are acknowledged immediately, validated against that
   task's referenced Linear team workflow, written with that team's API key,
-  rendered in Slack, persisted, and recorded in the thread. The first status
-  transition creates one thread reply; later transitions update that reply with
+  rendered in Slack, persisted, and recorded in the thread. The first running
+  observation creates one Timeline reply; later transitions update that reply with
   the latest `from → to` transition and move older transitions into its Timeline.
   Changes for the same task are serialized. Timeline transitions are persisted
   before Slack delivery and retried during periodic maintenance when delivery or
@@ -269,8 +269,10 @@ destination channel. It does not require the root `config.ts` or
 - While Symphony reports a task as running, its Timeline card shows the latest
   activity and local workspace diff summary. The watcher updates that section in
   place no more than once every 15 seconds. At most three changed paths are shown;
-  additional paths are summarized as `+N more`. Token counts, turns, retries, and
-  raw worker output are intentionally omitted.
+  additional paths are summarized as `+N more`, and aggregate additions include
+  untracked text files. Git inspection has bounded runtime and output and falls
+  back to no diff when it fails. Token counts, turns, retries, and raw worker output
+  are intentionally omitted.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator

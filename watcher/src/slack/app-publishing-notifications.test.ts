@@ -208,12 +208,12 @@ describe("Slack event notifications", () => {
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
         .map(({ args }) => String(args.text));
       assert.equal(threadTexts.length, 1);
-      assert.match(threadTexts[0], /^\*Todo\* → \*In Progress\*\nEvent: Updated$/);
+      assert.equal(threadTexts[0], "*Started*");
       const timelineUpdates = calls.filter(
         ({ method, args }) => method === "update" && args.ts === "2.000",
       );
-      assert.equal(timelineUpdates.length, 2);
-      assert.match(JSON.stringify(timelineUpdates[0]?.args.blocks), /PR#42/);
+      assert.equal(timelineUpdates.length, 3);
+      assert.match(JSON.stringify(timelineUpdates[1]?.args.blocks), /PR#42/);
       const timelineUpdate = timelineUpdates.at(-1);
       assert.match(
         String(timelineUpdate?.args.text),
