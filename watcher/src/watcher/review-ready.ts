@@ -1,4 +1,4 @@
-import type { WebClient } from "@slack/web-api";
+import type { ChatPostMessageArguments } from "@slack/web-api";
 
 import type { PullRequest, Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
@@ -17,6 +17,12 @@ interface ReviewReadyPayload {
   pullRequestUrl: string;
 }
 
+interface ReviewReadySlackClient {
+  chat: {
+    postMessage(args: ChatPostMessageArguments): Promise<unknown>;
+  };
+}
+
 export async function checkReviewReadyNotification({
   store,
   slackClient,
@@ -26,7 +32,7 @@ export async function checkReviewReadyNotification({
   now = new Date(),
 }: {
   store: WatcherStore;
-  slackClient: WebClient;
+  slackClient: ReviewReadySlackClient;
   task: Task;
   inReviewStatus: string;
   pullRequest?: PullRequest;
@@ -97,7 +103,7 @@ function resetQuietWindow(store: WatcherStore, taskId: string, now: Date): void 
 
 async function deliverPendingReviewReadyNotifications(
   store: WatcherStore,
-  slackClient: WebClient,
+  slackClient: ReviewReadySlackClient,
   taskId: string,
   expectedKey: string,
 ): Promise<void> {

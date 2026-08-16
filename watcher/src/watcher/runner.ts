@@ -207,6 +207,16 @@ export async function reconcileSlackStatusTransition({
   });
   if (!linearIssue?.state || !linearIssue.stateType) return;
 
+  if (config.reviewComment) {
+    await checkReviewReadyNotificationSafely({
+      store,
+      slackClient,
+      task,
+      inReviewStatus: config.reviewComment.inReviewStatus,
+      pullRequest: linearIssue.pullRequest,
+    });
+  }
+
   await publishWatcherEvent(slackClient, store, slackChannelId, {
     type: "updated",
     service: task.serviceName,
