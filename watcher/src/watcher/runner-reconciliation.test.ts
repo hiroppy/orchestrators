@@ -150,6 +150,14 @@ describe("watcher reconciliation and snapshots", () => {
                       state: { name: "In Review", type: "started" },
                     },
                   },
+                  {
+                    type: "blocks",
+                    relatedIssue: {
+                      identifier: "ENG-65",
+                      title: "Still active by policy",
+                      state: { name: "In Progress", type: "completed" },
+                    },
+                  },
                 ],
               },
             },
@@ -202,6 +210,7 @@ describe("watcher reconciliation and snapshots", () => {
         ({ method, thread_ts }) => method === "postMessage" && thread_ts,
       )?.text;
       assert.match(String(relatedMessage), /ENG-64.*Start the follow-up/);
+      assert.match(String(relatedMessage), /ENG-65.*Still active by policy/);
       assert.doesNotMatch(String(relatedMessage), /ENG-63|Already ready for release/);
     });
   });

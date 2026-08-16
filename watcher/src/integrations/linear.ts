@@ -4,7 +4,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 class TransientLinearError extends Error {}
 
-import { isTerminalLinearStateType } from "../domain/linear.ts";
 import type { PullRequest, RelatedIssue } from "../domain/types.ts";
 import {
   ISSUE_STATE_QUERY,
@@ -321,7 +320,7 @@ export async function fetchLinearIssueState(
       if (!issue) return null;
 
       const pullRequest = findPullRequestAttachment(issue.attachments?.nodes);
-      const relatedIssues = findNextRelatedIssues(issue.relations?.nodes);
+      const relatedIssues = findBlockedRelatedIssues(issue.relations?.nodes);
 
       return {
         ...(issue.id ? { id: issue.id } : {}),
@@ -398,15 +397,11 @@ export async function fetchLinearIssueStateSummaries(
   return summaries;
 }
 
-function findNextRelatedIssues(relations?: LinearIssueRelation[] | null): RelatedIssue[] {
+function findBlockedRelatedIssues(relations?: LinearIssueRelation[] | null): RelatedIssue[] {
   if (!Array.isArray(relations)) return [];
 
   return relations.flatMap(({ type, relatedIssue }) => {
-    if (
-      type?.trim().toLowerCase() !== "blocks" ||
-      !relatedIssue?.identifier ||
-      isTerminalLinearStateType(relatedIssue.state?.type)
-    ) {
+    if (type?.trim().toLowerCase() !== "blocks" || !relatedIssue?.identifier) {
       return [];
     }
 
