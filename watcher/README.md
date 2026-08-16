@@ -1,178 +1,101 @@
-# Orchestrator Slack Watcher
+# Slack watcher
 
-See [`../docs/architecture.md`](../docs/architecture.md) for the relationship between Symphony,
-the watcher, Linear, GitHub, Slack, and the inline-review-comment lifecycle.
+The watcher brings Symphony tasks into Slack. It keeps one card and thread per task, lets you update
+Linear or send instructions from Slack, and notifies the right people when work needs attention.
 
-## Configuration
+Follow the root [`SETUP.md`](../SETUP.md) to connect Slack and Linear. See
+[`../docs/architecture.md`](../docs/architecture.md) for polling, persistence, and recovery details.
 
-The repository root `config.ts` is gitignored. Credentials can also be read from
-environment variables as shown in the root `config.example.ts`.
+## Using Slack
 
-Both entrypoints import `orchestrator-config/runtime`. Normal execution resolves
-that export to the shared root `config.ts`; the `test` condition resolves it to a
-fixture owned by the config package. Tests and type checking do not require a
-private config file.
+### Task cards
 
-### Define teams and instances
+Each tracked task has one card that updates in place. It shows:
 
-Declare Linear credentials as named teams, then reference one team from every
-instance:
+- the project and Linear issue;
+- the current Linear status and a selector to change it;
+- Symphony's latest activity and a summary of changed files; and
+- the linked pull request when available.
 
-```ts
-export default defineConfig({
-  linearTeams: {
-    "workspace-a-eng": {
-      apiKey: process.env.LINEAR_API_KEY_WORKSPACE_A_ENG ?? "",
-      teamId: process.env.LINEAR_TEAM_ID_WORKSPACE_A_ENG ?? "",
-      baseUrl: "https://linear.app/workspace-a/issue",
-    },
-  },
-  instances: {
-    "service-a": {
-      enabled: true,
-      port: 4105,
-      linearTeam: "workspace-a-eng",
-    },
-  },
-});
-```
+The task thread keeps its status Timeline and notifications. When a task reaches a terminal status,
+the watcher posts a final message in the channel with links to any nonterminal issues it was
+blocking.
 
-The instance key is its Symphony directory and service name. Its observability
-URL is `http://127.0.0.1:<port>/api/v1/state`. `enabled` defaults to `true`;
-only set it to `false` when the instance should not be started or watched.
+### Send instructions
 
-The watcher polls each instance's internal observability API every three seconds. Periodic
-maintenance, including Linear reconciliation and failed status-hook retries, runs every 30
-seconds.
-Terminal task observations are retried twice with a five-second delay by
-default. Override those checks only when needed:
+Reply in a task thread to copy text and attachments to the issue's active `## Codex Workpad`
+comment in Linear. A `white_check_mark` reaction confirms that the reply was copied.
 
-```ts
-{
-  watcher: {
-    endedTaskRetry: {
-      maxAttempts: 2,
-      delayMs: 5_000,
-    },
-  },
-}
-```
+Supported attachments are PNG, JPEG, GIF, WebP, MP4, MOV, and WebM files up to 25 MiB each. Replies
+outside a task thread or without an active Workpad are ignored.
 
-There is no fallback Linear team. `defineConfig()` catches unknown team
-references during type-checking, and runtime validation rejects invalid
-imported values, duplicate enabled ports, and missing credentials at startup.
-The watcher fetches the referenced teams' current workflow states from Linear
-before polling. It also reads each enabled instance's `WORKFLOW.md`: explicit
-`active_states` and `terminal_states` override Linear's state-type semantics,
-while unlisted states continue to use their Linear state type. Startup validates
-those names against the referenced team's workflow, except for Symphony's
-compatibility names `Merging`, `Closed`, and `Cancelled`.
+### Notifications
 
-Workflow-specific behavior remains explicit: `reviewComment.inReviewStatus`
-and `reviewComment.inProgressStatus` are business rules rather than
-discoverable Linear semantics. Startup verifies that every configured name
-exists in each enabled team's fetched workflow and fails with a configuration
-error if it does not.
+Assign Slack users or user groups to a task to control who is notified:
+
+- Blocked tasks mention their current assignees.
+
+The Linear issue creator is assigned automatically when their email matches a Slack user. You can
+also configure `slack.defaultAssignees` for every new task.
+
+### Commands
+
+Mention the configured bot to run a command:
+
+- `@bot status` — list tracked Todo, In Progress, and In Review tasks.
+- `@bot assign @user-or-group|username|me` — add a notification assignee. Run this in a task thread.
+- `@bot unassign @user-or-group|username|me` — remove a notification assignee. Run this in a task
+  thread.
+- `@bot take-pr <GitHub PR URL>` — create a Todo Linear issue for an existing open pull request.
+- `@bot help` — show the available commands.
+
+Usernames work with or without `@`. Use `me` to assign or unassign yourself.
+
+## Optional configuration
+
+The root `config.ts` is gitignored. Use environment variables for credentials as shown in
+[`../config.example.ts`](../config.example.ts).
 
 ### Review requeue
 
-Set `watcher.reviewComment` to move review work back into Symphony when an
-unhandled inline review comment or a merge conflict is observed while the issue
-is in review:
+Enable `watcher.reviewComment` to send a pull request back to Symphony when it has a merge conflict
+or a new eligible inline review comment:
 
 ```ts
-{
+export default defineConfig({
   watcher: {
-    // Remove this block to disable inline-comment requeueing.
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
       symphonyGitHubLogins: ["your-symphony-account"],
     },
   },
-}
+  // linearTeams, instances, and Slack configuration...
+});
 ```
 
-The watcher checks the linked pull request only while the Linear issue is in
-`inReviewStatus`. If GitHub reports the pull request as conflicting, or if the
-newest eligible comment is later than the last handled comment, the issue moves
-to `inProgressStatus`. The handled timestamp is stored in the existing event
-log; comment IDs and deletion state are not tracked. Omit `watcher.reviewComment`
-to disable this behavior.
-Comments in resolved or outdated review threads are ignored. A resolved thread
-becomes eligible again if it is subsequently marked unresolved and is not outdated.
-Comments from the pull request author and accounts listed in
-`symphonyGitHubLogins` are also ignored. Configure the GitHub account used by
-Symphony to reply to reviews so its own replies do not requeue the issue.
+Set `symphonyGitHubLogins` to every GitHub account Symphony uses to reply to reviews. Comments from
+those accounts and the pull request author are ignored, as are resolved or outdated review threads.
+For pull requests that stay ready at the same revision for 20 minutes, the watcher also mentions
+the task's assignees. Changing the revision or moving the issue out of review resets the timer, but
+each pull request SHA is notified only once. Remove `reviewComment` to disable both automatic
+requeueing and review-ready notifications.
 
-Review checks run during periodic maintenance, including for tasks that remain
-in the current Symphony snapshot without producing a new snapshot event. The
-watcher also mirrors the presence of reactions on the pull request body onto
-the Slack thread parent during these checks. Reaction counts and authors are
-not synchronized; reactions added by Slack users are left unchanged. The single
-watcher stores the handled timestamp after Linear accepts the status
-update. It intentionally does not implement a separate requeue outbox or
-distributed exactly-once recovery.
+The configured status names must exist in every enabled instance's Linear workflow.
 
 ### Status hooks
 
-Use `watcher.statusHooks` to run TypeScript after a tracked issue enters a
-specific Linear status. Put local hook modules in the gitignored root `hooks/`
-directory and import them from `config.ts`.
-
-The callback's first argument contains typed issue, status transition, and linked
-pull request data. The second argument contains helpers created by the watcher;
-their destinations are fixed for the current task, so hook code does not choose
-channel or thread IDs:
-
-- `helpers.slack.postMessage(message)` posts to the watcher channel.
-- `helpers.slack.postThreadMessage(message)` replies to the tracked task thread.
-- Returning a non-empty string is shorthand for posting one task-thread reply.
-- `id` must be unique and stable across hook reordering so interrupted deliveries can resume safely.
-- Message arguments use Slack's `ChatPostMessageArguments` type. The watcher fixes
-  `channel` and `thread_ts`; hook code supplies `text` or blocks and any other
-  supported Slack options.
-
-<details>
-<summary>Complete TypeScript hook example</summary>
-
-Create `hooks/in-review.ts`:
+Use `watcher.statusHooks` to post custom Slack messages when a task enters a Linear status:
 
 ```ts
-import type { StatusHookConfig } from "orchestrator-config";
-
-export const inReviewHook: StatusHookConfig["run"] = async ({ issue, pullRequest }, { slack }) => {
-  if (!pullRequest) return;
-
-  const testingUri = await findAppDistributionUrl(pullRequest.url);
-  await slack.postThreadMessage({
-    text: `App Distribution is ready for ${issue.identifier}: ${testingUri}`,
-    unfurl_links: false,
-    unfurl_media: false,
-  });
-};
-
-async function findAppDistributionUrl(pullRequestUrl: string): Promise<string> {
-  // Read the URL from the completed required CI check.
-  return pullRequestUrl;
-}
-```
-
-Import it from the gitignored root `config.ts`:
-
-```ts
-import { defineConfig } from "orchestrator-config";
-
-import { inReviewHook } from "./hooks/in-review.ts";
-
 export default defineConfig({
   watcher: {
     statusHooks: [
       {
-        id: "app-distribution",
+        id: "ready-for-review",
         status: "In Review",
-        maxAttempts: 10,
-        run: inReviewHook,
+        run: ({ issue, pullRequest }) =>
+          pullRequest ? `Ready for review: ${issue.identifier} ${pullRequest.url}` : undefined,
       },
     ],
   },
@@ -180,146 +103,16 @@ export default defineConfig({
 });
 ```
 
-</details>
+Returning a string posts it to the task thread. For richer messages, use the callback's helpers:
 
-Hooks run only on a transition edge, not on every poll.
-Failed hooks are retried up to `maxAttempts` times (default: `10`). When the
-limit is reached, the watcher posts a failure notice to the task thread and
-stops retrying that hook.
-Failures are logged without stopping the watcher. Hooks are trusted in-process
-TypeScript and must not perform blocking synchronous work; they should also be
-idempotent. For asynchronous work, such as an App Distribution
-build, make that build a required CI check and use the hook to read its completed
-result instead of waiting for CI inside the hook.
+- `helpers.slack.postMessage(message)` posts to the watcher channel.
+- `helpers.slack.postThreadMessage(message)` posts to the task thread.
 
-## Slack commands
+Keep each hook's `id` unique and stable. The watcher schedules one execution per status transition.
+If an execution fails, it can run again up to `maxAttempts` total attempts (default: `10`) before
+the task thread receives a failure notice. Hooks must be idempotent because retries can repeat side
+effects.
 
-Mention the configured bot to run a command:
-
-- `@bot status` — show tracked Todo, In Progress, and In Review tasks.
-- `@bot assign @user-or-group|username|me` — add a user or user group to
-  notifications for a tracked task. Usernames work with or without `@`; use
-  `me` to assign yourself. Run this in the task thread.
-- `@bot unassign @user-or-group|username|me` — remove a user or user group from
-  notifications for a tracked task. Usernames work with or without `@`; use
-  `me` to unassign yourself. Run this in the task thread.
-- `@bot take-pr <GitHub PR URL>` — create a Todo Linear issue for an existing
-  open pull request. Symphony moves it to In Progress when execution starts.
-- `@bot help` — show the available commands and where to run them.
-
-## Preview Slack output
-
-Post a representative watcher message to Slack without starting the watcher or
-connecting to Linear. Specify whether to preview a parent post or thread update,
-followed by the event type:
-
-```sh
-cd watcher
-
-SLACK_BOT_TOKEN=xoxb-... \
-SLACK_CHANNEL_ID=C0123456789 \
-pnpm slack:preview post start
-
-SLACK_BOT_TOKEN=xoxb-... \
-SLACK_CHANNEL_ID=C0123456789 \
-pnpm slack:preview thread update
-```
-
-The first argument is `post` or `thread`. Available event types are `start`,
-`update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
-a status change made by a Slack user, including the actor's display name. Use
-`thread activity` to preview the live Symphony activity and Git diff section. A
-consolidated status card with Event, Updated at, and history can be previewed
-with `thread timeline`. A configured creator and additional mention targets can
-be previewed with `post attention` or `thread attention`. Pass them as `mentionTarget` and
-`mentions` when using the preview helper; the CLI uses non-notifying
-placeholders. Use `thread review-comment` and `thread next`
-for task-thread notifications, `post closed` for the top-level task-closed
-notification, and `assignees status` for the status summary.
-Thread previews are posted as
-new parent messages so their formatting can be inspected without existing
-watcher threads.
-
-Run the command from the `watcher` directory. It uses the same card builder as
-the watcher and requires only a bot token with permission to post to the
-destination channel. It does not require the root `config.ts` or
-`SLACK_APP_TOKEN`.
-
-## Message behavior
-
-- After the continuous watcher connects to Slack, it does not post a startup
-  notification. The `status` command shows the enabled services and watcher
-  start time above the tracked task groups.
-- A task's first emitted event creates its database record and posts one
-  top-level card with `chat.postMessage`. The returned channel and timestamp
-  are stored after a successful post. Once those identifiers are stored, later
-  emitted events update that same card with `chat.update`.
-- A normal task card contains a service-tagged Linear issue title when one is
-  available, linked when an issue URL is available, followed by the service's
-  Linear status selector and event context. Context details are pipe-delimited.
-  Synthetic service availability cards are titled `Symphony connection`, show
-  the current availability status in their context, and do not include a
-  status selector.
-- When an issue enters an effective terminal state, the permalink URL of an existing parent card is posted to the
-  same channel below a `Task closed` line containing the current Linear status.
-  Linear's `completed`, `canceled`, and `duplicate` types are terminal by
-  default; per-instance Symphony active and terminal states can override that
-  classification.
-  Each nonterminal Linear issue that the closed issue blocks is then posted as
-  a separate link in that notification's thread. Repeated observations of the
-  same terminal state do not post the notification again.
-- Slack status changes are acknowledged immediately, validated against that
-  task's referenced Linear team workflow, written with that team's API key,
-  rendered in Slack, persisted, and recorded in the thread. The first running
-  observation creates one Timeline reply; later transitions update that reply with
-  the latest `from → to` transition. Its Timeline lists that current transition
-  first, followed by older transitions.
-  Changes for the same task are serialized. Timeline transitions are persisted
-  before Slack delivery and retried during periodic maintenance when delivery or
-  anchor persistence is interrupted. The local task status is persisted only after
-  both the Linear update and Slack card update succeed.
-- While Symphony reports a task as running, its Timeline card shows the latest
-  activity and local workspace diff summary above any pull request details. The watcher updates that section in
-  place no more than once every 15 seconds. At most three changed paths are shown;
-  additional paths are summarized as `+N more`, and aggregate additions include
-  untracked text files. Git inspection bounds command runtime, output, untracked
-  file count, and bytes read, and falls back to no diff when a limit is exceeded
-  or inspection fails. During an observability outage, the last activity
-  remains visible until Symphony reports a new value. Token counts, turns, retries,
-  and raw worker output are intentionally omitted.
-- Manual status history renders the actor's Slack display name as plain text,
-  falling back to the Slack user ID when lookup fails. The actor is not
-  mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator
-  resolved by email to a Slack user once, before the parent post. Parent cards
-  display those assignees without notifying them. Blocked events always post a
-  new task-thread reply mentioning the current persisted assignees. Other watcher
-  events do not notify assignees. The `assign` and `unassign` commands update both
-  persistence and the parent card without reapplying defaults.
-- A user's text and attached images or videos in a task card thread are copied once to
-  the active `## Codex Workpad` comment on the corresponding Linear issue.
-  PNG, JPEG, GIF, WebP, MP4, MOV, and WebM file-only replies are supported. Bot messages,
-  edited/deleted message events, unrelated threads, and issues without an
-  active Workpad are ignored. Files are transferred sequentially and limited
-  to 25 MiB each. A successfully copied Slack reply receives a
-  `white_check_mark` reaction.
-- The Symphony snapshot diff emits task events when an issue first appears,
-  changes its reported state, enters retrying or blocked, or disappears.
-  Changes only to activity text, timestamps, or counters do not emit an event.
-- Every successfully published watcher event creates or updates the parent card
-  and is stored in the database audit trail. Status changes update the shared
-  thread Timeline, and newly detected or updated pull requests refresh its PR
-  section without posting a separate reply. Blocked events post a new thread
-  reply mentioning the current persisted assignees. Manual Slack status changes
-  share the same status Timeline.
-- Raw worker stdout is not posted. Thread messages are capped at 2,500
-  characters, and error details shown on cards are capped at 180 characters.
-- Inline PR comments are queried only for issues in the configured review status.
-  A comment newer than the persisted handled timestamp requeues the issue once.
-- An open, non-draft pull request that remains in the configured review status at
-  the same head SHA for 20 minutes posts one task-thread notification mentioning
-  the current assignees. A status or SHA change restarts the quiet window, and a
-  SHA that has already produced a notification is never notified again.
-- Observability and Linear requests time out instead of blocking the polling
-  loop indefinitely. A temporary observability failure preserves the last
-  known task snapshot and posts a service warning; recovery updates that
-  warning without emitting false task-ended/task-started transitions.
+Put larger hook implementations in the gitignored root `hooks/` directory and import them from
+`config.ts`. Hooks run inside the watcher process, so do not block while waiting for long-running
+work such as CI or a build. Make that work a required CI check and use the hook to report its result.

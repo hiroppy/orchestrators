@@ -1,13 +1,13 @@
 # Architecture
 
-Orchestrators consists of two long-running processes with different responsibilities:
+Orchestrators runs two long-lived processes:
 
-- The Symphony runner starts and supervises one Symphony instance per enabled project.
-- The watcher observes Symphony, reconciles tracked work with Linear and GitHub, and presents the
-  resulting state in Slack.
+- **Symphony runner:** starts and supervises one Symphony instance per enabled project.
+- **Watcher:** observes Symphony, reconciles tasks with Linear and GitHub, and exposes their state in
+  Slack.
 
-The important distinction is that a task can leave Symphony's active work set while remaining a
-nonterminal task tracked by the watcher. Inline-comment handling depends on this distinction.
+A task can leave Symphony's active work set while remaining nonterminal in the watcher. This is
+what allows review tracking to continue after Symphony stops working on an issue.
 
 ## System overview
 
@@ -33,75 +33,111 @@ flowchart LR
   Watcher <-->|tasks, snapshots, events, delivery state| DB
 ```
 
-The watcher uses polling for Symphony, Linear, and GitHub. Slack interactions arrive through Socket
-Mode. GitHub comments are not received through a webhook.
+Symphony, Linear, and GitHub are polled. Slack interactions arrive through Socket Mode; GitHub
+comments do not use a webhook.
 
-## Two tracking layers
+## Tracking model
+
+See [Symphony workflows](workflows.md) for profile selection and per-instance
+`WORKFLOW.md` configuration.
 
 ### Symphony active work
 
-Each Symphony instance selects issues using the active states in its `WORKFLOW.md`. The watcher
-polls the instance's `/api/v1/state` observability endpoint every three seconds and compares the
-response with its previous snapshot.
+Each instance selects issues from the active states in its `WORKFLOW.md`. The watcher polls
+`/api/v1/state` every three seconds and compares the response with the previous snapshot.
 
-A snapshot difference emits a watcher event when a task appears, changes execution state, becomes
-blocked or retrying, or disappears. The watcher then enriches that event with authoritative Linear
-state and, when relevant, GitHub pull-request metadata.
+A snapshot change emits an event when a task:
 
-The first running observation creates the Slack Timeline card with the current transition as its
-first Timeline entry. While the task remains running, the watcher refreshes that card at most once
-every 15 seconds with Symphony's latest activity
-notification and a bounded summary of the local workspace Git diff. Git inspection includes
-untracked text additions and bounds command time, output, file count, and bytes read. Refreshes replace the current activity
-in place and do not create audit events or additional thread replies. Synthetic outage snapshots
-do not replace the last successfully observed activity.
+- appears or disappears;
+- changes execution state; or
+- becomes blocked or starts retrying.
+
+The watcher enriches events with authoritative Linear state and, when needed, GitHub pull-request
+metadata.
+
+For a running task, Slack publishing works as follows:
+
+- The first observation creates a Timeline card and its first transition entry.
+- The card refreshes at most once every 15 seconds with the latest Symphony activity and a bounded
+  local Git diff summary.
+- Git inspection includes untracked text additions and limits command time, output, file count, and
+  bytes read.
+- Activity refreshes update the card in place without creating audit events or thread replies.
+- Synthetic outage snapshots preserve the last successfully observed activity.
 
 ### Watcher tracked tasks
 
-Once a task has been published to Slack, the watcher keeps it in its database. Leaving Symphony's
-active snapshot does not delete that record. During periodic maintenance, approximately every 30
-seconds, the watcher reconciles stored nonterminal tasks with Linear.
+Publishing a task to Slack persists it in the watcher database. The record remains after the task
+leaves Symphony's active snapshot.
 
-This allows the watcher to continue tracking states such as `In Review`, even when those states are
-not part of Symphony's active work set. Linear state types provide the default terminal semantics.
-Each instance's `WORKFLOW.md` overrides that default by treating `tracker.terminal_states` as
-terminal and `tracker.active_states` as nonterminal. Tasks with an effective terminal state are
-excluded from later reconciliation. On startup, the watcher reconciles persisted terminal tasks
-once so removing an override can restore Linear's current state type.
+Every 30 seconds, the watcher reconciles stored nonterminal tasks with Linear. This keeps states
+such as `In Review` visible even when they are outside Symphony's active work set.
+
+Effective terminal state is determined in this order:
+
+1. `tracker.terminal_states` in the instance's `WORKFLOW.md` is terminal.
+2. `tracker.active_states` is nonterminal.
+3. All other states use their Linear state type.
+
+Terminal tasks are excluded from later reconciliation. At startup, persisted terminal tasks are
+reconciled once so that removing an override can restore Linear's current state type.
+
+## Snapshot processing
+
+Each watcher cycle processes observations in this order:
+
+1. Retry pending status timelines, status hooks, and review notifications during scheduled
+   maintenance.
+2. Collect Symphony snapshots and compare them with the last persisted snapshots.
+3. Enrich each changed task with Linear state, PR metadata, and its review-requeue decision.
+4. Persist the task state and pending transition work, then create or update its Slack card and
+   Timeline.
+5. Apply an eligible review requeue and synchronize PR reactions.
+6. Replace the persisted snapshots only after all changed tasks succeed.
+7. Refresh running-task activity, then reconcile stored tasks that did not produce a snapshot
+   event.
+
+Persisting task state before Slack delivery allows a failed delivery to resume. Delaying snapshot
+replacement until all events succeed makes the same snapshot difference available to the next poll
+after a failure. Periodic reconciliation sends its updates through the same Slack publishing and
+review-requeue path.
 
 ## Polling and API calls
 
-| Trigger              |                   Typical interval | External work                                                                 |
-| -------------------- | ---------------------------------: | ----------------------------------------------------------------------------- |
-| Symphony observation |                          3 seconds | Reads each enabled instance's local observability API                         |
-| Snapshot change      | Event-driven after a 3-second poll | Reads Linear; may query the task's PR                                         |
-| Periodic maintenance |                         30 seconds | Reconciles stored nonterminal tasks with Linear; may query review PR comments |
-| Slack interaction    |                       Event-driven | May update Linear and then the Slack task card                                |
+| Trigger              |                   Typical interval | External work                                                         |
+| -------------------- | ---------------------------------: | --------------------------------------------------------------------- |
+| Symphony observation |                          3 seconds | Read each enabled instance's local observability API                  |
+| Snapshot change      | Event-driven after a 3-second poll | Read Linear; query the task's PR when needed                          |
+| Periodic maintenance |                         30 seconds | Reconcile nonterminal tasks; query PR comments for tasks under review |
+| Slack interaction    |                       Event-driven | Update Linear when needed, then update the Slack task card            |
 
-The three-second loop does not unconditionally call GitHub for every task. A GitHub query is made
-when event enrichment requires PR data, or when periodic reconciliation finds a task in the
-configured review status. Review-status tasks remain eligible for this 30-second reconciliation
-even while they are present in an unchanged Symphony snapshot. GitHub access is performed through
-`gh pr view` and `gh api`.
+### GitHub access
 
-The watcher mirrors whether each supported reaction exists on the pull request body onto the Slack
-thread parent. It does not synchronize reaction counts or authors. During reconciliation, the bot
-adds reactions present on GitHub and removes its own reactions that are no longer present.
+- GitHub is queried during event enrichment when PR data is needed.
+- Tasks in the configured review status are queried during 30-second reconciliation, even if their
+  Symphony snapshot has not changed.
+- Access uses `gh pr view` and `gh api`.
+- Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
+  presence only, not counts or authors, and removes only its own stale reactions.
 
-At startup, the watcher loads each enabled instance's active and terminal state overrides from its
-`WORKFLOW.md`, then loads each enabled Linear team's workflow states for configuration validation
-and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
-the issue and its team's current states before mutating. Automated review requeues instead reuse
-both the issue UUID obtained during event enrichment and the cached target state ID, so their normal
-path sends only the update mutation. Cache expiration is lazy: it does not cause an hourly request,
-but the next automated requeue resolves current state metadata through the uncached path. A
-transient cached mutation failure leaves the cache intact. A non-transient failure invalidates the
-team's cache and returns the original error without an immediate retry; a later poll then resolves
-current state metadata through the uncached path.
+### Linear workflow state cache
+
+At startup, the watcher loads each enabled Linear team's workflow states to validate configuration
+and caches name-to-ID mappings for one hour.
+
+- Active and terminal state names are validated against the instance's Linear team. Symphony's
+  compatibility names `Merging`, `Closed`, and `Cancelled` are also accepted.
+- Manual Slack status changes resolve the issue and its team's current states before updating.
+- Automated review requeues reuse the issue UUID from event enrichment and the cached target state
+  ID, so the normal path sends only the update mutation.
+- Cache expiration is lazy. The next automated requeue reloads state metadata.
+- A transient cached mutation failure keeps the cache.
+- A non-transient failure invalidates the team cache and returns the original error. A later poll
+  reloads state metadata; there is no immediate retry.
 
 ## Review requeue lifecycle
 
-Given this configuration:
+Review requeueing is enabled with:
 
 ```ts
 reviewComment: {
@@ -111,11 +147,15 @@ reviewComment: {
 }
 ```
 
-the normal lifecycle is:
+For tasks in `inReviewStatus`, the watcher reads PR mergeability and the latest eligible inline
+review comment. A comment is eligible when it:
 
-The watcher checks the pull request's mergeability and excludes comments from
-the pull request author and configured `symphonyGitHubLogins` before selecting
-the latest eligible comment.
+- belongs to a current, unresolved review thread;
+- was not written by the PR author or an account in `symphonyGitHubLogins`; and
+- is newer than the last handled comment timestamp in `task_events`.
+
+Comments in resolved or outdated threads are ignored, including comments added after resolution. A
+resolved thread becomes eligible again if it is reopened and is not outdated.
 
 ```mermaid
 sequenceDiagram
@@ -139,30 +179,31 @@ sequenceDiagram
       W->>DB: Store handled comment timestamp
     end
     Note over S,L: Issue becomes eligible for Symphony again
-  else PR is not conflicting and has no newer inline comment
+  else No conflict or newer eligible comment
     W->>DB: Keep task in In Review
   end
 ```
 
-The decision first checks whether GitHub reports the pull request as `CONFLICTING`, then compares
-the latest comment in a current, unresolved GitHub review thread with the last handled comment
-timestamp in `task_events`. Comments in resolved or outdated threads are
-ignored, including comments added after resolution. A resolved thread becomes eligible again only
-if it is marked unresolved and is not outdated. This catches comments that arrive between Linear
-entering `In Review` and the watcher's next poll, while an already handled comment cannot requeue
-the task again. Comment IDs are not persisted.
+The PR is requeued when GitHub reports `CONFLICTING` or an eligible comment is newer than the
+stored timestamp. This captures feedback added before the next watcher poll and prevents an already
+handled comment from requeueing the task again.
 
-The watcher runs as a single process. After Linear accepts the status update, the local status,
-handled timestamp, and pending notifications are stored together. A process exit between the Linear
-update and that local transaction can cause the same comment to be considered again after the task
-returns to review; this recovery gap is accepted to keep the internal tool simple.
+### Accepted recovery gaps and limits
 
-The review-comment cursor intentionally remains timestamp-only: comments with the same GitHub
-`createdAt` value are treated as one feedback boundary, and the watcher examines at most the first
-100 review threads returned by GitHub. On a task without a handled cursor, the first current,
-unresolved comment may trigger a requeue even if it predates the current review cycle. These limits
-avoid comment-ID lifecycle tracking, pagination machinery, and per-review baseline state in this
-single-watcher internal deployment.
+This internal tool assumes a single watcher process and intentionally avoids distributed recovery
+machinery:
+
+- After Linear accepts a requeue, the local status, handled timestamp, and pending notifications
+  are stored in one transaction.
+- A process exit between the Linear update and local transaction can allow the same comment to
+  requeue a later review cycle.
+- The cursor stores a timestamp, not comment IDs. Comments with the same GitHub `createdAt` are one
+  feedback boundary.
+- At most the first 100 review threads returned by GitHub are examined.
+- Without a handled cursor, the first current unresolved comment can trigger a requeue even if it
+  predates the current review cycle.
+
+These limits avoid comment-ID lifecycle tracking, pagination, and per-review baseline state.
 
 ## Persistence and recovery
 
@@ -171,21 +212,8 @@ The watcher database stores:
 - the latest Symphony snapshots used for diffing;
 - tracked tasks and their current known Linear status;
 - Slack parent-message identifiers;
-- watcher events and review requeues;
+- watcher events and review requeues; and
 - pending delivery state for recoverable Slack notifications.
 
-The database is why review tracking and delivery retries can continue after a watcher restart. If
-the watcher is stopped, no polling or review requeue handling occurs; reconciliation resumes after it
-starts again.
-
-## Implementation map
-
-- `watcher/src/watcher/runner.ts` owns the three-second loop and 30-second maintenance schedule.
-- `watcher/src/watcher/snapshots.ts` collects Symphony observability snapshots.
-- `watcher/src/watcher/diff.ts` converts snapshot changes into watcher events.
-- `watcher/src/watcher/task-activity.ts` builds running-task activity and applies the 15-second publication limit.
-- `watcher/src/watcher/event-enrichment.ts` resolves Linear state and PR metadata.
-- `watcher/src/watcher/review-comments.ts` decides whether PR feedback should requeue a task.
-- `watcher/src/watcher/review-requeue.ts` updates Linear and persists the requeue result.
-- `watcher/src/integrations/github.ts` reads PR metadata and inline review comments through the GitHub CLI.
-- `watcher/src/persistence/store.ts` stores snapshots, tasks, and the event audit trail.
+Persisted state allows review tracking and delivery retries to resume after a watcher restart. No
+polling or requeue handling occurs while the watcher is stopped.
