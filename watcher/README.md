@@ -261,7 +261,8 @@ destination channel. It does not require the root `config.ts` or
   task's referenced Linear team workflow, written with that team's API key,
   rendered in Slack, persisted, and recorded in the thread. The first running
   observation creates one Timeline reply; later transitions update that reply with
-  the latest `from → to` transition and move older transitions into its Timeline.
+  the latest `from → to` transition. Its Timeline lists that current transition
+  first, followed by older transitions.
   Changes for the same task are serialized. Timeline transitions are persisted
   before Slack delivery and retried during periodic maintenance when delivery or
   anchor persistence is interrupted. The local task status is persisted only after

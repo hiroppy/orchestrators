@@ -11,7 +11,7 @@ import {
   type StatusCardEvent,
 } from "./status-timeline.ts";
 
-it("keeps the ten newest status timeline entries", () => {
+it("shows the current transition and ten newest history entries", () => {
   const generatedEvents = Array.from({ length: 12 }, (_, index): StatusCardEvent => ({
     fromStatus: `Status ${index}`,
     toStatus: `Status ${index + 1}`,
@@ -24,12 +24,13 @@ it("keeps the ten newest status timeline entries", () => {
   const blocks = buildStatusCard({ events: [latest, ...history], facts: {} });
   const timeline = JSON.stringify(blocks.at(-1));
 
+  assert.match(timeline, /Status 11 → Status 12/);
   assert.match(timeline, /Status 10 → Status 11/);
   assert.match(timeline, /Status 1 → Status 2/);
   assert.doesNotMatch(timeline, /Status 0 → Status 1/);
 });
 
-it("shows the latest event and update time without an assignee section", () => {
+it("includes the current status in the timeline when there is no history", () => {
   const occurredAt = new Date(2026, 7, 15, 12).toISOString();
   const blocks = buildStatusCard({
     events: [
@@ -46,6 +47,7 @@ it("shows the latest event and update time without an assignee section", () => {
 
   assert.match(rendered, /\*Event\*\\nStarted/);
   assert.match(rendered, /\*Updated at\*\\n`12:00`/);
+  assert.match(rendered, /\*Timeline\*\\n12:00.*Todo → In Progress/);
   assert.doesNotMatch(rendered, /Assignees/);
 });
 
