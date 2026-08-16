@@ -233,6 +233,7 @@ export async function reconcileSlackStatusTransition({
       slackClient,
       task,
       inReviewStatus: reviewComment.inReviewStatus,
+      delayMs: reviewComment.reviewReadyDelayMs,
     });
   }
 
@@ -249,6 +250,7 @@ export async function reconcileSlackStatusTransition({
       slackClient,
       task,
       inReviewStatus: reviewComment.inReviewStatus,
+      delayMs: reviewComment.reviewReadyDelayMs,
       pullRequest: linearIssue.pullRequest,
     });
   }
@@ -543,6 +545,7 @@ async function reconcileLinearStatuses({
         slackClient,
         task: { ...task, status: linearIssue.state },
         inReviewStatus: config.reviewComment.inReviewStatus,
+        delayMs: config.reviewComment.reviewReadyDelayMs,
         pullRequest,
       });
     }
@@ -645,6 +648,7 @@ async function processWatcherEvent({
       slackClient,
       task,
       inReviewStatus: config.reviewComment.inReviewStatus,
+      delayMs: config.reviewComment.reviewReadyDelayMs,
       pullRequest: event.pullRequest,
     });
   }

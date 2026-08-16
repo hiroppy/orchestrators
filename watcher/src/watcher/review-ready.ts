@@ -29,6 +29,7 @@ export async function checkReviewReadyNotification({
   task,
   inReviewStatus,
   pullRequest,
+  delayMs = REVIEW_READY_DELAY_MS,
   now = new Date(),
 }: {
   store: WatcherStore;
@@ -36,6 +37,7 @@ export async function checkReviewReadyNotification({
   task: Task;
   inReviewStatus: string;
   pullRequest?: PullRequest;
+  delayMs?: number;
   now?: Date;
 }): Promise<void> {
   if (normalizeStatus(task.status) !== normalizeStatus(inReviewStatus)) {
@@ -62,7 +64,7 @@ export async function checkReviewReadyNotification({
     });
     return;
   }
-  if (now.getTime() - Date.parse(observed.createdAt) < REVIEW_READY_DELAY_MS) return;
+  if (now.getTime() - Date.parse(observed.createdAt) < delayMs) return;
   if (store.getTaskAssignees(task.id).length === 0) return;
 
   const body = JSON.stringify(payload);

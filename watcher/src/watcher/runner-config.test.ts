@@ -230,6 +230,7 @@ tracker:
           reviewComment: {
             inReviewStatus: " In Review ",
             inProgressStatus: " In Progress ",
+            reviewReadyDelayMs: 5_000,
             symphonyGitHubLogins: [" symphony-bot ", "symphony-bot"],
           },
         },
@@ -240,8 +241,41 @@ tracker:
     assert.deepEqual(config.reviewComment, {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
+      reviewReadyDelayMs: 5_000,
       symphonyGitHubLogins: ["symphony-bot"],
     });
+
+    assert.equal(
+      resolveWatcherConfig(
+        {
+          ...baseConfig(),
+          watcher: {
+            reviewComment: {
+              inReviewStatus: "In Review",
+              inProgressStatus: "In Progress",
+            },
+          },
+        },
+        { requireSlack: false },
+      ).reviewComment?.reviewReadyDelayMs,
+      20 * 60 * 1_000,
+    );
+    assert.equal(
+      resolveWatcherConfig(
+        {
+          ...baseConfig(),
+          watcher: {
+            reviewComment: {
+              inReviewStatus: "In Review",
+              inProgressStatus: "In Progress",
+              reviewReadyDelayMs: 0,
+            },
+          },
+        },
+        { requireSlack: false },
+      ).reviewComment?.reviewReadyDelayMs,
+      0,
+    );
 
     for (const reviewComment of [
       { inReviewStatus: "", inProgressStatus: "In Progress" },
@@ -252,6 +286,16 @@ tracker:
         inReviewStatus: "In Review",
         inProgressStatus: "In Progress",
         symphonyGitHubLogins: [" "],
+      },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reviewReadyDelayMs: -1,
+      },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reviewReadyDelayMs: Number.POSITIVE_INFINITY,
       },
     ]) {
       assert.throws(

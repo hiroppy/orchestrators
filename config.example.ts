@@ -7,6 +7,7 @@ export default defineConfig({
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
+      reviewReadyDelayMs: 20 * 60 * 1_000,
       symphonyGitHubLogins: ["your-symphony-account"],
     },
     // Put local TypeScript hooks in ./hooks and import them from config.ts.

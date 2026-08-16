@@ -13,6 +13,7 @@ import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
 const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
+const DEFAULT_REVIEW_READY_DELAY_MS = 20 * 60 * 1_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
@@ -125,11 +126,15 @@ function resolveReviewCommentConfig(
 
   const inReviewStatus = config.inReviewStatus?.trim();
   const inProgressStatus = config.inProgressStatus?.trim();
+  const reviewReadyDelayMs = Number(config.reviewReadyDelayMs ?? DEFAULT_REVIEW_READY_DELAY_MS);
   if (!inReviewStatus) {
     throw new Error("watcher.reviewComment.inReviewStatus must be a non-empty string.");
   }
   if (!inProgressStatus) {
     throw new Error("watcher.reviewComment.inProgressStatus must be a non-empty string.");
+  }
+  if (!Number.isFinite(reviewReadyDelayMs) || reviewReadyDelayMs < 0) {
+    throw new Error("watcher.reviewComment.reviewReadyDelayMs must be zero or greater.");
   }
 
   const symphonyGitHubLogins = config.symphonyGitHubLogins?.map((login) => login.trim());
@@ -142,6 +147,7 @@ function resolveReviewCommentConfig(
   return {
     inReviewStatus,
     inProgressStatus,
+    reviewReadyDelayMs,
     ...(symphonyGitHubLogins ? { symphonyGitHubLogins: [...new Set(symphonyGitHubLogins)] } : {}),
   };
 }
