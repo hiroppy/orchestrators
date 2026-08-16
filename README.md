@@ -29,18 +29,7 @@ see what needs attention and respond without opening each Symphony dashboard.
 Each Linear issue becomes a task that Symphony works on and Orchestrators
 tracks in Slack. The default `customize` workflow follows four steps:
 
-```mermaid
-flowchart LR
-  create["1 · Create<br/>Move a Linear issue to Todo"]
-  build["2 · Build<br/>Symphony implements the task<br/>Follow progress in Slack"]
-  review["3 · Review<br/>Reviewers are notified in Slack<br/>when the pull request is ready"]
-  ship["4 · Ship<br/>Approve and move to Merging<br/>Symphony lands the pull request"]
-  done["Done 🚀"]
-
-  create --> build --> review
-  review -- "Changes requested" --> build
-  review -- Approved --> ship --> done
-```
+![Slack as the Orchestrators command center, tracking Linear and Symphony work through build, GitHub review, automatic feedback requeue, and shipping](.github/assets/how-it-works.png)
 
 During review, an eligible inline review comment or merge conflict automatically
 moves the issue back to In Progress. You can also reply with instructions or
