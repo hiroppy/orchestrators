@@ -33,6 +33,7 @@ import { normalizeStatus } from "../domain/status.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { publishTaskActivities } from "./task-activity.ts";
+import { syncPullRequestReactions } from "./pull-request-reactions.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
@@ -303,6 +304,11 @@ export async function runOnce({
       reviewDecision,
       updateLinearStatus,
     });
+    await syncPullRequestReactions(
+      slackClient,
+      store.getTask(taskIdFor(enrichedEvent.service, enrichedEvent.issueIdentifier)),
+      enrichedEvent.pullRequest,
+    );
   }
 
   store.replaceSnapshots(current);
@@ -418,6 +424,7 @@ async function reconcileLinearStatuses({
       }).catch(() => null);
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
+    await syncPullRequestReactions(slackClient, task, pullRequest);
 
     const event: WatcherEvent = {
       type: "updated",

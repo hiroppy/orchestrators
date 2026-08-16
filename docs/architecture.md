@@ -81,6 +81,10 @@ configured review status. Review-status tasks remain eligible for this 30-second
 even while they are present in an unchanged Symphony snapshot. GitHub access is performed through
 `gh pr view` and `gh api`.
 
+The watcher mirrors whether each supported reaction exists on the pull request body onto the Slack
+thread parent. It does not synchronize reaction counts or authors. During reconciliation, the bot
+adds reactions present on GitHub and removes its own reactions that are no longer present.
+
 At startup, the watcher loads each enabled Linear team's workflow states for configuration
 validation and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
 the issue and its team's current states before mutating. Automated review requeues instead reuse

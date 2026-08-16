@@ -69,8 +69,22 @@ export interface PullRequest {
   baseRefName?: string | null;
   repository?: string | null;
   labels?: string[];
+  reactions?: GitHubReaction[];
   latestReviewCommentAt?: string | null;
 }
+
+export const GITHUB_REACTIONS = [
+  "THUMBS_UP",
+  "THUMBS_DOWN",
+  "LAUGH",
+  "HOORAY",
+  "CONFUSED",
+  "HEART",
+  "ROCKET",
+  "EYES",
+] as const;
+
+export type GitHubReaction = (typeof GITHUB_REACTIONS)[number];
 
 export interface RelatedIssue {
   identifier: string;

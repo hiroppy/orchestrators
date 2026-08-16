@@ -103,7 +103,10 @@ Symphony to reply to reviews so its own replies do not requeue the issue.
 
 Review checks run during periodic maintenance, including for tasks that remain
 in the current Symphony snapshot without producing a new snapshot event. The
-single watcher stores the handled timestamp after Linear accepts the status
+watcher also mirrors the presence of reactions on the pull request body onto
+the Slack thread parent during these checks. Reaction counts and authors are
+not synchronized; reactions added by Slack users are left unchanged. The single
+watcher stores the handled timestamp after Linear accepts the status
 update. It intentionally does not implement a separate requeue outbox or
 distributed exactly-once recovery.
 
