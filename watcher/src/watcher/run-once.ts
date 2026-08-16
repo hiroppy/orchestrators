@@ -4,8 +4,8 @@ import type { SnapshotsByService } from "../domain/snapshot.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
-} from "../integrations/github/index.ts";
-import { updateLinearIssueStatus } from "../integrations/linear/index.ts";
+} from "../integrations/github/pull-requests.ts";
+import { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { deliverPendingStatusTimelines } from "../slack/status-timeline.ts";
 import { diffSnapshots, normalizeSnapshot } from "./diff.ts";

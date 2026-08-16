@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchLinearWorkflowStates } from "./index.ts";
+import { fetchLinearWorkflowStates } from "./status.ts";
 
 describe("fetchLinearWorkflowStates", () => {
   it("returns team workflow states in Linear position order", async (context) => {

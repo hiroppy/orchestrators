@@ -7,7 +7,7 @@ import type { RelatedIssue } from "../domain/linear.ts";
 import type { ResolvedLinearTeamConfig } from "../domain/service.ts";
 import { effectiveLinearStateType, isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
-import { fetchLinearWorkflowStates } from "../integrations/linear/index.ts";
+import { fetchLinearWorkflowStates } from "../integrations/linear/status.ts";
 import {
   readWorkflow,
   trackerStatesFromWorkflow,

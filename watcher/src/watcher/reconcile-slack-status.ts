@@ -1,7 +1,7 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { Task } from "../domain/task.ts";
 import { normalizeStatus } from "../domain/status.ts";
-import { fetchLinearIssueState } from "../integrations/linear/index.ts";
+import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import { publishWatcherEvent, type SlackClient } from "../slack/app.ts";
 import { checkReviewReadyNotificationSafely } from "./review-ready.ts";

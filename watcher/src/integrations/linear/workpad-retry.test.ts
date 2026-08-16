@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { LinearRateLimitError } from "./client.ts";
-import { createLinearWorkpadReply } from "./index.ts";
+import { createLinearWorkpadReply } from "./workpad.ts";
 
 describe("Linear Workpad reply recovery", () => {
   it("retries transient Linear failures", async (context) => {

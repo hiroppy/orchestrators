@@ -1,7 +1,7 @@
 import type {
   CreateLinearTakePrIssueInput,
   CreatedLinearIssue,
-} from "../../integrations/linear/index.ts";
+} from "../../integrations/linear/take-pr.ts";
 import type { PullRequest } from "../../domain/github.ts";
 import type { ResolvedLinearTeamConfig, ServiceDefinition } from "../../domain/service.ts";
 

@@ -4,11 +4,11 @@ import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import { enteredTerminalLinearState, isTerminalLinearStateType } from "../domain/linear.ts";
 import type { Task } from "../domain/task.ts";
 import type { WatcherEvent } from "../domain/watcher-event.ts";
-import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/index.ts";
+import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import {
   fetchLinearIssueState,
   fetchLinearIssueStateSummaries,
-} from "../integrations/linear/index.ts";
+} from "../integrations/linear/issues.ts";
 import { isLinearRateLimitError } from "../integrations/linear/client.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";

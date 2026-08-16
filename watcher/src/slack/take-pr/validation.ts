@@ -1,6 +1,6 @@
 import type { PullRequest } from "../../domain/github.ts";
-import { findPullRequestByUrl } from "../../integrations/github/index.ts";
-import type { CreateLinearTakePrIssueInput } from "../../integrations/linear/index.ts";
+import { findPullRequestByUrl } from "../../integrations/github/pull-requests.ts";
+import type { CreateLinearTakePrIssueInput } from "../../integrations/linear/take-pr.ts";
 import type { TakePrOptions, CompletePullRequest } from "./types.ts";
 
 const MAX_LINEAR_ISSUE_TITLE_LENGTH = 255;

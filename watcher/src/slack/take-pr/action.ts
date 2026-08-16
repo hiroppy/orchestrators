@@ -1,4 +1,4 @@
-import { createLinearTakePrIssue } from "../../integrations/linear/index.ts";
+import { createLinearTakePrIssue } from "../../integrations/linear/take-pr.ts";
 import { slackAssigneeIdFromMention } from "../assignee.ts";
 import type { WatcherStore } from "../../persistence/store.ts";
 import {

@@ -6,8 +6,8 @@ import { normalizeStatus } from "../domain/status.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
-} from "../integrations/github/index.ts";
-import { fetchLinearIssueState } from "../integrations/linear/index.ts";
+} from "../integrations/github/pull-requests.ts";
+import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { shouldFetchReviewComments } from "./review-comments.ts";
 

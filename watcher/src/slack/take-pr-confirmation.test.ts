@@ -8,7 +8,7 @@ import {
   takePrOptions as options,
 } from "./take-pr.test-support.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
-import { AmbiguousLinearTakePrIssueError } from "../integrations/linear/index.ts";
+import { AmbiguousLinearTakePrIssueError } from "../integrations/linear/take-pr.ts";
 import { handleTakePrAction } from "./take-pr.ts";
 
 describe("take-pr confirmation", () => {

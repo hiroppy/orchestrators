@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createLinearWorkpadReply } from "./index.ts";
+import { createLinearWorkpadReply } from "./workpad.ts";
 
 describe("Linear Workpad replies", () => {
   it("creates a reply under the active Codex Workpad", async (context) => {

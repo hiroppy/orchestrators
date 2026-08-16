@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { findPullRequest, findPullRequestByUrl, requireGitHubCli } from "./index.ts";
+import { findPullRequest, findPullRequestByUrl, requireGitHubCli } from "./pull-requests.ts";
 
 describe("requireGitHubCli", () => {
   it("accepts an installed and authenticated GitHub CLI", async () => {

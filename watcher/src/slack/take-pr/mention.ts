@@ -1,4 +1,4 @@
-import { findPullRequestByUrl } from "../../integrations/github/index.ts";
+import { findPullRequestByUrl } from "../../integrations/github/pull-requests.ts";
 import type { PullRequest } from "../../domain/github.ts";
 import type { WatcherStore } from "../../persistence/store.ts";
 import type { SlackClient } from "../client-types.ts";
