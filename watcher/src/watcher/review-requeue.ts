@@ -10,7 +10,7 @@ import {
   REVIEW_COMMENT_HANDLED_EVENT,
   REVIEW_REQUEUE_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
-  type ReviewCommentDecision,
+  type ReviewRequeueDecision,
 } from "./review-comments.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
@@ -29,7 +29,7 @@ export async function requeueReviewTask({
   slackClient: WebClient;
   watcherChannelId: string;
   event: WatcherEvent;
-  decision: ReviewCommentDecision;
+  decision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const review = config.reviewComment;
@@ -49,7 +49,11 @@ export async function requeueReviewTask({
       { cause: error },
     );
   }
-  const message = buildReviewRequeueMessage(task.status, review.inProgressStatus);
+  const sourceLabel =
+    decision.reason === "merge-conflict"
+      ? "Merge conflict detected"
+      : "Inline review comment detected";
+  const message = buildReviewRequeueMessage(sourceLabel, task.status, review.inProgressStatus);
   const { task: requeuedTask } = store.updateTaskStatusAtomically(
     task.id,
     review.inProgressStatus,
@@ -61,6 +65,19 @@ export async function requeueReviewTask({
         updatedTask.status,
         event.pullRequest,
       );
+      const commentHandledEvent =
+        decision.reason === "review-comment"
+          ? [
+              {
+                taskId: task.id,
+                type: REVIEW_COMMENT_HANDLED_EVENT,
+                actor: "watcher",
+                fromStatus,
+                toStatus: updatedTask.status,
+                body: decision.commentAt,
+              },
+            ]
+          : [];
       return [
         ...(statusHookEvent ? [statusHookEvent] : []),
         {
@@ -77,16 +94,9 @@ export async function requeueReviewTask({
           actor: "watcher",
           fromStatus,
           toStatus: updatedTask.status,
-          body: JSON.stringify({ message, event }),
+          body: JSON.stringify({ message, event, sourceLabel }),
         },
-        {
-          taskId: task.id,
-          type: REVIEW_COMMENT_HANDLED_EVENT,
-          actor: "watcher",
-          fromStatus,
-          toStatus: updatedTask.status,
-          body: decision.commentAt,
-        },
+        ...commentHandledEvent,
       ];
     },
   );

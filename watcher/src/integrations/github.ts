@@ -5,7 +5,7 @@ import type { PullRequest, WatcherEvent } from "../domain/types.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
-  "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels";
+  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels";
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
@@ -21,6 +21,7 @@ interface GhPullRequest {
   state?: string;
   isDraft?: boolean;
   reviewDecision?: string;
+  mergeable?: string;
   headRefName?: string;
   headRefOid?: string;
   baseRefName?: string;
@@ -131,6 +132,7 @@ function toPullRequest(parsed: GhPullRequest): PullRequest {
     state: parsed.state ?? null,
     isDraft: parsed.isDraft ?? null,
     reviewDecision: parsed.reviewDecision ?? null,
+    mergeable: parsed.mergeable ?? null,
     headRefName: parsed.headRefName ?? null,
     headRefOid: parsed.headRefOid ?? null,
     baseRefName: parsed.baseRefName ?? null,

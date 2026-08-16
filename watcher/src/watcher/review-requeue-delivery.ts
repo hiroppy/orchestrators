@@ -56,7 +56,10 @@ async function deliverPendingReviewRequeueNotification(
           fromStatus,
           toStatus,
           occurredAt: pending.createdAt,
-          source: { type: "automatic", label: "Inline review comment detected" },
+          source: {
+            type: "automatic",
+            label: payload.sourceLabel ?? "Inline review comment detected",
+          },
         },
         fallbackText: payload.message,
         idempotencyKey: `review-requeue:${completionKey}`,

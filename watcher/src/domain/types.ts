@@ -54,6 +54,7 @@ export interface PullRequest {
   state?: string | null;
   isDraft?: boolean | null;
   reviewDecision?: string | null;
+  mergeable?: string | null;
   headRefName?: string | null;
   headRefOid?: string | null;
   baseRefName?: string | null;

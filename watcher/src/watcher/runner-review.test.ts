@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { decideReviewComment, parseReviewRequeuePendingPayload } from "./review-comments.ts";
+import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 import { runOnce } from "./runner.ts";
 import {
@@ -20,7 +20,7 @@ function reviewConfig(url = "") {
   });
 }
 
-describe("watcher inline review comments", () => {
+describe("watcher review requeue", () => {
   it("rejects a null event in a pending notification payload", () => {
     assert.throws(
       () => parseReviewRequeuePendingPayload(JSON.stringify({ message: "requeue", event: null })),
@@ -37,7 +37,7 @@ describe("watcher inline review comments", () => {
         issueIdentifier: "ENG-62",
         state: "In Review",
       });
-      const decision = decideReviewComment(config, store, {
+      const decision = decideReviewRequeue(config, store, {
         type: "updated",
         service: "service-a",
         issueIdentifier: "ENG-62",
@@ -48,8 +48,45 @@ describe("watcher inline review comments", () => {
         },
       });
 
-      assert.equal(decision.shouldRequeue, true);
-      assert.equal(decision.commentAt, "2999-01-01T00:00:00.000Z");
+      assert.deepEqual(decision, {
+        shouldRequeue: true,
+        reason: "review-comment",
+        commentAt: "2999-01-01T00:00:00.000Z",
+      });
+    });
+  });
+
+  it("requeues a merge conflict observed in review", async () => {
+    await withStore(async (store) => {
+      const decision = decideReviewRequeue(reviewConfig(), store, {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          mergeable: "CONFLICTING",
+        },
+      });
+
+      assert.deepEqual(decision, { shouldRequeue: true, reason: "merge-conflict" });
+    });
+  });
+
+  it("does not requeue a merge conflict outside review", async () => {
+    await withStore(async (store) => {
+      const decision = decideReviewRequeue(reviewConfig(), store, {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Progress",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          mergeable: "CONFLICTING",
+        },
+      });
+
+      assert.deepEqual(decision, { shouldRequeue: false });
     });
   });
 
@@ -58,7 +95,7 @@ describe("watcher inline review comments", () => {
       const config = reviewConfig();
       store.syncDefinitions(config.services, config.linearTeams);
 
-      const decision = decideReviewComment(config, store, {
+      const decision = decideReviewRequeue(config, store, {
         type: "updated",
         service: "service-a",
         issueIdentifier: "ENG-62",
@@ -89,7 +126,7 @@ describe("watcher inline review comments", () => {
         body: "2000-01-01T00:00:00.000Z",
       });
 
-      const decision = decideReviewComment(config, store, {
+      const decision = decideReviewRequeue(config, store, {
         type: "updated",
         service: "service-a",
         issueIdentifier: "ENG-62",
@@ -114,7 +151,7 @@ describe("watcher inline review comments", () => {
         issueIdentifier: "ENG-62",
         state: "In Progress",
       });
-      const decision = decideReviewComment(config, store, {
+      const decision = decideReviewRequeue(config, store, {
         type: "updated",
         service: "service-a",
         issueIdentifier: "ENG-62",
@@ -153,7 +190,11 @@ describe("watcher inline review comments", () => {
           issueIdentifier: "ENG-62",
           resolvedState: "In Review",
         },
-        decision: { shouldRequeue: true, commentAt: "2026-08-15T00:00:00.000Z" },
+        decision: {
+          shouldRequeue: true,
+          reason: "review-comment",
+          commentAt: "2026-08-15T00:00:00.000Z",
+        },
         updateLinearStatus: async (_identifier, status) => {
           updates.push(status);
         },
@@ -165,6 +206,51 @@ describe("watcher inline review comments", () => {
         store.getLatestEvent("service-a:ENG-62", "review_comment_handled")?.body,
         "2026-08-15T00:00:00.000Z",
       );
+    });
+  });
+
+  it("updates Linear and the stored task after a merge conflict", async () => {
+    await withStore(async (store) => {
+      const config = reviewConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+      store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
+      const updates: string[] = [];
+
+      await requeueReviewTask({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        watcherChannelId: "C123",
+        event: {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+          pullRequest: {
+            url: "https://github.com/acme/example/pull/42",
+            mergeable: "CONFLICTING",
+          },
+        },
+        decision: { shouldRequeue: true, reason: "merge-conflict" },
+        updateLinearStatus: async (_identifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.deepEqual(updates, ["In Progress"]);
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
+      assert.equal(store.getLatestEvent("service-a:ENG-62", "review_comment_handled"), undefined);
+      const pending = store.getLatestEvent(
+        "service-a:ENG-62",
+        "review_requeue_notification_pending",
+      );
+      assert.match(pending?.body ?? "", /Merge conflict detected/);
     });
   });
 
@@ -191,7 +277,11 @@ describe("watcher inline review comments", () => {
             issueIdentifier: "ENG-62",
             resolvedState: "In Review",
           },
-          decision: { shouldRequeue: true, commentAt: "2026-08-15T00:00:00.000Z" },
+          decision: {
+            shouldRequeue: true,
+            reason: "review-comment",
+            commentAt: "2026-08-15T00:00:00.000Z",
+          },
           updateLinearStatus: async () => {
             throw new Error("Linear returned HTTP 400. Linear GraphQL error: invalid state");
           },

@@ -35,9 +35,9 @@ import { collectSnapshots } from "./snapshots.ts";
 import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
-  decideReviewComment,
+  decideReviewRequeue,
   shouldFetchReviewComments,
-  type ReviewCommentDecision,
+  type ReviewRequeueDecision,
 } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
@@ -261,7 +261,7 @@ export async function runOnce({
       findPullRequestByUrl,
     });
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
-    const reviewDecision = decideReviewComment(config, store, enrichedEvent);
+    const reviewDecision = decideReviewRequeue(config, store, enrichedEvent);
     preparedEvents.push({
       event: await enrichCreatorAssignee(enrichedEvent, slackClient),
       reviewDecision,
@@ -409,7 +409,7 @@ async function reconcileLinearStatuses({
       pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     };
-    const reviewDecision = decideReviewComment(config, store, event);
+    const reviewDecision = decideReviewRequeue(config, store, event);
     if (detailedSameStatus && !reviewDecision.shouldRequeue && !detailedEnteredTerminalState) {
       if (linearIssue.stateType) {
         store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
@@ -445,7 +445,7 @@ async function processWatcherEvent({
   slackClient: WebClient;
   slackChannelId: string;
   event: WatcherEvent;
-  reviewDecision: ReviewCommentDecision;
+  reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   await publishWatcherEvent(slackClient, store, slackChannelId, event, {
