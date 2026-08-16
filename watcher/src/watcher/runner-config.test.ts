@@ -297,6 +297,16 @@ tracker:
         inProgressStatus: "In Progress",
         reviewReadyDelayMs: Number.POSITIVE_INFINITY,
       },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reviewReadyDelayMs: "5000" as never,
+      },
+      {
+        inReviewStatus: "In Review",
+        inProgressStatus: "In Progress",
+        reviewReadyDelayMs: false as never,
+      },
     ]) {
       assert.throws(
         () =>
