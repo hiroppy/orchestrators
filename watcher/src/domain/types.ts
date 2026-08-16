@@ -53,6 +53,8 @@ export interface ServiceDefinition {
   name: string;
   url: string;
   linearTeam: string;
+  activeStates?: string[];
+  terminalStates?: string[];
 }
 
 export interface PullRequest {
@@ -90,6 +92,8 @@ export interface RelatedIssue {
   identifier: string;
   title: string | null;
   url: string | null;
+  state?: string | null;
+  stateType?: string | null;
 }
 
 export interface WatcherEvent {

@@ -63,8 +63,11 @@ active snapshot does not delete that record. During periodic maintenance, approx
 seconds, the watcher reconciles stored nonterminal tasks with Linear.
 
 This allows the watcher to continue tracking states such as `In Review`, even when those states are
-not part of Symphony's active work set. Tasks whose Linear state type is `completed`, `canceled`, or
-`duplicate` are normally excluded from later reconciliation.
+not part of Symphony's active work set. Linear state types provide the default terminal semantics.
+Each instance's `WORKFLOW.md` overrides that default by treating `tracker.terminal_states` as
+terminal and `tracker.active_states` as nonterminal. Tasks with an effective terminal state are
+excluded from later reconciliation. On startup, the watcher reconciles persisted terminal tasks
+once so removing an override can restore Linear's current state type.
 
 ## Polling and API calls
 
@@ -85,8 +88,9 @@ The watcher mirrors whether each supported reaction exists on the pull request b
 thread parent. It does not synchronize reaction counts or authors. During reconciliation, the bot
 adds reactions present on GitHub and removes its own reactions that are no longer present.
 
-At startup, the watcher loads each enabled Linear team's workflow states for configuration
-validation and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
+At startup, the watcher loads each enabled instance's active and terminal state overrides from its
+`WORKFLOW.md`, then loads each enabled Linear team's workflow states for configuration validation
+and caches their name-to-ID mappings for one hour. Manual Slack status changes resolve
 the issue and its team's current states before mutating. Automated review requeues instead reuse
 both the issue UUID obtained during event enrichment and the cached target state ID, so their normal
 path sends only the update mutation. Cache expiration is lazy: it does not cause an hourly request,

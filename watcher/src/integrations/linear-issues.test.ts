@@ -161,7 +161,7 @@ describe("fetchLinearIssueState", () => {
     });
   });
 
-  it("returns nonterminal issues blocked by the current issue as next related work", async (context) => {
+  it("returns blocked issues with their states for policy filtering", async (context) => {
     context.mock.method(globalThis, "fetch", async () =>
       Response.json({
         data: {
@@ -178,7 +178,7 @@ describe("fetchLinearIssueState", () => {
                     identifier: "ENG-63",
                     title: "Start the follow-up",
                     url: "https://linear.app/example/issue/ENG-63/follow-up",
-                    state: { type: "unstarted" },
+                    state: { name: "Todo", type: "unstarted" },
                   },
                 },
                 {
@@ -213,6 +213,15 @@ describe("fetchLinearIssueState", () => {
         identifier: "ENG-63",
         title: "Start the follow-up",
         url: "https://linear.app/example/issue/ENG-63/follow-up",
+        state: "Todo",
+        stateType: "unstarted",
+      },
+      {
+        identifier: "ENG-64",
+        title: "Already finished",
+        url: "https://linear.app/example/issue/ENG-64/finished",
+        state: null,
+        stateType: "completed",
       },
     ]);
   });

@@ -62,7 +62,11 @@ There is no fallback Linear team. `defineConfig()` catches unknown team
 references during type-checking, and runtime validation rejects invalid
 imported values, duplicate enabled ports, and missing credentials at startup.
 The watcher fetches the referenced teams' current workflow states from Linear
-before polling.
+before polling. It also reads each enabled instance's `WORKFLOW.md`: explicit
+`active_states` and `terminal_states` override Linear's state-type semantics,
+while unlisted states continue to use their Linear state type. Startup validates
+those names against the referenced team's workflow, except for Symphony's
+compatibility names `Merging`, `Closed`, and `Cancelled`.
 
 Workflow-specific behavior remains explicit: `reviewComment.inReviewStatus`
 and `reviewComment.inProgressStatus` are business rules rather than
@@ -254,9 +258,11 @@ destination channel. It does not require the root `config.ts` or
   Synthetic service availability cards are titled `Symphony connection`, show
   the current availability status in their context, and do not include a
   status selector.
-- When Linear moves an issue into a `completed`, `canceled`, or `duplicate`
-  state type, the permalink URL of an existing parent card is posted to the
+- When an issue enters an effective terminal state, the permalink URL of an existing parent card is posted to the
   same channel below a `Task closed` line containing the current Linear status.
+  Linear's `completed`, `canceled`, and `duplicate` types are terminal by
+  default; per-instance Symphony active and terminal states can override that
+  classification.
   Each nonterminal Linear issue that the closed issue blocks is then posted as
   a separate link in that notification's thread. Repeated observations of the
   same terminal state do not post the notification again.
