@@ -352,7 +352,10 @@ describe("Slack mention commands", () => {
 
       const lastUpdate = calls.filter(({ method }) => method === "update").at(-1);
       assert.match(JSON.stringify(lastUpdate?.args), /In Review/);
-      assert.match(JSON.stringify(lastUpdate?.args), /@U123/);
+      assert.equal(
+        calls.some(({ method, args }) => method === "update" && /@U123/.test(JSON.stringify(args))),
+        true,
+      );
     });
   });
 
@@ -740,6 +743,32 @@ describe("Slack mention commands", () => {
         calls[0].args.text,
         "[error] Failed to unassign the user from the task. No assignment was changed.",
       );
+    });
+  });
+  it("keeps assignees out of the status timeline after default assignees expand", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      store.assignTask(task.id, "U123");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+      });
+
+      const notification = calls.find(
+        ({ method, args }) => method === "postMessage" && args.thread_ts === "10.000",
+      );
+      assert.match(JSON.stringify(notification?.args.blocks), /\*Updated at\*/);
+      assert.doesNotMatch(JSON.stringify(notification?.args.blocks), /Assignees|@U123/);
     });
   });
 });

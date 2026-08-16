@@ -189,7 +189,7 @@ export function buildSlackPreviewMessage(
             source: { type: "manual", actor: { id: "UHIROPPY", label: "Hiroppy" } },
           },
         ],
-        facts: { assignees: [] },
+        facts: {},
       }),
     };
   }
@@ -198,7 +198,7 @@ export function buildSlackPreviewMessage(
       throw new Error("Slack preview type timeline is only available for thread previews.");
     }
     return {
-      text: "*In Review* → *Done*\nEvent: Updated | Assignees: @Hiroppy @Reviewer",
+      text: "*In Review* → *Done*\nEvent: Updated",
       blocks: buildStatusCard({
         events: [
           {
@@ -225,7 +225,6 @@ export function buildSlackPreviewMessage(
           },
         ],
         facts: {
-          assignees: ["@Hiroppy", "@Reviewer"],
           pullRequest: {
             url: "https://github.com/example/preview/pull/123",
             number: 123,
@@ -247,7 +246,7 @@ export function buildSlackPreviewMessage(
             source: { type: "automatic", label: "Inline review comment detected" },
           },
         ],
-        facts: { assignees: [] },
+        facts: {},
       }),
     };
   }
@@ -334,7 +333,7 @@ export function buildSlackPreviewMessage(
               },
             },
           ],
-          facts: { assignees: context.assignees },
+          facts: {},
         }),
       };
     }

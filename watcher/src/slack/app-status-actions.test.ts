@@ -93,7 +93,7 @@ describe("Slack status actions", () => {
       );
       assert.match(
         JSON.stringify(calls.find(({ method }) => method === "postMessage")?.args.blocks),
-        /\*Assignees\*\\n@Example User/,
+        /\*Updated at\*\\n`\d{2}:\d{2}`/,
       );
     });
   });

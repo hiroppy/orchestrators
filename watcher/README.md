@@ -218,7 +218,7 @@ pnpm slack:preview thread update
 The first argument is `post` or `thread`. Available event types are `start`,
 `update`, `retry`, `block`, `end`, and `recover`. Use `thread manual` to preview
 a status change made by a Slack user, including the actor's display name. A
-consolidated status card with Event, Assignees, and history can be previewed
+consolidated status card with Event, Updated at, and history can be previewed
 with `thread timeline`. A configured creator and additional mention targets can
 be previewed with `post attention` or `thread attention`. Pass them as `mentionTarget` and
 `mentions` when using the preview helper; the CLI uses non-notifying
