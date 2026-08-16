@@ -35,6 +35,14 @@ same build, review, and requeue loop.
 
 ![Slack as the Orchestrators command center, tracking Linear and Symphony work through build, GitHub review, automatic feedback requeue, and shipping](.github/assets/how-it-works.png)
 
+Slack keeps the live task post and follow-up thread together: the post shows the
+current state and actions, while the thread keeps status history and operator
+follow-ups in one place.
+
+| Post                                                                                                                            | Thread                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ![Slack task post showing Linear status, Symphony activity, pull request metadata, and action buttons](.github/assets/post.png) | ![Slack task thread showing status history, replies, and follow-up context](.github/assets/thread.png) |
+
 ### Starting from Linear
 
 1. A Symphony instance claims an eligible Linear issue from the active states
