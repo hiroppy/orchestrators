@@ -17,8 +17,11 @@ export interface SymphonyWorkflowConfig {
 }
 
 export function parseWorkflowFrontmatter(workflow: string): SymphonyWorkflowConfig | undefined {
-  const frontmatter = workflow.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-  if (!frontmatter) return undefined;
+  const lines = workflow.split(/\r?\n/);
+  if (lines[0] !== "---") return undefined;
+  const closingDelimiter = lines.indexOf("---", 1);
+  const frontmatterEnd = closingDelimiter === -1 ? lines.length : closingDelimiter;
+  const frontmatter = lines.slice(1, frontmatterEnd).join("\n");
 
   try {
     const document: unknown = parseYaml(frontmatter);

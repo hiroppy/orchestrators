@@ -31,6 +31,22 @@ Instructions
     );
   });
 
+  it("parses unterminated frontmatter like Symphony", () => {
+    assert.deepEqual(
+      parseWorkflowFrontmatter(`---
+tracker:
+  active_states: [Todo]
+  terminal_states: [Done]
+`),
+      {
+        tracker: {
+          active_states: ["Todo"],
+          terminal_states: ["Done"],
+        },
+      },
+    );
+  });
+
   it("rejects missing, malformed, and non-object frontmatter", () => {
     assert.equal(parseWorkflowFrontmatter("tracker:\n  kind: linear"), undefined);
     assert.equal(parseWorkflowFrontmatter("---\ntracker: [\n---\n"), undefined);
