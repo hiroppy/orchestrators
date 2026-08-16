@@ -31,16 +31,7 @@ export async function syncPullRequestReactions(
   const desiredReactions = new Set(
     pullRequest.reactions.map((reaction) => slackReactionByGitHubReaction[reaction]),
   );
-  const response = await client.reactions.get({
-    channel: task.parentChannelId,
-    timestamp: task.parentMessageTs,
-  });
-  const currentReactions = new Set(
-    response.message?.reactions?.flatMap(({ name }) => (name ? [name] : [])) ?? [],
-  );
-
   for (const name of desiredReactions) {
-    if (currentReactions.has(name)) continue;
     try {
       await client.reactions.add({
         channel: task.parentChannelId,
@@ -51,6 +42,14 @@ export async function syncPullRequestReactions(
       if (!hasSlackError(error, "already_reacted")) throw error;
     }
   }
+
+  const response = await client.reactions.get({
+    channel: task.parentChannelId,
+    timestamp: task.parentMessageTs,
+  });
+  const currentReactions = new Set(
+    response.message?.reactions?.flatMap(({ name }) => (name ? [name] : [])) ?? [],
+  );
 
   for (const name of currentReactions) {
     if (desiredReactions.has(name) || !isMirroredReaction(name)) continue;
@@ -63,6 +62,16 @@ export async function syncPullRequestReactions(
     } catch (error) {
       if (!hasSlackError(error, "no_reaction")) throw error;
     }
+  }
+}
+
+export async function syncPullRequestReactionsSafely(
+  ...args: Parameters<typeof syncPullRequestReactions>
+): Promise<void> {
+  try {
+    await syncPullRequestReactions(...args);
+  } catch (error) {
+    console.error("Pull request reaction sync failed; it will be retried:", error);
   }
 }
 

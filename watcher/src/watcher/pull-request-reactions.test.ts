@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { syncPullRequestReactions } from "./pull-request-reactions.ts";
+import {
+  syncPullRequestReactions,
+  syncPullRequestReactionsSafely,
+} from "./pull-request-reactions.ts";
 
 describe("syncPullRequestReactions", () => {
   it("mirrors GitHub reaction presence onto the Slack thread parent", async () => {
@@ -32,7 +35,10 @@ describe("syncPullRequestReactions", () => {
 
     assert.deepEqual(
       calls.filter(({ method }) => method === "add"),
-      [{ method: "add", name: "eyes" }],
+      [
+        { method: "add", name: "+1" },
+        { method: "add", name: "eyes" },
+      ],
     );
     assert.deepEqual(
       calls.filter(({ method }) => method === "remove").map(({ name }) => name),
@@ -61,5 +67,28 @@ describe("syncPullRequestReactions", () => {
       { parentChannelId: "C123", parentMessageTs: "1.000" } as never,
       { url: "https://github.com/acme/example/pull/42", reactions: ["HEART"] },
     );
+  });
+
+  it("isolates Slack failures from watcher polling", async (context) => {
+    const errors: unknown[][] = [];
+    context.mock.method(console, "error", (...args) => errors.push(args));
+    const client = {
+      reactions: {
+        async add() {},
+        async get() {
+          throw new Error("missing_scope");
+        },
+        async remove() {},
+      },
+    } as never;
+
+    await syncPullRequestReactionsSafely(
+      client,
+      { parentChannelId: "C123", parentMessageTs: "1.000" } as never,
+      { url: "https://github.com/acme/example/pull/42", reactions: ["HEART"] },
+    );
+
+    assert.equal(errors.length, 1);
+    assert.match(String(errors[0]?.[0]), /reaction sync failed/i);
   });
 });
