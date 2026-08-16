@@ -44,7 +44,11 @@ describe("Slack event publishing", () => {
       assert.equal(updates[0].args.ts, "1.000");
       assert.deepEqual(
         (threadPosts[0].args.blocks as Array<{ type: string }>).map(({ type }) => type),
-        ["section", "section"],
+        ["section", "section", "divider", "section"],
+      );
+      assert.match(
+        JSON.stringify(threadPosts[0].args.blocks),
+        /\*Timeline\*.*In Progress → In Progress/,
       );
 
       const initialActions = (topLevelPosts[0].args.blocks as Array<Record<string, unknown>>).find(

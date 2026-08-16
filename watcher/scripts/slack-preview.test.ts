@@ -156,8 +156,10 @@ describe("Slack preview", () => {
     assert.match(blocks, /Consolidate Slack status updates/);
     assert.ok(blocks.indexOf("PR#123") < blocks.indexOf("Error"));
     assert.match(blocks, /\*Timeline\*/);
+    assert.match(blocks, /\d{2}:\d{2} In Review → Done/);
     assert.match(blocks, /\d{2}:\d{2} Todo → In Progress/);
     assert.match(blocks, /\d{2}:\d{2} In Progress → In Review by Reviewer/);
+    assert.ok(blocks.indexOf("In Review → Done") < blocks.indexOf("In Progress → In Review"));
     assert.ok(blocks.indexOf("In Progress → In Review") < blocks.indexOf("Todo → In Progress"));
   });
 
