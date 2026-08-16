@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -24,6 +24,12 @@ describe("task activity", () => {
 
     const fallback = await buildTaskActivity({});
     assert.equal(fallback.message, "Running");
+
+    const fromEmptyMessage = await buildTaskActivity({ last_message: "", last_event: "running" });
+    assert.equal(fromEmptyMessage.message, "running");
+
+    const fromEmptyValues = await buildTaskActivity({ last_message: "", last_event: "" });
+    assert.equal(fromEmptyValues.message, "Running");
   });
 
   it("updates at the 15-second boundary", () => {
@@ -85,6 +91,40 @@ describe("task activity", () => {
         additions: 0,
         deletions: 0,
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not follow untracked symlinks to special files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "task-activity-symlink-"));
+    try {
+      const workspace = join(directory, "workspace");
+      await mkdir(workspace);
+      execFileSync("git", ["init", "--quiet"], { cwd: workspace });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--quiet",
+          "--allow-empty",
+          "-m",
+          "initial",
+        ],
+        { cwd: workspace },
+      );
+      await symlink("/dev/null", join(workspace, "special-file-link"));
+
+      const startedAt = Date.now();
+      const summary = await readGitSummary(workspace);
+
+      assert.equal(summary.changedFileCount, 1);
+      assert.equal(summary.additions, 0);
+      assert.ok(Date.now() - startedAt < 1_000);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

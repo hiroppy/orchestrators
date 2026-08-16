@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { open } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -72,7 +72,7 @@ export async function publishTaskActivities(
 export async function buildTaskActivity(row: SnapshotRow): Promise<TaskActivity> {
   const git = row.workspace_path ? await readGitSummary(row.workspace_path) : emptyGitSummary();
   return {
-    message: row.last_message ?? row.last_event ?? "Running",
+    message: row.last_message || row.last_event || "Running",
     ...git,
   };
 }
@@ -131,6 +131,7 @@ async function countUntrackedLines(
   for (const file of files) {
     const path = resolve(workspacePath, file);
     if (!path.startsWith(workspaceRoot)) throw new Error("Untracked path escapes the workspace.");
+    if (!(await lstat(path)).isFile()) continue;
 
     const handle = await open(path, "r");
     try {
