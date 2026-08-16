@@ -25,6 +25,7 @@ export const ISSUE_STATE_QUERY = `
             title
             url
             state {
+              name
               type
             }
           }

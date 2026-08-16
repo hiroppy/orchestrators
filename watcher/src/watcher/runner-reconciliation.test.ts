@@ -132,7 +132,26 @@ describe("watcher reconciliation and snapshots", () => {
               state: { name: "Ready for Release", type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
               attachments: { nodes: [] },
-              relations: { nodes: [] },
+              relations: {
+                nodes: [
+                  {
+                    type: "blocks",
+                    relatedIssue: {
+                      identifier: "ENG-63",
+                      title: "Already ready for release",
+                      state: { name: "Ready for Release", type: "started" },
+                    },
+                  },
+                  {
+                    type: "blocks",
+                    relatedIssue: {
+                      identifier: "ENG-64",
+                      title: "Start the follow-up",
+                      state: { name: "In Review", type: "started" },
+                    },
+                  },
+                ],
+              },
             },
           },
         }),
@@ -179,6 +198,11 @@ describe("watcher reconciliation and snapshots", () => {
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
         "Task closed | *Ready for Release*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
+      const relatedMessage = calls.find(
+        ({ method, thread_ts }) => method === "postMessage" && thread_ts,
+      )?.text;
+      assert.match(String(relatedMessage), /ENG-64.*Start the follow-up/);
+      assert.doesNotMatch(String(relatedMessage), /ENG-63|Already ready for release/);
     });
   });
 

@@ -3,8 +3,8 @@ import {
   type ResolvedWatcherRuntimeConfig,
   type WatcherRuntimeConfig,
 } from "../config/runtime.ts";
-import type { ResolvedLinearTeamConfig } from "../domain/types.ts";
-import { effectiveLinearStateType } from "../domain/linear.ts";
+import type { RelatedIssue, ResolvedLinearTeamConfig } from "../domain/types.ts";
+import { effectiveLinearStateType, isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { fetchLinearWorkflowStates } from "../integrations/linear.ts";
 import {
@@ -75,6 +75,19 @@ export function effectiveLinearStateTypeForService(
     stateType,
     service?.activeStates ?? [],
     service?.terminalStates ?? [],
+  );
+}
+
+export function nonterminalRelatedIssuesForService(
+  config: ResolvedWatcherRuntimeConfig,
+  serviceName: string,
+  relatedIssues: RelatedIssue[] | undefined,
+): RelatedIssue[] | undefined {
+  return relatedIssues?.filter(
+    ({ state, stateType }) =>
+      !isTerminalLinearStateType(
+        effectiveLinearStateTypeForService(config, serviceName, state, stateType),
+      ),
   );
 }
 

@@ -36,6 +36,7 @@ import { publishTaskActivities } from "./task-activity.ts";
 import {
   effectiveLinearStateTypeForService,
   linearTeamForService,
+  nonterminalRelatedIssuesForService,
   resolveLinearWorkflowStatuses,
   resolveSymphonyWorkflowSettings,
 } from "./runtime-config.ts";
@@ -253,7 +254,11 @@ export async function reconcileSlackStatusTransition({
       linearIssue.stateType,
     ),
     pullRequest: linearIssue.pullRequest,
-    relatedIssues: linearIssue.relatedIssues,
+    relatedIssues: nonterminalRelatedIssuesForService(
+      config,
+      task.serviceName,
+      linearIssue.relatedIssues,
+    ),
   });
 }
 
@@ -534,7 +539,11 @@ async function processWatcherEvent({
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  await publishWatcherEvent(slackClient, store, slackChannelId, event, {
+  const publishEvent = {
+    ...event,
+    relatedIssues: nonterminalRelatedIssuesForService(config, event.service, event.relatedIssues),
+  };
+  await publishWatcherEvent(slackClient, store, slackChannelId, publishEvent, {
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>
       createPendingStatusHookEvent(

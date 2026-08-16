@@ -178,7 +178,7 @@ describe("fetchLinearIssueState", () => {
                     identifier: "ENG-63",
                     title: "Start the follow-up",
                     url: "https://linear.app/example/issue/ENG-63/follow-up",
-                    state: { type: "unstarted" },
+                    state: { name: "Todo", type: "unstarted" },
                   },
                 },
                 {
@@ -213,6 +213,8 @@ describe("fetchLinearIssueState", () => {
         identifier: "ENG-63",
         title: "Start the follow-up",
         url: "https://linear.app/example/issue/ENG-63/follow-up",
+        state: "Todo",
+        stateType: "unstarted",
       },
     ]);
   });

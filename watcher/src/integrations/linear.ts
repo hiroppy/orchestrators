@@ -75,7 +75,7 @@ interface LinearIssueRelation {
     identifier?: string | null;
     title?: string | null;
     url?: string | null;
-    state?: { type?: string | null } | null;
+    state?: { name?: string | null; type?: string | null } | null;
   } | null;
 }
 
@@ -415,6 +415,8 @@ function findNextRelatedIssues(relations?: LinearIssueRelation[] | null): Relate
         identifier: relatedIssue.identifier,
         title: relatedIssue.title ?? null,
         url: relatedIssue.url ?? null,
+        state: relatedIssue.state?.name ?? null,
+        stateType: relatedIssue.state?.type ?? null,
       },
     ];
   });
