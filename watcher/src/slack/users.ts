@@ -11,9 +11,11 @@ export async function resolveSlackAssigneeId(
   const mentionedAssigneeId = slackAssigneeIdFromMention(value);
   if (mentionedAssigneeId) return mentionedAssigneeId;
   if (value.toLowerCase() === "me") return currentUserId;
-  if (!client.users?.list) return undefined;
 
   const normalizedValue = value.replace(/^@/, "").toLowerCase();
+  if (!normalizedValue) return undefined;
+  if (!client.users?.list) return undefined;
+
   const matchingUserIds = new Set<string>();
   let cursor: string | undefined;
 

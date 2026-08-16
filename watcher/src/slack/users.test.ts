@@ -97,6 +97,24 @@ describe("Slack users", () => {
     assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), undefined);
   });
 
+  it("does not resolve an empty normalized username", async () => {
+    const client = {
+      users: {
+        async info() {
+          return { ok: true };
+        },
+        async list() {
+          return {
+            ok: true,
+            members: [{ id: "U123", name: "hiroppy", profile: { display_name: "" } }],
+          };
+        },
+      },
+    } as never;
+
+    assert.equal(await resolveSlackAssigneeId(client, "@"), undefined);
+  });
+
   it("resolves user mentions to non-notifying display-name labels", async () => {
     const labels = await resolveSlackAssigneeLabels(
       {
