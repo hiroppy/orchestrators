@@ -49,6 +49,38 @@ it("shows the latest event and update time without an assignee section", () => {
   assert.doesNotMatch(rendered, /Assignees/);
 });
 
+it("shows concise current activity and truncates the changed-file list upstream", () => {
+  const blocks = buildStatusCard({
+    events: [
+      {
+        fromStatus: "Todo",
+        toStatus: "In Progress",
+        occurredAt: "2026-08-16T01:00:00.000Z",
+        source: { type: "automatic", label: "Started" },
+      },
+    ],
+    facts: {
+      pullRequest: {
+        url: "https://github.com/example/app/pull/42",
+        number: 42,
+        title: "Show live activity",
+      },
+      activity: {
+        message: "Running tests",
+        changedFiles: ["views.ts", "views.test.ts", "runner.ts"],
+        changedFileCount: 5,
+        additions: 42,
+        deletions: 8,
+      },
+    },
+  });
+  const rendered = JSON.stringify(blocks);
+
+  assert.match(rendered, /\*Current activity\*\\nRunning tests/);
+  assert.match(rendered, /views\.ts.*views\.test\.ts.*runner\.ts.*\+2 more/);
+  assert.ok(rendered.indexOf("Current activity") < rendered.indexOf("PR#42"));
+});
+
 it("rejects a new timeline card when Slack omits its timestamp", async () => {
   let eventStored = false;
   const store = {

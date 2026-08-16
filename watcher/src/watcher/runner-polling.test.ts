@@ -148,8 +148,8 @@ describe("watcher polling", () => {
       });
 
       assert.equal(store.getSnapshots()["service-a"]?.running[0]?.issue_identifier, "ENG-62");
-      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
-      assert.equal(calls.filter(({ method }) => method === "update").length, 0);
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 2);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 1);
 
       await runOnce({
         config,
@@ -157,7 +157,8 @@ describe("watcher polling", () => {
         slackClient,
         slackChannelId: "C123",
       });
-      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 2);
+      assert.equal(calls.filter(({ method }) => method === "update").length, 1);
     });
   });
 

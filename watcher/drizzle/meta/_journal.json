@@ -64,6 +64,13 @@
       "when": 1786791522997,
       "tag": "0008_grey_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786844600162,
+      "tag": "0009_spooky_supernaut",
+      "breakpoints": true
     }
   ]
 }

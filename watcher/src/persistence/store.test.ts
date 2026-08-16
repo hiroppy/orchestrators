@@ -113,6 +113,47 @@ describe("WatcherStore", () => {
     });
   });
 
+  it("stores and clears the latest task activity and its Slack publication time", async () => {
+    await withStore((store) => {
+      store.syncDefinitions(
+        [{ name: "service-a", url: "https://a.test/state", linearTeam: "workspace-a-eng" }],
+        {
+          "workspace-a-eng": {
+            apiKey: "lin_test",
+            teamId: "team-a",
+            statuses: ["In Progress"],
+          },
+        },
+      );
+      store.replaceSnapshots({
+        "service-a": {
+          running: [{ issue_identifier: "ENG-62", state: "In Progress" }],
+          retrying: [],
+          blocked: [],
+        },
+      });
+      store.setTaskActivity("service-a:ENG-62", {
+        message: "Running tests",
+        changedFiles: ["views.ts"],
+        changedFileCount: 1,
+        additions: 4,
+        deletions: 2,
+      });
+      store.markTaskActivityPublished("service-a:ENG-62", new Date("2026-08-16T01:00:15.000Z"));
+
+      const task = store.getTask("service-a:ENG-62");
+      assert.equal(task?.currentActivity?.message, "Running tests");
+      assert.deepEqual(task?.currentActivity?.changedFiles, ["views.ts"]);
+      assert.equal(task?.activityPublishedAt, "2026-08-16T01:00:15.000Z");
+
+      store.setTaskActivity("service-a:ENG-62", undefined);
+
+      const clearedTask = store.getTask("service-a:ENG-62");
+      assert.equal(clearedTask?.currentActivity, undefined);
+      assert.equal(clearedTask?.activityPublishedAt, undefined);
+    });
+  });
+
   it("round-trips normalized observations and removes tasks no longer observed", async () => {
     await withStore((store) => {
       store.syncDefinitions(

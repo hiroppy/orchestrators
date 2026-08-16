@@ -48,6 +48,13 @@ A snapshot difference emits a watcher event when a task appears, changes executi
 blocked or retrying, or disappears. The watcher then enriches that event with authoritative Linear
 state and, when relevant, GitHub pull-request metadata.
 
+The first running observation creates the Slack Timeline card. While the task remains running, the
+watcher refreshes that card at most once every 15 seconds with Symphony's latest activity
+notification and a bounded summary of the local workspace Git diff. Git inspection includes
+untracked text additions and bounds command time, output, file count, and bytes read. Refreshes replace the current activity
+in place and do not create audit events or additional thread replies. Synthetic outage snapshots
+do not replace the last successfully observed activity.
+
 ### Watcher tracked tasks
 
 Once a task has been published to Slack, the watcher keeps it in its database. Leaving Symphony's
@@ -167,6 +174,7 @@ starts again.
 - `watcher/src/watcher/runner.ts` owns the three-second loop and 30-second maintenance schedule.
 - `watcher/src/watcher/snapshots.ts` collects Symphony observability snapshots.
 - `watcher/src/watcher/diff.ts` converts snapshot changes into watcher events.
+- `watcher/src/watcher/task-activity.ts` builds running-task activity and applies the 15-second publication limit.
 - `watcher/src/watcher/event-enrichment.ts` resolves Linear state and PR metadata.
 - `watcher/src/watcher/review-comments.ts` decides whether PR feedback should requeue a task.
 - `watcher/src/watcher/review-requeue.ts` updates Linear and persists the requeue result.
