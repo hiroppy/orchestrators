@@ -3,7 +3,8 @@ import type { Task } from "../domain/task.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { publishWatcherEvent, type SlackClient } from "../slack/app.ts";
+import type { SlackClient } from "../slack/client-types.ts";
+import { publishWatcherEvent } from "../slack/event-publisher.ts";
 import { checkReviewReadyNotificationSafely } from "./review-ready.ts";
 import {
   effectiveLinearStateTypeForService,

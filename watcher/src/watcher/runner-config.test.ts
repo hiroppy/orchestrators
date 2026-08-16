@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { resolveWatcherConfig } from "../config/runtime.ts";
-import { requireSlackBotUserId } from "./runner.ts";
+import { requireSlackBotUserId } from "./start-watcher.ts";
 import {
   resolveLinearWorkflowStatuses,
   resolveSymphonyWorkflowSettings,

@@ -70,15 +70,20 @@ export async function reconcileLinearStatuses({
         pendingPersistedTerminalTaskIds.has(task.id) ||
         isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds),
     );
+  const linearTeamByService = new Map(
+    config.services.map(({ name, linearTeam }) => [name, linearTeam]),
+  );
+  const tasksByTeam = new Map<string, Task[]>();
+  for (const task of tasks) {
+    const teamName = linearTeamByService.get(task.serviceName);
+    if (!teamName) continue;
+    const teamTasks = tasksByTeam.get(teamName) ?? [];
+    teamTasks.push(task);
+    tasksByTeam.set(teamName, teamTasks);
+  }
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
-  for (const task of tasks) {
-    const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
-    if (!teamName || summaries.has(teamName) || rateLimitedTeams.has(teamName)) continue;
-    const teamTasks = tasks.filter(
-      (candidate) =>
-        config.services.find(({ name }) => name === candidate.serviceName)?.linearTeam === teamName,
-    );
+  for (const [teamName, teamTasks] of tasksByTeam) {
     try {
       summaries.set(
         teamName,
@@ -95,7 +100,7 @@ export async function reconcileLinearStatuses({
 
   for (const task of tasks) {
     const recoveringPersistedTerminalTask = pendingPersistedTerminalTaskIds.has(task.id);
-    const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
+    const teamName = linearTeamByService.get(task.serviceName);
     if (teamName && rateLimitedTeams.has(teamName)) continue;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
     if (summary?.state) {

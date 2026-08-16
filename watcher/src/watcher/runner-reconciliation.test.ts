@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { reconcileSlackStatusTransition } from "./runner.ts";
+import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
 import { checkReviewReadyNotification, REVIEW_READY_DELAY_MS } from "./review-ready.ts";
 import {
   dataUrl,

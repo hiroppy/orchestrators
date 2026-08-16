@@ -4,6 +4,7 @@ import type { Snapshot, SnapshotsByService } from "../domain/snapshot.ts";
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskObservations, tasks } from "./schema.ts";
 import { ensureStatus, issueIdentifierFor, observationToRow } from "./store-helpers.ts";
+import { taskIdFor } from "./task-store.ts";
 
 const DEFAULT_STATUS_BY_BUCKET = {
   running: "running",
@@ -69,7 +70,7 @@ export function replaceSnapshots(
         for (const row of snapshot[bucket]) {
           const issueIdentifier = issueIdentifierFor(row);
           if (!issueIdentifier) continue;
-          const taskId = `${serviceName}:${issueIdentifier}`;
+          const taskId = taskIdFor(serviceName, issueIdentifier);
           const statusName = row.state ?? DEFAULT_STATUS_BY_BUCKET[bucket];
           const statusId = ensureStatus(tx, service.id, statusName, timestamp);
 

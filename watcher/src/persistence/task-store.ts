@@ -9,6 +9,8 @@ import { services, statuses, taskObservations, tasks } from "./schema.ts";
 import { ensureStatus, taskFromRow, type TaskEventInput } from "./store-helpers.ts";
 import { addTaskEvent } from "./task-event-store.ts";
 
+type TaskStoreDatabase = Parameters<typeof ensureStatus>[0];
+
 export class TaskStore {
   private readonly db: WatcherDatabase;
 
@@ -16,8 +18,8 @@ export class TaskStore {
     this.db = db;
   }
 
-  getTask(id: string): Task | undefined {
-    const row = this.db
+  getTask(id: string, db: TaskStoreDatabase = this.db): Task | undefined {
+    const row = db
       .select({
         task: tasks,
         serviceName: services.name,
@@ -100,18 +102,21 @@ export class TaskStore {
       );
   }
 
-  upsertTaskFromEvent(event: WatcherEvent, now = new Date()): Task {
+  upsertTaskFromEvent(
+    event: WatcherEvent,
+    now = new Date(),
+    db: TaskStoreDatabase = this.db,
+  ): Task {
     const timestamp = now.toISOString();
     const id = taskIdFor(event.service, event.issueIdentifier);
-    const existing = this.getTask(id);
-    const service = this.db.select().from(services).where(eq(services.name, event.service)).get();
+    const existing = this.getTask(id, db);
+    const service = db.select().from(services).where(eq(services.name, event.service)).get();
     if (!service) throw new Error(`Service not found: ${event.service}`);
     const statusName = event.resolvedState ?? event.state ?? existing?.status ?? "Unknown";
-    const statusId = ensureStatus(this.db, service.id, statusName, timestamp);
+    const statusId = ensureStatus(db, service.id, statusName, timestamp);
     const pullRequestLabels = JSON.stringify(event.pullRequest?.labels);
 
-    this.db
-      .insert(tasks)
+    db.insert(tasks)
       .values({
         id,
         serviceId: service.id,
@@ -145,7 +150,7 @@ export class TaskStore {
       })
       .run();
 
-    return this.getTask(id)!;
+    return this.getTask(id, db)!;
   }
 
   upsertTaskFromEventAtomically(
@@ -153,11 +158,11 @@ export class TaskStore {
     createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
     now = new Date(),
   ): { task: Task; previousTask: Task | undefined } {
-    return this.db.transaction(() => {
-      const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
-      const task = this.upsertTaskFromEvent(event, now);
+    return this.db.transaction((tx) => {
+      const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier), tx);
+      const task = this.upsertTaskFromEvent(event, now, tx);
       const transitionEvent = createEvent(task, previousTask);
-      if (transitionEvent) addTaskEvent(this.db, transitionEvent);
+      if (transitionEvent) addTaskEvent(tx, transitionEvent);
       return { task, previousTask };
     });
   }
@@ -209,13 +214,14 @@ export class TaskStore {
     taskId: string,
     statusName: string,
     now = new Date(),
+    db: TaskStoreDatabase = this.db,
   ): {
     task: Task;
     fromStatus: string;
   } {
-    const existing = this.requireTask(taskId);
+    const existing = this.requireTask(taskId, db);
     const timestamp = now.toISOString();
-    const status = this.db
+    const status = db
       .select({ id: statuses.id })
       .from(statuses)
       .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
@@ -226,8 +232,7 @@ export class TaskStore {
     if (!status) {
       throw new Error(`Status is not configured for ${existing.serviceName}: ${statusName}`);
     }
-    this.db
-      .update(tasks)
+    db.update(tasks)
       .set({
         statusId: status.id,
         linearStateType: null,
@@ -236,7 +241,7 @@ export class TaskStore {
       .where(eq(tasks.id, taskId))
       .run();
 
-    return { task: this.requireTask(taskId), fromStatus: existing.status };
+    return { task: this.requireTask(taskId, db), fromStatus: existing.status };
   }
 
   updateTaskStatusAtomically(
@@ -245,11 +250,11 @@ export class TaskStore {
     createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; fromStatus: string } {
-    return this.db.transaction(() => {
-      const transition = this.updateTaskStatus(taskId, statusName, now);
+    return this.db.transaction((tx) => {
+      const transition = this.updateTaskStatus(taskId, statusName, now, tx);
       const events = createEvents(transition.task, transition.fromStatus);
       if (events) {
-        for (const event of Array.isArray(events) ? events : [events]) addTaskEvent(this.db, event);
+        for (const event of Array.isArray(events) ? events : [events]) addTaskEvent(tx, event);
       }
       return transition;
     });
@@ -270,8 +275,8 @@ export class TaskStore {
       .run();
   }
 
-  private requireTask(taskId: string): Task {
-    const task = this.getTask(taskId);
+  private requireTask(taskId: string, db: TaskStoreDatabase = this.db): Task {
+    const task = this.getTask(taskId, db);
     if (!task) throw new Error(`Task not found: ${taskId}`);
     return task;
   }

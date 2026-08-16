@@ -18,7 +18,10 @@ import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, tasks } from "./schema.ts";
 import { insertTaskEvent, type TaskEventInput } from "./store-helpers.ts";
 
-export function addTaskEvent(db: WatcherDatabase, event: TaskEventInput): TaskEvent {
+export function addTaskEvent(
+  db: Parameters<typeof insertTaskEvent>[0],
+  event: TaskEventInput,
+): TaskEvent {
   return insertTaskEvent(db, event);
 }
 

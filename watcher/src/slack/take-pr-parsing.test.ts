@@ -10,6 +10,10 @@ describe("take-pr parsing", () => {
       "https://github.com/example/widget/pull/42",
     );
     assert.equal(
+      parseGitHubPullRequestUrl("https://GitHub.com/example/widget/pull/42"),
+      "https://github.com/example/widget/pull/42",
+    );
+    assert.equal(
       parseGitHubPullRequestUrl(
         "<https://github.com/example/widget/pull/42|github.com/example/widget/pull/42>",
       ),
@@ -23,6 +27,8 @@ describe("take-pr parsing", () => {
       "https://example.com/example/widget/pull/42",
       "https://github.com/example/widget/pull/42?diff=split",
       "https://github.com/example/widget/pull/42#discussion",
+      "https://user:pass@github.com/example/widget/pull/42",
+      "https://github.com:8443/example/widget/pull/42",
       "https://github.com/example/widget/pull/0",
       "not-a-url",
     ]) {

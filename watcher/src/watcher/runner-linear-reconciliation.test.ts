@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { runOnce } from "./runner.ts";
+import { runOnce } from "./run-once.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { createPendingStatusHookEvent } from "./status-hooks.ts";
 import {
