@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 
 import { resolveWatcherConfig } from "../config/runtime.ts";
 import { requireSlackBotUserId } from "./runner.ts";
-import { resolveLinearWorkflowStatuses } from "./runtime-config.ts";
+import {
+  resolveLinearWorkflowStatuses,
+  resolveSymphonyWorkflowSettings,
+} from "./runtime-config.ts";
 import { baseConfig, linearTeams } from "./runner.test-support.ts";
 
 describe("requireSlackBotUserId", () => {
@@ -161,6 +164,62 @@ describe("watcher configuration", () => {
       ),
       /cannot contain more than 100 statuses/,
     );
+  });
+
+  it("loads active and terminal state overrides from each Symphony workflow", async () => {
+    const unresolved = resolveWatcherConfig(baseConfig(), { requireSlack: false });
+    const paths: string[] = [];
+    const resolved = await resolveSymphonyWorkflowSettings(
+      unresolved,
+      "/app/symphonies",
+      async (path) => {
+        paths.push(path);
+        return `---
+tracker:
+  active_states: [Todo, In Progress]
+  terminal_states: [Done, Ready for Release]
+---
+`;
+      },
+    );
+
+    assert.deepEqual(paths, ["/app/symphonies/service-a/elixir/WORKFLOW.md"]);
+    assert.deepEqual(resolved.services[0].activeStates, ["Todo", "In Progress"]);
+    assert.deepEqual(resolved.services[0].terminalStates, ["Done", "Ready for Release"]);
+  });
+
+  it("validates workflow state overrides against the service's Linear team", async () => {
+    const unresolved = resolveWatcherConfig(baseConfig(), { requireSlack: false });
+    const withOverrides = {
+      ...unresolved,
+      services: unresolved.services.map((service) => ({
+        ...service,
+        activeStates: ["Todo", "Merging"],
+        terminalStates: ["Done", "Closed", "Cancelled"],
+      })),
+    };
+
+    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done"]);
+
+    for (const [group, activeStates, terminalStates] of [
+      ["active_states", ["Todo", "Ready for realease"], ["Done"]],
+      ["terminal_states", ["Todo"], ["Done", "Ready for realease"]],
+    ] as const) {
+      await assert.rejects(
+        resolveLinearWorkflowStatuses(
+          {
+            ...withOverrides,
+            services: withOverrides.services.map((service) => ({
+              ...service,
+              activeStates,
+              terminalStates,
+            })),
+          },
+          async () => ["Todo", "Done"],
+        ),
+        new RegExp(`${group} references unknown Linear status "Ready for realease" for service-a`),
+      );
+    }
   });
 
   it("requires valid review comment settings", () => {

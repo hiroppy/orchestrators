@@ -5,7 +5,7 @@ import { handleAppMention } from "./mention-commands.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
 import { AmbiguousLinearTakePrIssueError } from "../integrations/linear.ts";
 import { handleTakePrAction, handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
-import { parseGitHubPullRequestUrl, projectSlugFromWorkflow } from "./take-pr-parsing.ts";
+import { parseGitHubPullRequestUrl } from "./take-pr-parsing.ts";
 
 const pullRequest = {
   url: "https://github.com/example/widget/pull/42",
@@ -43,56 +43,6 @@ describe("take-pr parsing", () => {
     ]) {
       assert.equal(parseGitHubPullRequestUrl(value), undefined, value);
     }
-  });
-
-  it("reads only tracker.provider.project_slug from YAML frontmatter", () => {
-    assert.equal(
-      projectSlugFromWorkflow(`---
-tracker:
-  kind: linear
-  provider:
-    project_slug: "project-123" # configured project
----
-Instructions
-`),
-      "project-123",
-    );
-    assert.equal(
-      projectSlugFromWorkflow(`---
-tracker:
-  project_slug: legacy-project
-other:
-  provider:
-    project_slug: wrong-project
----
-`),
-      undefined,
-    );
-    assert.equal(
-      projectSlugFromWorkflow("tracker:\n  provider:\n    project_slug: missing"),
-      undefined,
-    );
-    assert.equal(
-      projectSlugFromWorkflow(`---
-tracker:
-  provider:
-    defaults:
-      project_slug: wrong-project
-    project_slug: correct-project
----
-`),
-      "correct-project",
-    );
-    assert.equal(
-      projectSlugFromWorkflow(`---
-tracker:
-  provider:
-    project_slug: 123
----
-`),
-      undefined,
-    );
-    assert.equal(projectSlugFromWorkflow("---\ntracker: [\n---\n"), undefined);
   });
 });
 

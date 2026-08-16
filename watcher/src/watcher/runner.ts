@@ -28,12 +28,18 @@ import type {
   Task,
   WatcherEvent,
 } from "../domain/types.ts";
-import { enteredTerminalLinearState } from "../domain/linear.ts";
+import { enteredTerminalLinearState, isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { publishTaskActivities } from "./task-activity.ts";
-import { linearTeamForService, resolveLinearWorkflowStatuses } from "./runtime-config.ts";
+import {
+  effectiveLinearStateTypeForService,
+  linearTeamForService,
+  nonterminalRelatedIssuesForService,
+  resolveLinearWorkflowStatuses,
+  resolveSymphonyWorkflowSettings,
+} from "./runtime-config.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import {
   decideReviewRequeue,
@@ -58,7 +64,12 @@ export async function requireSlackBotUserId(client: Pick<WebClient, "auth">): Pr
 export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   const startedAt = new Date();
   const unresolvedConfig = resolveWatcherConfig(config, { requireSlack: true });
-  const runtimeConfig = await resolveLinearWorkflowStatuses(unresolvedConfig);
+  const symphoniesDirectory = resolve(rootDirectory, "symphonies");
+  const workflowConfig = await resolveSymphonyWorkflowSettings(
+    unresolvedConfig,
+    symphoniesDirectory,
+  );
+  const runtimeConfig = await resolveLinearWorkflowStatuses(workflowConfig);
   await requireGitHubCli();
   const slackConfig = runtimeConfig.slack!;
   const client = new WebClient(slackConfig.botToken);
@@ -99,7 +110,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       authorizedChannelId: slackConfig.channelId,
       services: runtimeConfig.services,
       linearTeams: runtimeConfig.linearTeams,
-      symphoniesDirectory: resolve(rootDirectory, "symphonies"),
+      symphoniesDirectory,
       defaultAssignees: runtimeConfig.defaultAssignees,
     },
     statusSummary: {
@@ -127,20 +138,32 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   });
 
   let nextPeriodicMaintenanceAt = 0;
+  let pendingPersistedTerminalTaskIds = new Set(
+    store
+      .getTasksForLinearSync(new Set(), new Map(), true)
+      .filter(
+        (task) =>
+          isTerminalLinearStateType(task.linearStateType) &&
+          !task.issueIdentifier.startsWith("watcher:"),
+      )
+      .map(({ id }) => id),
+  );
   try {
     await app.start();
     await runWatcherPollingLoop(
       async () => {
         const runPeriodicMaintenance = performance.now() >= nextPeriodicMaintenanceAt;
-        await runOnce({
+        const result = await runOnce({
           config: runtimeConfig,
           store,
           slackClient: client,
           slackChannelId: slackConfig.channelId,
           runPeriodicMaintenance,
+          persistedTerminalTaskIds: pendingPersistedTerminalTaskIds,
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;
+          pendingPersistedTerminalTaskIds = result.pendingPersistedTerminalTaskIds;
         }
       },
       runtimeConfig.pollIntervalMs,
@@ -236,9 +259,18 @@ export async function reconcileSlackStatusTransition({
     issueTitle: linearIssue.title,
     issueUrl: linearIssue.url ?? task.linkUrl,
     resolvedState: linearIssue.state,
-    resolvedStateType: normalizeStatus(linearIssue.stateType),
+    resolvedStateType: effectiveLinearStateTypeForService(
+      config,
+      task.serviceName,
+      linearIssue.state,
+      linearIssue.stateType,
+    ),
     pullRequest: linearIssue.pullRequest,
-    relatedIssues: linearIssue.relatedIssues,
+    relatedIssues: nonterminalRelatedIssuesForService(
+      config,
+      task.serviceName,
+      linearIssue.relatedIssues,
+    ),
   });
 }
 
@@ -251,6 +283,7 @@ interface RunOnceOptions {
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
+  persistedTerminalTaskIds?: ReadonlySet<string>;
 }
 
 export async function runOnce({
@@ -262,7 +295,9 @@ export async function runOnce({
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
+  persistedTerminalTaskIds = new Set(),
 }: RunOnceOptions) {
+  let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
     await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
@@ -284,10 +319,19 @@ export async function runOnce({
       findPullRequest,
       findPullRequestByUrl,
     });
+    const effectiveEvent = {
+      ...enrichedEvent,
+      resolvedStateType: effectiveLinearStateTypeForService(
+        config,
+        enrichedEvent.service,
+        enrichedEvent.resolvedState,
+        enrichedEvent.resolvedStateType,
+      ),
+    };
     processedTaskIds.add(taskIdFor(event.service, event.issueIdentifier));
-    const reviewDecision = decideReviewRequeue(config, store, enrichedEvent);
+    const reviewDecision = decideReviewRequeue(config, store, effectiveEvent);
     preparedEvents.push({
-      event: await enrichCreatorAssignee(enrichedEvent, slackClient),
+      event: await enrichCreatorAssignee(effectiveEvent, slackClient),
       reviewDecision,
     });
   }
@@ -308,7 +352,7 @@ export async function runOnce({
   store.replaceSnapshots(current);
   await publishTaskActivities(slackClient, store, current);
   if (runPeriodicMaintenance) {
-    await reconcileLinearStatuses({
+    pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,
       slackClient,
@@ -316,9 +360,15 @@ export async function runOnce({
       skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
       findPullRequestByUrl,
       updateLinearStatus,
+      persistedTerminalTaskIds,
     });
   }
-  return { events, current };
+  return {
+    events,
+    current,
+    pendingPersistedTerminalTaskIds,
+    persistedTerminalReconciliationComplete: pendingPersistedTerminalTaskIds.size === 0,
+  };
 }
 
 async function reconcileLinearStatuses({
@@ -329,6 +379,7 @@ async function reconcileLinearStatuses({
   skipTaskIds,
   findPullRequestByUrl,
   updateLinearStatus,
+  persistedTerminalTaskIds,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -337,19 +388,39 @@ async function reconcileLinearStatuses({
   skipTaskIds: Set<string>;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
-}): Promise<void> {
-  const tasks = store.getTasksForLinearSync().filter((task) => {
-    const hasCurrentLinearState =
-      skipTaskIds.has(task.id) &&
-      Boolean(task.linearStateType) &&
-      !shouldFetchReviewComments(config, task.status);
-    return !(
-      hasCurrentLinearState ||
-      task.issueIdentifier.startsWith("watcher:") ||
-      !task.parentChannelId ||
-      !task.parentMessageTs
+  persistedTerminalTaskIds: ReadonlySet<string>;
+}): Promise<Set<string>> {
+  const pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
+  const activeStatusesByService = new Map(
+    config.services.map(({ name, activeStates }) => [name, activeStates ?? []]),
+  );
+  const syncCandidates = store.getTasksForLinearSync(
+    pendingPersistedTerminalTaskIds,
+    activeStatusesByService,
+  );
+  const tasks = syncCandidates
+    .map((task) => {
+      const effectiveStateType = effectiveLinearStateTypeForService(
+        config,
+        task.serviceName,
+        task.status,
+        task.linearStateType,
+      );
+      if (
+        !isTerminalLinearStateType(task.linearStateType) ||
+        isTerminalLinearStateType(effectiveStateType)
+      ) {
+        return task;
+      }
+      store.setTaskLinearStateType(task.id, effectiveStateType);
+      pendingPersistedTerminalTaskIds.delete(task.id);
+      return { ...task, linearStateType: effectiveStateType };
+    })
+    .filter(
+      (task) =>
+        pendingPersistedTerminalTaskIds.has(task.id) ||
+        isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds),
     );
-  });
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {
@@ -374,21 +445,34 @@ async function reconcileLinearStatuses({
   }
 
   for (const task of tasks) {
+    const recoveringPersistedTerminalTask = pendingPersistedTerminalTaskIds.has(task.id);
     const teamName = config.services.find(({ name }) => name === task.serviceName)?.linearTeam;
     if (teamName && rateLimitedTeams.has(teamName)) continue;
     const summary = teamName ? summaries.get(teamName)?.get(task.issueIdentifier) : undefined;
     if (summary?.state) {
       const fetchReviewComments = shouldFetchReviewComments(config, summary.state);
       const sameStatus = normalizeStatus(summary.state) === normalizeStatus(task.status);
-      const enteredTerminalState = enteredTerminalLinearState(
-        task.linearStateType,
+      const effectiveStateType = effectiveLinearStateTypeForService(
+        config,
+        task.serviceName,
+        summary.state,
         summary.stateType,
       );
+      const enteredTerminalState = enteredTerminalLinearState(
+        task.linearStateType,
+        effectiveStateType,
+      );
       if (sameStatus && !enteredTerminalState && !fetchReviewComments) {
-        if (summary.stateType) {
-          store.setTaskLinearStateType(task.id, normalizeStatus(summary.stateType));
+        if (effectiveStateType) {
+          store.setTaskLinearStateType(task.id, effectiveStateType);
+          pendingPersistedTerminalTaskIds.delete(task.id);
         }
-        continue;
+        if (!pendingPersistedTerminalTaskIds.has(task.id)) continue;
+      }
+      if (effectiveStateType && recoveringPersistedTerminalTask && sameStatus) {
+        store.setTaskLinearStateType(task.id, effectiveStateType);
+        pendingPersistedTerminalTaskIds.delete(task.id);
+        if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
       }
     }
 
@@ -399,14 +483,25 @@ async function reconcileLinearStatuses({
     });
     if (!linearIssue?.state) continue;
     const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
+    const effectiveStateType = effectiveLinearStateTypeForService(
+      config,
+      task.serviceName,
+      linearIssue.state,
+      linearIssue.stateType,
+    );
+    if (effectiveStateType && recoveringPersistedTerminalTask && detailedSameStatus) {
+      store.setTaskLinearStateType(task.id, effectiveStateType);
+      pendingPersistedTerminalTaskIds.delete(task.id);
+      if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
+    }
     const detailedEnteredTerminalState = enteredTerminalLinearState(
       task.linearStateType,
-      linearIssue.stateType,
+      effectiveStateType,
     );
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
     if (detailedSameStatus && !detailedEnteredTerminalState && !fetchDetailedReviewComments) {
-      if (linearIssue.stateType) {
-        store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
+      if (effectiveStateType) {
+        store.setTaskLinearStateType(task.id, effectiveStateType);
       }
       continue;
     }
@@ -430,7 +525,7 @@ async function reconcileLinearStatuses({
       issueUrl: linearIssue.url ?? task.linkUrl,
       state: task.status,
       resolvedState: linearIssue.state,
-      resolvedStateType: linearIssue.stateType ? normalizeStatus(linearIssue.stateType) : undefined,
+      resolvedStateType: effectiveStateType,
       pullRequest,
       relatedIssues: linearIssue.relatedIssues,
     };
@@ -445,8 +540,8 @@ async function reconcileLinearStatuses({
       });
     }
     if (detailedSameStatus && !reviewDecision.shouldRequeue && !detailedEnteredTerminalState) {
-      if (linearIssue.stateType) {
-        store.setTaskLinearStateType(task.id, normalizeStatus(linearIssue.stateType));
+      if (effectiveStateType) {
+        store.setTaskLinearStateType(task.id, effectiveStateType);
       }
       continue;
     }
@@ -462,7 +557,28 @@ async function reconcileLinearStatuses({
       reviewDecision,
       updateLinearStatus,
     });
+    if (recoveringPersistedTerminalTask) {
+      pendingPersistedTerminalTaskIds.delete(task.id);
+    }
   }
+  return pendingPersistedTerminalTaskIds;
+}
+
+function isTaskEligibleForNormalLinearReconciliation(
+  config: ResolvedWatcherRuntimeConfig,
+  task: Task,
+  skipTaskIds: ReadonlySet<string>,
+): boolean {
+  const hasCurrentLinearState =
+    skipTaskIds.has(task.id) &&
+    Boolean(task.linearStateType) &&
+    !shouldFetchReviewComments(config, task.status);
+  return !(
+    hasCurrentLinearState ||
+    task.issueIdentifier.startsWith("watcher:") ||
+    !task.parentChannelId ||
+    !task.parentMessageTs
+  );
 }
 
 async function processWatcherEvent({
@@ -482,7 +598,11 @@ async function processWatcherEvent({
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  await publishWatcherEvent(slackClient, store, slackChannelId, event, {
+  const publishEvent = {
+    ...event,
+    relatedIssues: nonterminalRelatedIssuesForService(config, event.service, event.relatedIssues),
+  };
+  await publishWatcherEvent(slackClient, store, slackChannelId, publishEvent, {
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>
       createPendingStatusHookEvent(
