@@ -58,6 +58,24 @@ describe("Slack users", () => {
     assert.equal(await resolveSlackAssigneeId(client, "hiroppy"), "UACTIVE");
   });
 
+  it("does not resolve Slackbot by name", async () => {
+    const client = {
+      users: {
+        async info() {
+          return { ok: true };
+        },
+        async list() {
+          return {
+            ok: true,
+            members: [{ id: "USLACKBOT", name: "slackbot", profile: {} }],
+          };
+        },
+      },
+    } as never;
+
+    assert.equal(await resolveSlackAssigneeId(client, "slackbot"), undefined);
+  });
+
   it("does not resolve an ambiguous bare name", async () => {
     const client = {
       users: {

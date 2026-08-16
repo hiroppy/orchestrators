@@ -23,7 +23,15 @@ export async function resolveSlackAssigneeId(
       ...(cursor ? { cursor } : {}),
     });
     for (const member of response.members ?? []) {
-      if (!member.id || member.deleted || member.is_bot || member.is_app_user) continue;
+      if (
+        !member.id ||
+        member.id === "USLACKBOT" ||
+        member.deleted ||
+        member.is_bot ||
+        member.is_app_user
+      ) {
+        continue;
+      }
       const names = [
         member.name,
         member.real_name,
