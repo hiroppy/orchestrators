@@ -448,33 +448,26 @@ async function processWatcherEvent({
   reviewDecision: ReviewCommentDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  await publishWatcherEvent(
-    slackClient,
-    store,
-    slackChannelId,
-    event,
-    reviewDecision.shouldRequeue ? undefined : config.notifications,
-    {
-      defaultAssignees: config.defaultAssignees ?? [],
-      createStatusTransitionEvent: (task, fromStatus) =>
-        createPendingStatusHookEvent(
-          config.statusHooks ?? [],
-          task,
-          fromStatus,
-          task.status,
-          event.pullRequest,
-        ),
-      afterPublish: async (task) => {
-        await deliverPendingStatusHooksSafely({
-          hooks: config.statusHooks ?? [],
-          store,
-          slackClient,
-          watcherChannelId: slackChannelId,
-          taskId: task.id,
-        });
-      },
+  await publishWatcherEvent(slackClient, store, slackChannelId, event, {
+    defaultAssignees: config.defaultAssignees ?? [],
+    createStatusTransitionEvent: (task, fromStatus) =>
+      createPendingStatusHookEvent(
+        config.statusHooks ?? [],
+        task,
+        fromStatus,
+        task.status,
+        event.pullRequest,
+      ),
+    afterPublish: async (task) => {
+      await deliverPendingStatusHooksSafely({
+        hooks: config.statusHooks ?? [],
+        store,
+        slackClient,
+        watcherChannelId: slackChannelId,
+        taskId: task.id,
+      });
     },
-  );
+  });
   await requeueReviewTask({
     config,
     store,

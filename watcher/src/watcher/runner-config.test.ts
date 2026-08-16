@@ -76,38 +76,18 @@ describe("watcher configuration", () => {
     );
   });
 
-  it("resolves default assignees and validates configured notification events", () => {
+  it("resolves and validates default assignees", () => {
     const config = resolveWatcherConfig(
       {
         ...baseConfig(),
         slack: {
           defaultAssignees: ["<@U123>", "<!SUBTEAM^S123|reviewers>"],
-          notifications: {},
         },
       },
       { requireSlack: false },
     );
 
     assert.deepEqual(config.defaultAssignees, ["<@U123>", "<!SUBTEAM^S123|reviewers>"]);
-    assert.deepEqual(config.notifications, {
-      statuses: [],
-      events: [],
-    });
-    assert.throws(
-      () =>
-        resolveWatcherConfig(
-          {
-            ...baseConfig(),
-            slack: {
-              notifications: {
-                events: ["unknown"],
-              },
-            },
-          } as never,
-          { requireSlack: false },
-        ),
-      /unknown events/,
-    );
     assert.throws(
       () =>
         resolveWatcherConfig(
@@ -158,11 +138,6 @@ describe("watcher configuration", () => {
             linearTeam: "workspace-a-eng",
           },
         },
-        slack: {
-          notifications: {
-            statuses: ["In Review"],
-          },
-        },
       },
       { requireSlack: false },
     );
@@ -180,10 +155,6 @@ describe("watcher configuration", () => {
       "Done",
     ]);
 
-    await assert.rejects(
-      resolveLinearWorkflowStatuses(unresolved, async () => ["Todo", "In Progress", "Done"]),
-      /slack\.notifications\.statuses references unknown Linear status "In Review"/,
-    );
     await assert.rejects(
       resolveLinearWorkflowStatuses(unresolved, async () =>
         Array.from({ length: 101 }, (_, index) => `Status ${index}`),

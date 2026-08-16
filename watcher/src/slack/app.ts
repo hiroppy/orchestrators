@@ -19,8 +19,7 @@ import { enteredTerminalLinearState } from "../domain/linear.ts";
 import type { RelatedIssue, Task, WatcherEvent } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
-import type { ResolvedNotificationConfig } from "../config/runtime.ts";
-import { initialTaskAssignees, notificationTargetsForWatcherEvent } from "./notifications.ts";
+import { initialTaskAssignees } from "./notifications.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import { handleThreadReply, type LinearWorkpadReplier } from "./thread-reply-handler.ts";
@@ -255,10 +254,8 @@ export async function publishWatcherEvent(
   store: WatcherStore,
   destinationChannel: string,
   event: WatcherEvent,
-  notificationConfig?: ResolvedNotificationConfig,
   options: {
     defaultAssignees?: string[];
-    forceMention?: boolean;
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
     afterPublish?: (task: Task) => Promise<void>;
@@ -295,17 +292,7 @@ export async function publishWatcherEvent(
       await options.onStatusTransition?.(task, previousTask.status);
     }
     const assignees = store.getTaskAssignees(taskId);
-    const previousNotificationStatus = previousTask?.parentMessageTs
-      ? previousTask.status
-      : undefined;
-    const notificationAssignees = notificationTargetsForWatcherEvent(
-      notificationConfig,
-      previousNotificationStatus,
-      task.status,
-      event.type,
-      assignees,
-      options.forceMention,
-    );
+    const notificationAssignees = event.type === "blocked" ? assignees : undefined;
     const assigneeLabels = await resolveSlackAssigneeLabels(client, assignees);
     const card = buildTaskCard(
       task,

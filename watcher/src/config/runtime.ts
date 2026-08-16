@@ -1,8 +1,6 @@
 import type {
-  EventType,
   InstanceConfig,
   LinearTeamConfig,
-  NotificationsConfig,
   OrchestratorConfig,
   ResolvedLinearTeamConfig,
   ReviewCommentConfig,
@@ -18,24 +16,10 @@ const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
-const EVENT_TYPES: EventType[] = [
-  "started",
-  "updated",
-  "retrying",
-  "blocked",
-  "ended",
-  "recovered",
-];
-
 interface ResolvedSlackConfig {
   botToken: string;
   appToken: string;
   channelId: string;
-}
-
-export interface ResolvedNotificationConfig {
-  statuses: string[];
-  events: EventType[];
 }
 
 export interface WatcherRuntimeConfig {
@@ -49,7 +33,6 @@ export interface WatcherRuntimeConfig {
   reviewComment?: ReviewCommentConfig;
   statusHooks: ResolvedStatusHookConfig[];
   defaultAssignees: string[];
-  notifications?: ResolvedNotificationConfig;
   slack?: ResolvedSlackConfig;
 }
 
@@ -104,7 +87,6 @@ export function resolveWatcherConfig(
     reviewComment,
     statusHooks,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
-    notifications: resolveNotificationConfig(config.slack?.notifications),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
 }
@@ -239,31 +221,6 @@ function resolveDefaultAssignees(assignees: string[] | undefined): string[] {
     );
   }
   return [...new Set(assignees)];
-}
-
-function resolveNotificationConfig(
-  notification: NotificationsConfig | undefined,
-): ResolvedNotificationConfig | undefined {
-  if (!notification) return undefined;
-
-  const statuses = notification.statuses ?? [];
-  const events = notification.events ?? [];
-  if (!Array.isArray(statuses)) {
-    throw new Error("slack.notifications.statuses must be an array.");
-  }
-  if (!Array.isArray(events)) {
-    throw new Error("slack.notifications.events must be an array.");
-  }
-  validateStatuses("slack.notifications.statuses", statuses);
-
-  const unknownEvents = events.filter((event) => !EVENT_TYPES.includes(event));
-  if (unknownEvents.length > 0) {
-    throw new Error(
-      `slack.notifications.events contains unknown events: ${unknownEvents.join(", ")}`,
-    );
-  }
-
-  return { statuses, events };
 }
 
 function resolveSlackConfig(

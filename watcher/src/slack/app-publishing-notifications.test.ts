@@ -73,15 +73,10 @@ describe("Slack event notifications", () => {
     });
   });
 
-  it("mentions on configured status entry and configured events without repeating otherwise", async () => {
+  it("always posts blocked events and mentions their assignees", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       const client = fakeClient(calls);
-      const notification = {
-        statuses: ["In Review"],
-        events: ["blocked"] as const,
-      };
-
       await publishWatcherEvent(
         client,
         store,
@@ -90,95 +85,61 @@ describe("Slack event notifications", () => {
           type: "started",
           service: "service-a",
           issueIdentifier: "ENG-62",
-          state: "In Progress",
+          resolvedState: "In Progress",
           creatorMention: "<@UCREATOR>",
         },
-        notification,
         { defaultAssignees: ["<!SUBTEAM^SREVIEWERS|reviewers>"] },
       );
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-          creatorMention: "<@UCREATOR>",
-        },
-        notification,
-      );
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-          creatorMention: "<@UCREATOR>",
-        },
-        notification,
-      );
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "blocked",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Review",
-          creatorMention: "<@UCREATOR>",
-        },
-        notification,
-      );
-
-      const threadTexts = calls
-        .filter(({ method, args }) => method === "postMessage" && args.thread_ts)
-        .map(({ args }) => String(args.text));
-      assert.equal(threadTexts.length, 3);
-      const mentionTexts = threadTexts.filter((text) => text.includes("<!subteam^SREVIEWERS>"));
-      assert.equal(mentionTexts.length, 2);
-      for (const text of mentionTexts) {
-        assert.match(text, /Assignees: .*<!subteam\^SREVIEWERS>/);
-        assert.match(text, /Assignees: .*<@UCREATOR>/);
-      }
-    });
-  });
-
-  it("treats the first publication of a pre-seeded take-pr task as a status entry", async () => {
-    await withStore(async (store) => {
-      store.upsertTaskFromEvent({
-        type: "started",
+      await publishWatcherEvent(client, store, "C123", {
+        type: "retrying",
         service: "service-a",
         issueIdentifier: "ENG-62",
         state: "In Progress",
+        resolvedState: "In Review",
+        attempt: 1,
       });
-      store.assignTask("service-a:ENG-62", "UREQUESTER");
-      store.assignTask("service-a:ENG-62", "UDEFAULT");
-      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(client, store, "C123", {
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        resolvedState: "In Review",
+      });
 
-      await publishWatcherEvent(
-        fakeClient(calls),
-        store,
-        "C123",
-        {
-          type: "started",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Progress",
-        },
-        { statuses: ["In Progress"], events: [] },
-      );
+      await publishWatcherEvent(client, store, "C123", {
+        type: "blocked",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        error: "Human action required",
+      });
 
-      const notification = calls.find(
-        ({ method, args }) => method === "postMessage" && args.thread_ts,
+      const assigneeNotifications = calls.filter(
+        ({ method, args }) =>
+          method === "postMessage" &&
+          args.thread_ts === "1.000" &&
+          String(args.text).includes("Assignees:"),
       );
-      assert.match(String(notification?.args.text), /<@UREQUESTER>/);
-      assert.match(String(notification?.args.text), /<@UDEFAULT>/);
+      assert.equal(assigneeNotifications.length, 1);
+      assert.match(String(assigneeNotifications[0]?.args.text), /Blocked/);
+      assert.match(String(assigneeNotifications[0]?.args.text), /<@UCREATOR>/);
+      assert.match(String(assigneeNotifications[0]?.args.text), /<!subteam\^SREVIEWERS>/);
+
+      await publishWatcherEvent(client, store, "C123", {
+        type: "blocked",
+        service: "service-a",
+        issueIdentifier: "ENG-63",
+        resolvedState: "In Progress",
+        error: "Unassigned task needs attention",
+      });
+      const unassignedNotification = calls.find(
+        ({ method, args }) =>
+          method === "postMessage" &&
+          args.thread_ts !== undefined &&
+          String(args.text).includes("Unassigned task needs attention"),
+      );
+      assert.match(String(unassignedNotification?.args.text), /Blocked/);
+      assert.doesNotMatch(String(unassignedNotification?.args.text), /Assignees:/);
     });
   });
 
@@ -229,28 +190,19 @@ describe("Slack event notifications", () => {
           title: "Keep pull request facts in the status card",
         },
       });
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "running",
-          resolvedState: "In Review",
-          creatorMention: "<@UHIROPPY>",
-          pullRequest: {
-            url: "https://github.com/acme/example/pull/42",
-            number: 42,
-            title: "Keep pull request facts in the status card",
-          },
+      await publishWatcherEvent(client, store, "C123", {
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "running",
+        resolvedState: "In Review",
+        creatorMention: "<@UHIROPPY>",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          number: 42,
+          title: "Keep pull request facts in the status card",
         },
-        {
-          statuses: ["In Review"],
-          events: [],
-        },
-      );
+      });
 
       const threadTexts = calls
         .filter(({ method, args }) => method === "postMessage" && args.thread_ts)

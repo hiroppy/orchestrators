@@ -268,10 +268,10 @@ destination channel. It does not require the root `config.ts` or
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator
   resolved by email to a Slack user once, before the parent post. Parent cards
-  display those assignees without notifying them. Watcher thread notifications
-  mention the current persisted assignees only when `slack.notifications.statuses`
-  or `slack.notifications.events` matches. The `assign` and `unassign` commands
-  update both persistence and the parent card without reapplying defaults.
+  display those assignees without notifying them. Blocked events always post a
+  new task-thread reply mentioning the current persisted assignees. Other watcher
+  events do not notify assignees. The `assign` and `unassign` commands update both
+  persistence and the parent card without reapplying defaults.
 - A user's text and attached images or videos in a task card thread are copied once to
   the active `## Codex Workpad` comment on the corresponding Linear issue.
   PNG, JPEG, GIF, WebP, MP4, MOV, and WebM file-only replies are supported. Bot messages,
@@ -285,8 +285,9 @@ destination channel. It does not require the root `config.ts` or
 - Every successfully published watcher event creates or updates the parent card
   and is stored in the database audit trail. Status changes update the shared
   thread Timeline, and newly detected or updated pull requests refresh its PR
-  section without posting a separate reply. A thread reply is posted only for a
-  configured mention. Manual Slack status changes share the same status Timeline.
+  section without posting a separate reply. Blocked events post a new thread
+  reply mentioning the current persisted assignees. Manual Slack status changes
+  share the same status Timeline.
 - Raw worker stdout is not posted. Thread messages are capped at 2,500
   characters, and error details shown on cards are capped at 180 characters.
 - Inline PR comments are queried only for issues in the configured review status.

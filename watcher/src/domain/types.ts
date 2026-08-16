@@ -5,7 +5,6 @@ export type {
   EventType,
   InstanceConfig,
   LinearTeamConfig,
-  NotificationsConfig,
   OrchestratorConfig,
   ReviewCommentConfig,
   SlackConfig,
