@@ -34,8 +34,6 @@ outside a task thread or without an active Workpad are ignored.
 Assign Slack users or user groups to a task to control who is notified:
 
 - Blocked tasks mention their current assignees.
-- A pull request that stays ready at the same revision for 20 minutes mentions its assignees.
-- Changing the revision or moving the issue out of review restarts the review-ready timer.
 
 The Linear issue creator is assigned automatically when their email matches a Slack user. You can
 also configure `slack.defaultAssignees` for every new task.
@@ -78,7 +76,10 @@ export default defineConfig({
 
 Set `symphonyGitHubLogins` to every GitHub account Symphony uses to reply to reviews. Comments from
 those accounts and the pull request author are ignored, as are resolved or outdated review threads.
-Remove `reviewComment` to disable automatic requeueing.
+For pull requests that stay ready at the same revision for 20 minutes, the watcher also mentions
+the task's assignees. Changing the revision or moving the issue out of review resets the timer, but
+each pull request SHA is notified only once. Remove `reviewComment` to disable both automatic
+requeueing and review-ready notifications.
 
 The configured status names must exist in every enabled instance's Linear workflow.
 
@@ -107,9 +108,10 @@ Returning a string posts it to the task thread. For richer messages, use the cal
 - `helpers.slack.postMessage(message)` posts to the watcher channel.
 - `helpers.slack.postThreadMessage(message)` posts to the task thread.
 
-Keep each hook's `id` unique and stable. Hooks run once per status transition and should be
-idempotent. Failed hooks retry up to `maxAttempts` times (default: `10`) before the task thread
-receives a failure notice.
+Keep each hook's `id` unique and stable. The watcher schedules one execution per status transition.
+If an execution fails, it can run again up to `maxAttempts` total attempts (default: `10`) before
+the task thread receives a failure notice. Hooks must be idempotent because retries can repeat side
+effects.
 
 Put larger hook implementations in the gitignored root `hooks/` directory and import them from
 `config.ts`. Hooks run inside the watcher process, so do not block while waiting for long-running

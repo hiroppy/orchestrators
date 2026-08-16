@@ -20,7 +20,7 @@ see what needs attention and respond without opening each Symphony dashboard.
 - **Turn an existing pull request into agent work.** Share an open GitHub pull
   request in Slack and Orchestrators creates the Linear task that hands it to
   Symphony.
-- **Close the review loop automatically.** New unresolved review comments and
+- **Close the review loop automatically.** Eligible inline review comments and
   merge conflicts send work back to Symphony, while the right people are
   notified when a new revision is ready to review.
 
@@ -42,7 +42,7 @@ flowchart LR
   review -- Approved --> ship --> done
 ```
 
-During review, a new unresolved inline comment or merge conflict automatically
+During review, an eligible inline review comment or merge conflict automatically
 moves the issue back to In Progress. You can also reply with instructions or
 images in the Slack task thread and change its status there. When the next
 revision is ready, Orchestrators notifies the assigned reviewers again.

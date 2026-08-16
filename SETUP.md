@@ -8,10 +8,18 @@ Run all commands from the repository root unless noted otherwise.
 - Node.js 24+
 - pnpm 11+
 - Elixir 1.19 and Erlang 28 available on `PATH`
+- [`mise`](https://mise.jdx.dev/installing-mise.html)
 - Authenticated GitHub CLI (`gh auth status`)
 
 Official Symphony recommends `mise` for managing Elixir/Erlang versions, and
-this guide uses it.
+this guide uses it. Install and activate `mise` before continuing, then confirm
+that `mise --version` succeeds. On macOS and Linux, the official installer is:
+
+```sh
+curl https://mise.run | sh
+```
+
+See the linked installation guide for shell activation and other platforms.
 
 ## 1. Install dependencies
 
