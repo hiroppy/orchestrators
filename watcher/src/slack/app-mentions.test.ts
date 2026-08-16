@@ -628,6 +628,61 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("reports a confirmation failure without misreporting the completed assignment", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const errors: unknown[] = [];
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "U123",
+            text: "<@UBOT> assign <@U123>",
+          },
+          client: {
+            reactions: {
+              add: async () => {
+                throw new Error("reaction unavailable");
+              },
+            },
+            chat: {
+              update: async () => ({ ok: true }),
+              postMessage: async (args: Record<string, unknown>) => {
+                calls.push({ method: "postMessage", args });
+                return { ok: true };
+              },
+            },
+          } as never,
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+      );
+
+      assert.deepEqual(store.getTaskAssignees(task.id), ["<@U123>"]);
+      assert.equal(errors.length, 1);
+      assert.deepEqual(calls, [
+        {
+          method: "postMessage",
+          args: {
+            channel: "C123",
+            thread_ts: "10.000",
+            text: "[error] The user was assigned, but the confirmation reaction could not be added.",
+          },
+        },
+      ]);
+    });
+  });
+
   it("idempotently unassigns another user from the task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({

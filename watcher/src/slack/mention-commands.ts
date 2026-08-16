@@ -218,7 +218,17 @@ async function handleAssignCommand({
     );
     return;
   }
-  await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  try {
+    await addSuccessReaction(client, { channel: event.channel, timestamp: event.ts });
+  } catch (error) {
+    logger.error(error);
+    await postSlackOperationError(
+      client,
+      { channel: event.channel, threadTs },
+      "The user was assigned, but the confirmation reaction could not be added.",
+      logger,
+    );
+  }
 }
 
 async function handleUnassignCommand({
