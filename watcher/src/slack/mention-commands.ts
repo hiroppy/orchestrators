@@ -76,6 +76,9 @@ export async function handleAppMention(
 }
 
 function commandFailureMessage(command: string): string {
+  if (command === "assign") {
+    return "Failed to assign the user to the task. No assignment was changed.";
+  }
   if (command === "help") return "Failed to show the available commands.";
   if (command === "take-pr") return "Failed to start take-pr. No Linear issue was created.";
   if (command === "unassign") {

@@ -586,6 +586,48 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("reports an assign-specific error when user lookup fails", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const errors: unknown[] = [];
+      const client = fakeClient(calls, { UHIROPPY: "hiroppy" });
+      client.users.list = async () => {
+        throw new Error("users.list unavailable");
+      };
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            thread_ts: "10.000",
+            ts: "20.000",
+            user: "UREQUESTER",
+            text: "<@UBOT> assign hiroppy",
+          },
+          client,
+          logger: { error: (error: unknown) => errors.push(error) },
+        },
+        store,
+        "UBOT",
+      );
+
+      assert.deepEqual(store.getTaskAssignees(task.id), []);
+      assert.equal(errors.length, 1);
+      assert.equal(calls.length, 1);
+      assert.equal(
+        calls[0].args.text,
+        "[error] Failed to assign the user to the task. No assignment was changed.",
+      );
+    });
+  });
+
   it("idempotently unassigns another user from the task", async () => {
     await withStore(async (store) => {
       const task = store.upsertTaskFromEvent({
