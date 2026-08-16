@@ -70,11 +70,11 @@ discoverable Linear semantics. Startup verifies that every configured name
 exists in each enabled team's fetched workflow and fails with a configuration
 error if it does not.
 
-### Inline review comment requeue
+### Review requeue
 
 Set `watcher.reviewComment` to move review work back into Symphony when an
-unhandled inline review comment is observed in an unresolved thread while the
-issue is in review:
+unhandled inline review comment or a merge conflict is observed while the issue
+is in review:
 
 ```ts
 {
@@ -89,18 +89,19 @@ issue is in review:
 }
 ```
 
-The watcher checks inline comments only while the Linear issue is in
-`inReviewStatus`. If the newest comment is later than the last handled comment,
-the issue moves to `inProgressStatus`. The handled timestamp is stored in the
-existing event log; comment IDs and deletion state are not tracked. Omit
-`watcher.reviewComment` to disable this behavior.
+The watcher checks the linked pull request only while the Linear issue is in
+`inReviewStatus`. If GitHub reports the pull request as conflicting, or if the
+newest eligible comment is later than the last handled comment, the issue moves
+to `inProgressStatus`. The handled timestamp is stored in the existing event
+log; comment IDs and deletion state are not tracked. Omit `watcher.reviewComment`
+to disable this behavior.
 Comments in resolved or outdated review threads are ignored. A resolved thread
 becomes eligible again if it is subsequently marked unresolved and is not outdated.
 Comments from the pull request author and accounts listed in
 `symphonyGitHubLogins` are also ignored. Configure the GitHub account used by
 Symphony to reply to reviews so its own replies do not requeue the issue.
 
-Comment checks run during periodic maintenance, including for tasks that remain
+Review checks run during periodic maintenance, including for tasks that remain
 in the current Symphony snapshot without producing a new snapshot event. The
 single watcher stores the handled timestamp after Linear accepts the status
 update. It intentionally does not implement a separate requeue outbox or

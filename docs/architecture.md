@@ -83,7 +83,7 @@ transient cached mutation failure leaves the cache intact. A non-transient failu
 team's cache and returns the original error without an immediate retry; a later poll then resolves
 current state metadata through the uncached path.
 
-## Inline-review-comment lifecycle
+## Review requeue lifecycle
 
 Given this configuration:
 
@@ -97,8 +97,9 @@ reviewComment: {
 
 the normal lifecycle is:
 
-The watcher excludes comments from the pull request author and configured
-`symphonyGitHubLogins` before selecting the latest eligible comment.
+The watcher checks the pull request's mergeability and excludes comments from
+the pull request author and configured `symphonyGitHubLogins` before selecting
+the latest eligible comment.
 
 ```mermaid
 sequenceDiagram
@@ -113,19 +114,23 @@ sequenceDiagram
   W->>L: Periodically read stored nonterminal issue
   L-->>W: In Review and linked PR URL
   W->>DB: Read latest handled comment timestamp
-  W->>G: Read latest inline review comment
-  G-->>W: Latest comment creation time
-  alt Comment is newer than the handled timestamp
+  W->>G: Read mergeability and latest inline review comment
+  G-->>W: Mergeability and latest comment creation time
+  alt PR is conflicting or comment is newer than the handled timestamp
     W->>L: Move issue to In Progress
-    W->>DB: Atomically store status, handled timestamp, and pending notifications
+    W->>DB: Atomically store status and pending notifications
+    opt Requeue was caused by a comment
+      W->>DB: Store handled comment timestamp
+    end
     Note over S,L: Issue becomes eligible for Symphony again
-  else No newer inline comment
+  else PR is not conflicting and has no newer inline comment
     W->>DB: Keep task in In Review
   end
 ```
 
-The decision compares the latest comment in a current, unresolved GitHub review thread with the
-last handled comment timestamp in `task_events`. Comments in resolved or outdated threads are
+The decision first checks whether GitHub reports the pull request as `CONFLICTING`, then compares
+the latest comment in a current, unresolved GitHub review thread with the last handled comment
+timestamp in `task_events`. Comments in resolved or outdated threads are
 ignored, including comments added after resolution. A resolved thread becomes eligible again only
 if it is marked unresolved and is not outdated. This catches comments that arrive between Linear
 entering `In Review` and the watcher's next poll, while an already handled comment cannot requeue
@@ -150,11 +155,11 @@ The watcher database stores:
 - the latest Symphony snapshots used for diffing;
 - tracked tasks and their current known Linear status;
 - Slack parent-message identifiers;
-- watcher events and review-comment requeues;
+- watcher events and review requeues;
 - pending delivery state for recoverable Slack notifications.
 
 The database is why review tracking and delivery retries can continue after a watcher restart. If
-the watcher is stopped, no polling or review-comment handling occurs; reconciliation resumes after it
+the watcher is stopped, no polling or review requeue handling occurs; reconciliation resumes after it
 starts again.
 
 ## Implementation map
@@ -163,7 +168,7 @@ starts again.
 - `watcher/src/watcher/snapshots.ts` collects Symphony observability snapshots.
 - `watcher/src/watcher/diff.ts` converts snapshot changes into watcher events.
 - `watcher/src/watcher/event-enrichment.ts` resolves Linear state and PR metadata.
-- `watcher/src/watcher/review-comments.ts` decides whether a new inline comment should requeue a task.
+- `watcher/src/watcher/review-comments.ts` decides whether PR feedback should requeue a task.
 - `watcher/src/watcher/review-requeue.ts` updates Linear and persists the requeue result.
-- `watcher/src/integrations/github.ts` reads PRs and inline review comments through the GitHub CLI.
+- `watcher/src/integrations/github.ts` reads PR metadata and inline review comments through the GitHub CLI.
 - `watcher/src/persistence/store.ts` stores snapshots, tasks, and the event audit trail.

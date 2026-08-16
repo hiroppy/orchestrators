@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,labels",
+            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -64,6 +64,7 @@ describe("findPullRequest", () => {
               state: "OPEN",
               isDraft: false,
               reviewDecision: "REVIEW_REQUIRED",
+              mergeable: "CONFLICTING",
               headRefName: "eng-65-contact-form",
               headRefOid: "abc123",
               labels: [{ name: "stg-deploy" }, { name: "symphony" }],
@@ -81,6 +82,7 @@ describe("findPullRequest", () => {
       state: "OPEN",
       isDraft: false,
       reviewDecision: "REVIEW_REQUIRED",
+      mergeable: "CONFLICTING",
       headRefName: "eng-65-contact-form",
       headRefOid: "abc123",
       baseRefName: null,

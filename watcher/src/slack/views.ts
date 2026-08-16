@@ -272,8 +272,12 @@ export function buildStatusChangedMessage(
   )}`;
 }
 
-export function buildReviewRequeueMessage(fromStatus: string, toStatus: string): string {
-  return `Inline review comment detected | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
+export function buildReviewRequeueMessage(
+  sourceLabel: string,
+  fromStatus: string,
+  toStatus: string,
+): string {
+  return `${sourceLabel} | *${escapeSlack(fromStatus)}* → *${escapeSlack(toStatus)}*`;
 }
 
 export function buildTaskClosedMessage(
