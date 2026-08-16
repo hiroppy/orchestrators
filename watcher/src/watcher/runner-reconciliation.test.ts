@@ -121,7 +121,7 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
-  it("announces a terminal Linear state immediately after a Slack status change", async (context) => {
+  it("announces a Symphony terminal override immediately after a Slack status change", async (context) => {
     await withStore(async (store) => {
       context.mock.method(globalThis, "fetch", async () =>
         Response.json({
@@ -129,7 +129,7 @@ describe("watcher reconciliation and snapshots", () => {
             issue: {
               identifier: "ENG-62",
               title: "Merge the pull request",
-              state: { name: "Done", type: "completed" },
+              state: { name: "In Staging Check", type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
               attachments: { nodes: [] },
               relations: { nodes: [] },
@@ -143,9 +143,11 @@ describe("watcher reconciliation and snapshots", () => {
             name: "service-a",
             url: dataUrl({ running: [], retrying: [], blocked: [] }),
             linearTeam: "workspace-a-eng",
+            activeStates: ["In Progress"],
+            terminalStates: ["Done", "In Staging Check"],
           },
         ],
-        linearTeams: linearTeams(["In Review", "Done"]),
+        linearTeams: linearTeams(["In Review", "In Staging Check", "Done"]),
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const task = store.upsertTaskFromEvent({
@@ -159,7 +161,7 @@ describe("watcher reconciliation and snapshots", () => {
       store.setParentMessage(task.id, "C123", "1.000", "{}");
       const { task: closedTask } = store.updateTaskStatusAtomically(
         task.id,
-        "Done",
+        "In Staging Check",
         () => undefined,
       );
       const calls: Array<Record<string, unknown>> = [];
@@ -175,7 +177,7 @@ describe("watcher reconciliation and snapshots", () => {
       assert.equal(store.getTask(task.id)?.linearStateType, "completed");
       assert.equal(
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
-        "Task closed | *Done*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
     });
   });

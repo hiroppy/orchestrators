@@ -61,3 +61,10 @@ agent:
 ```
 
 The `workspace.root` path is relative to the instance's `elixir/` directory.
+
+The watcher also reads `active_states` and `terminal_states` from each enabled
+instance at startup. Linear's workflow state type remains the default for
+watcher lifecycle handling; an explicitly active state is treated as
+nonterminal and an explicitly terminal state is treated as terminal regardless
+of its Linear state type. States listed in neither collection retain their
+Linear semantics.

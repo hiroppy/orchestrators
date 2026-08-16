@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
 
 import type { KnownBlock } from "@slack/web-api";
 
@@ -13,10 +11,11 @@ import { findPullRequestByUrl } from "../integrations/github.ts";
 import type { PullRequest, ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/types.ts";
 import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
 import type { WatcherStore } from "../persistence/store.ts";
+import { parseWorkflowFrontmatter, readWorkflow, workflowPathFor } from "../symphonies/workflow.ts";
 import type { SlackClient } from "./client-types.ts";
 import { postSlackOperationError } from "./errors.ts";
 import { escapeSlack, escapeSlackLinkLabel } from "./view-formatting.ts";
-import { parseGitHubPullRequestUrl, projectSlugFromWorkflow } from "./take-pr-parsing.ts";
+import { parseGitHubPullRequestUrl } from "./take-pr-parsing.ts";
 
 export const TAKE_PR_SERVICE_ACTION_ID = "take_pr_service_select";
 export const TAKE_PR_CONFIRM_ACTION_ID = "take_pr_confirm";
@@ -227,7 +226,10 @@ export async function handleTakePrAction(
     }
     const workflowPath = workflowPathFor(options.symphoniesDirectory, service.name);
     const workflow = await (options.readWorkflow ?? readWorkflow)(workflowPath);
-    const projectSlug = projectSlugFromWorkflow(workflow);
+    const configuredProjectSlug =
+      parseWorkflowFrontmatter(workflow)?.tracker?.provider?.project_slug;
+    const projectSlug =
+      typeof configuredProjectSlug === "string" ? configuredProjectSlug.trim() : "";
     if (!projectSlug) {
       throw new Error(
         `WORKFLOW.md does not define tracker.provider.project_slug for ${service.name}.`,
@@ -392,24 +394,6 @@ function selectedValueFromActionBody(body: unknown, requestId: string): string |
   if (!select || typeof select !== "object") return undefined;
   const value = (select as { selected_option?: { value?: unknown } }).selected_option?.value;
   return typeof value === "string" && value.startsWith(`${requestId}:`) ? value : undefined;
-}
-
-function workflowPathFor(symphoniesDirectory: string, serviceName: string): string {
-  const root = resolve(symphoniesDirectory);
-  const workflowPath = resolve(root, serviceName, "elixir/WORKFLOW.md");
-  const pathFromRoot = relative(root, workflowPath);
-  if (pathFromRoot.startsWith("..") || pathFromRoot === "" || pathFromRoot.startsWith("/")) {
-    throw new Error(`Service name cannot resolve outside the symphonies directory: ${serviceName}`);
-  }
-  return workflowPath;
-}
-
-async function readWorkflow(path: string): Promise<string> {
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    throw new Error(`WORKFLOW.md could not be read for ${path.split("/").at(-3) ?? "service"}.`);
-  }
 }
 
 function buildLinearIssueInput(

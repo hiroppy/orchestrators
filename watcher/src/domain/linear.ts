@@ -1,3 +1,5 @@
+import { normalizeStatus } from "./status.ts";
+
 export const TERMINAL_LINEAR_STATE_TYPES = ["completed", "canceled", "duplicate"] as const;
 
 export function isTerminalLinearStateType(stateType?: string | null): boolean {
@@ -12,4 +14,28 @@ export function enteredTerminalLinearState(
   return (
     !isTerminalLinearStateType(previousStateType) && isTerminalLinearStateType(currentStateType)
   );
+}
+
+export function effectiveLinearStateType(
+  stateName: string | null | undefined,
+  stateType: string | null | undefined,
+  activeStates: readonly string[],
+  terminalStates: readonly string[],
+): string | undefined {
+  const normalizedState = normalizeStatus(stateName);
+  if (
+    normalizedState &&
+    terminalStates.some((state) => normalizeStatus(state) === normalizedState)
+  ) {
+    return "completed";
+  }
+  const normalizedType = normalizeStatus(stateType);
+  if (
+    normalizedState &&
+    activeStates.some((state) => normalizeStatus(state) === normalizedState) &&
+    isTerminalLinearStateType(normalizedType)
+  ) {
+    return "started";
+  }
+  return normalizedType;
 }

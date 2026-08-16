@@ -4,8 +4,16 @@ import {
   type WatcherRuntimeConfig,
 } from "../config/runtime.ts";
 import type { ResolvedLinearTeamConfig } from "../domain/types.ts";
+import { effectiveLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { fetchLinearWorkflowStates } from "../integrations/linear.ts";
+import {
+  readWorkflow,
+  trackerStatesFromWorkflow,
+  workflowPathFor,
+} from "../symphonies/workflow.ts";
+
+type ReadWorkflow = (path: string) => Promise<string>;
 
 export function linearTeamForService(
   config: ResolvedWatcherRuntimeConfig,
@@ -33,6 +41,41 @@ export async function resolveLinearWorkflowStatuses(
 
   validateStatusRules(resolved);
   return resolved;
+}
+
+export async function resolveSymphonyWorkflowSettings(
+  config: WatcherRuntimeConfig,
+  symphoniesDirectory: string,
+  read: ReadWorkflow = readWorkflow,
+): Promise<WatcherRuntimeConfig> {
+  const services = await Promise.all(
+    config.services.map(async (service) => {
+      const path = workflowPathFor(symphoniesDirectory, service.name);
+      const trackerStates = trackerStatesFromWorkflow(await read(path));
+      if (!trackerStates) {
+        throw new Error(
+          `WORKFLOW.md does not define valid tracker.active_states and tracker.terminal_states for ${service.name}.`,
+        );
+      }
+      return { ...service, ...trackerStates };
+    }),
+  );
+  return { ...config, services };
+}
+
+export function effectiveLinearStateTypeForService(
+  config: ResolvedWatcherRuntimeConfig,
+  serviceName: string,
+  stateName: string | null | undefined,
+  stateType: string | null | undefined,
+): string | undefined {
+  const service = config.services.find(({ name }) => name === serviceName);
+  return effectiveLinearStateType(
+    stateName,
+    stateType,
+    service?.activeStates ?? [],
+    service?.terminalStates ?? [],
+  );
 }
 
 function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {

@@ -53,6 +53,8 @@ export interface ServiceDefinition {
   name: string;
   url: string;
   linearTeam: string;
+  activeStates?: string[];
+  terminalStates?: string[];
 }
 
 export interface PullRequest {
