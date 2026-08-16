@@ -64,7 +64,9 @@ imported values, duplicate enabled ports, and missing credentials at startup.
 The watcher fetches the referenced teams' current workflow states from Linear
 before polling. It also reads each enabled instance's `WORKFLOW.md`: explicit
 `active_states` and `terminal_states` override Linear's state-type semantics,
-while unlisted states continue to use their Linear state type.
+while unlisted states continue to use their Linear state type. Startup validates
+those names against the referenced team's workflow, except for Symphony's
+compatibility names `Merging`, `Closed`, and `Cancelled`.
 
 Workflow-specific behavior remains explicit: `reviewComment.inReviewStatus`
 and `reviewComment.inProgressStatus` are business rules rather than

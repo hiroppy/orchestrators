@@ -290,6 +290,55 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("recovers a persisted terminal row after its workflow override is removed", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue0: {
+              identifier: "ENG-62",
+              state: { name: "Ready for Release", type: "started" },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+            activeStates: ["In Review"],
+            terminalStates: ["Done"],
+          },
+        ],
+        linearTeams: linearTeams(["In Review", "Ready for Release", "Done"]),
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "Ready for Release",
+        resolvedStateType: "completed",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        reconcilePersistedTerminalTasks: true,
+      });
+
+      assert.equal(store.getTask(task.id)?.linearStateType, "started");
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

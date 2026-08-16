@@ -15,6 +15,10 @@ import {
 
 type ReadWorkflow = (path: string) => Promise<string>;
 
+const SYMPHONY_COMPATIBILITY_STATES = new Set(
+  ["Merging", "Closed", "Cancelled"].map(normalizeStatus),
+);
+
 export function linearTeamForService(
   config: ResolvedWatcherRuntimeConfig,
   serviceName: string,
@@ -40,6 +44,7 @@ export async function resolveLinearWorkflowStatuses(
   } satisfies ResolvedWatcherRuntimeConfig;
 
   validateStatusRules(resolved);
+  validateWorkflowStateOverrides(resolved);
   return resolved;
 }
 
@@ -108,6 +113,32 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
     for (const [teamName, team] of Object.entries(config.linearTeams)) {
       if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected)) continue;
       throw new Error(`${label} references unknown Linear status "${expected}" for ${teamName}.`);
+    }
+  }
+}
+
+function validateWorkflowStateOverrides(config: ResolvedWatcherRuntimeConfig): void {
+  for (const service of config.services) {
+    const team = config.linearTeams[service.linearTeam];
+    const knownStatuses = new Set(team.statuses.map(normalizeStatus));
+    const stateGroups = [
+      ["active_states", service.activeStates ?? []],
+      ["terminal_states", service.terminalStates ?? []],
+    ] as const;
+
+    for (const [group, states] of stateGroups) {
+      for (const state of states) {
+        const normalizedState = normalizeStatus(state);
+        if (
+          knownStatuses.has(normalizedState) ||
+          SYMPHONY_COMPATIBILITY_STATES.has(normalizedState)
+        ) {
+          continue;
+        }
+        throw new Error(
+          `WORKFLOW.md tracker.${group} references unknown Linear status "${state}" for ${service.name}.`,
+        );
+      }
     }
   }
 }

@@ -138,6 +138,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   });
 
   let nextPeriodicMaintenanceAt = 0;
+  let reconcilePersistedTerminalTasks = true;
   try {
     await app.start();
     await runWatcherPollingLoop(
@@ -149,9 +150,11 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
           slackClient: client,
           slackChannelId: slackConfig.channelId,
           runPeriodicMaintenance,
+          reconcilePersistedTerminalTasks,
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;
+          reconcilePersistedTerminalTasks = false;
         }
       },
       runtimeConfig.pollIntervalMs,
@@ -271,6 +274,7 @@ interface RunOnceOptions {
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
+  reconcilePersistedTerminalTasks?: boolean;
 }
 
 export async function runOnce({
@@ -282,6 +286,7 @@ export async function runOnce({
   findPullRequestByUrl = findPullRequestByUrlDefault,
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
+  reconcilePersistedTerminalTasks = false,
 }: RunOnceOptions) {
   if (runPeriodicMaintenance) {
     await deliverPendingStatusTimelines(slackClient, store);
@@ -345,6 +350,7 @@ export async function runOnce({
       skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
       findPullRequestByUrl,
       updateLinearStatus,
+      reconcilePersistedTerminalTasks,
     });
   }
   return { events, current };
@@ -358,6 +364,7 @@ async function reconcileLinearStatuses({
   skipTaskIds,
   findPullRequestByUrl,
   updateLinearStatus,
+  reconcilePersistedTerminalTasks,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -366,12 +373,13 @@ async function reconcileLinearStatuses({
   skipTaskIds: Set<string>;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  reconcilePersistedTerminalTasks: boolean;
 }): Promise<void> {
   const activeStatusesByService = new Map(
     config.services.map(({ name, activeStates }) => [name, activeStates ?? []]),
   );
   const tasks = store
-    .getTasksForLinearSync(new Set(), activeStatusesByService)
+    .getTasksForLinearSync(new Set(), activeStatusesByService, reconcilePersistedTerminalTasks)
     .map((task) => {
       const effectiveStateType = effectiveLinearStateTypeForService(
         config,

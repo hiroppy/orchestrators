@@ -188,6 +188,40 @@ tracker:
     assert.deepEqual(resolved.services[0].terminalStates, ["Done", "Ready for Release"]);
   });
 
+  it("validates workflow state overrides against the service's Linear team", async () => {
+    const unresolved = resolveWatcherConfig(baseConfig(), { requireSlack: false });
+    const withOverrides = {
+      ...unresolved,
+      services: unresolved.services.map((service) => ({
+        ...service,
+        activeStates: ["Todo", "Merging"],
+        terminalStates: ["Done", "Closed", "Cancelled"],
+      })),
+    };
+
+    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done"]);
+
+    for (const [group, activeStates, terminalStates] of [
+      ["active_states", ["Todo", "Ready for realease"], ["Done"]],
+      ["terminal_states", ["Todo"], ["Done", "Ready for realease"]],
+    ] as const) {
+      await assert.rejects(
+        resolveLinearWorkflowStatuses(
+          {
+            ...withOverrides,
+            services: withOverrides.services.map((service) => ({
+              ...service,
+              activeStates,
+              terminalStates,
+            })),
+          },
+          async () => ["Todo", "Done"],
+        ),
+        new RegExp(`${group} references unknown Linear status "Ready for realease" for service-a`),
+      );
+    }
+  });
+
   it("requires valid review comment settings", () => {
     const config = resolveWatcherConfig(
       {

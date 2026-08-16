@@ -68,3 +68,6 @@ watcher lifecycle handling; an explicitly active state is treated as
 nonterminal and an explicitly terminal state is treated as terminal regardless
 of its Linear state type. States listed in neither collection retain their
 Linear semantics.
+At startup, the watcher validates configured names against the instance's
+referenced Linear team. The Symphony compatibility names `Merging`, `Closed`,
+and `Cancelled` remain valid when the team does not currently define them.

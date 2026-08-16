@@ -66,7 +66,8 @@ This allows the watcher to continue tracking states such as `In Review`, even wh
 not part of Symphony's active work set. Linear state types provide the default terminal semantics.
 Each instance's `WORKFLOW.md` overrides that default by treating `tracker.terminal_states` as
 terminal and `tracker.active_states` as nonterminal. Tasks with an effective terminal state are
-excluded from later reconciliation.
+excluded from later reconciliation. On startup, the watcher reconciles persisted terminal tasks
+once so removing an override can restore Linear's current state type.
 
 ## Polling and API calls
 

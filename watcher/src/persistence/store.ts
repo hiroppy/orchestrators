@@ -253,6 +253,7 @@ export class WatcherStore {
   getTasksForLinearSync(
     includedTaskIds: ReadonlySet<string> = new Set(),
     includedStatusesByService: ReadonlyMap<string, readonly string[]> = new Map(),
+    includeTerminalTasks = false,
   ): Task[] {
     const includedStatusConditions = [...includedStatusesByService].flatMap(
       ([serviceName, statusNames]) => {
@@ -266,12 +267,14 @@ export class WatcherStore {
         ];
       },
     );
-    const activeOrIncluded = or(
-      isNull(tasks.linearStateType),
-      notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-      includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
-      ...includedStatusConditions,
-    );
+    const activeOrIncluded = includeTerminalTasks
+      ? undefined
+      : or(
+          isNull(tasks.linearStateType),
+          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
+          includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+          ...includedStatusConditions,
+        );
 
     return this.db
       .select({
