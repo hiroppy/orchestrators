@@ -20,6 +20,12 @@ export async function publishTaskActivities(
   now = new Date(),
 ): Promise<void> {
   for (const [service, snapshot] of Object.entries(snapshots)) {
+    const watcherIdentifier = `watcher:${service}`;
+    const unavailable = snapshot?.retrying.some(
+      (row) => (row.issue_identifier ?? row.issueIdentifier) === watcherIdentifier,
+    );
+    if (unavailable) continue;
+
     for (const row of snapshot?.running ?? []) {
       const identifier = row.issue_identifier ?? row.issueIdentifier;
       if (!identifier) continue;
@@ -32,7 +38,7 @@ export async function publishTaskActivities(
         await withTaskCardQueue(task.id, async () => {
           store.setTaskActivity(task.id, activity);
           if (await reloadStatusTimeline(client, store, task.id)) {
-            store.markTaskActivityPublished(task.id, now);
+            store.markTaskActivityPublished(task.id, new Date());
           }
         });
       } catch (error) {

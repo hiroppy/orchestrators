@@ -84,8 +84,11 @@ describe("Slack event publishing", () => {
             blocked: [],
           },
         },
-        new Date("2026-08-16T01:00:00Z"),
+        new Date(0),
       );
+      const publishedAt = store.getTask("service-a:ENG-62")?.activityPublishedAt;
+      assert.ok(publishedAt);
+      assert.ok(Date.parse(publishedAt) > 0);
       await publishWatcherEvent(client, store, "C123", {
         type: "blocked",
         service: "service-a",
@@ -110,6 +113,49 @@ describe("Slack event publishing", () => {
       assert.doesNotMatch(JSON.stringify(timelineUpdates[1].args.blocks), /Current activity/);
       assert.equal(task?.currentActivity, undefined);
       assert.equal(task?.activityPublishedAt, undefined);
+    });
+  });
+
+  it("preserves the last activity during a synthetic observability outage", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      store.setTaskActivity("service-a:ENG-62", {
+        message: "Useful activity before outage",
+        changedFiles: [],
+        changedFileCount: 0,
+        additions: 0,
+        deletions: 0,
+      });
+      store.markTaskActivityPublished("service-a:ENG-62", new Date(0));
+      calls.length = 0;
+
+      await publishTaskActivities(client, store, {
+        "service-a": {
+          running: [{ issue_identifier: "ENG-62", state: "In Progress" }],
+          retrying: [
+            {
+              issue_identifier: "watcher:service-a",
+              state: "unavailable",
+              error: "connection failed",
+            },
+          ],
+          blocked: [],
+        },
+      });
+
+      assert.equal(
+        store.getTask("service-a:ENG-62")?.currentActivity?.message,
+        "Useful activity before outage",
+      );
+      assert.equal(calls.length, 0);
     });
   });
 

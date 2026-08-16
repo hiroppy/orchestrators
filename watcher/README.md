@@ -271,8 +271,9 @@ destination channel. It does not require the root `config.ts` or
   place no more than once every 15 seconds. At most three changed paths are shown;
   additional paths are summarized as `+N more`, and aggregate additions include
   untracked text files. Git inspection has bounded runtime and output and falls
-  back to no diff when it fails. Token counts, turns, retries, and raw worker output
-  are intentionally omitted.
+  back to no diff when it fails. During an observability outage, the last activity
+  remains visible until Symphony reports a new value. Token counts, turns, retries,
+  and raw worker output are intentionally omitted.
 - Manual status history renders the actor's Slack display name as plain text,
   falling back to the Slack user ID when lookup fails. The actor is not
   mentioned. New tasks persist `slack.defaultAssignees` and a Linear creator
