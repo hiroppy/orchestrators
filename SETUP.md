@@ -3,8 +3,15 @@
 This guide configures the Slack watcher and creates a local Symphony instance.
 Run all commands from the repository root unless noted otherwise.
 
-Before starting, make sure you have the software listed in the
-[README requirements](README.md#requirements).
+## Requirements
+
+- Node.js 24+
+- pnpm 11+
+- Elixir 1.19 and Erlang 28 available on `PATH`
+- Authenticated GitHub CLI (`gh auth status`)
+
+Official Symphony recommends `mise` for managing Elixir/Erlang versions, and
+this guide uses it.
 
 ## 1. Install dependencies
 
@@ -73,8 +80,8 @@ export default defineConfig({
 });
 ```
 
-See [`watcher/README.md`](watcher/README.md) for Slack commands, runtime
-behavior, and optional watcher configuration.
+See [`watcher/README.md`](watcher/README.md) for Slack usage and optional
+watcher configuration.
 
 ## 4. Create a Symphony instance
 
@@ -141,7 +148,7 @@ Confirm that:
 - `data/symphony/logs/<instance-name>/` contains the instance logs.
 - The watcher starts without Slack, Linear, or workflow validation errors.
 - The bot responds in the configured Slack channel. See the
-  [Slack commands](watcher/README.md#slack-commands) for a simple status check.
+  [Slack commands](watcher/README.md#commands) for a simple status check.
 
 ## Update Symphony
 
