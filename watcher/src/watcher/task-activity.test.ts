@@ -14,6 +14,14 @@ describe("task activity", () => {
     assert.deepEqual(activity.changedFiles, []);
   });
 
+  it("falls back to the last event and then to Running", async () => {
+    const fromEvent = await buildTaskActivity({ last_event: "retrying" });
+    assert.equal(fromEvent.message, "retrying");
+
+    const fallback = await buildTaskActivity({});
+    assert.equal(fallback.message, "Running");
+  });
+
   it("updates at the 15-second boundary", () => {
     const publishedAt = "2026-08-16T01:00:00.000Z";
 

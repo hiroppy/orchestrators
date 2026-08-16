@@ -172,6 +172,7 @@ starts again.
 - `watcher/src/watcher/runner.ts` owns the three-second loop and 30-second maintenance schedule.
 - `watcher/src/watcher/snapshots.ts` collects Symphony observability snapshots.
 - `watcher/src/watcher/diff.ts` converts snapshot changes into watcher events.
+- `watcher/src/watcher/task-activity.ts` builds running-task activity and applies the 15-second publication limit.
 - `watcher/src/watcher/event-enrichment.ts` resolves Linear state and PR metadata.
 - `watcher/src/watcher/review-comments.ts` decides whether PR feedback should requeue a task.
 - `watcher/src/watcher/review-requeue.ts` updates Linear and persists the requeue result.

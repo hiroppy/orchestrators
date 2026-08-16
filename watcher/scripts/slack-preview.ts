@@ -253,8 +253,12 @@ export function buildSlackPreviewMessage(
         facts: {
           activity: {
             message: "item started: command execution",
-            changedFiles: ["watcher/src/slack/status-timeline.ts", "watcher/src/watcher/runner.ts"],
-            changedFileCount: 4,
+            changedFiles: [
+              "watcher/src/slack/status-timeline.ts",
+              "watcher/src/watcher/runner.ts",
+              "watcher/src/watcher/task-activity.ts",
+            ],
+            changedFileCount: 5,
             additions: 42,
             deletions: 8,
           },

@@ -543,13 +543,10 @@ export class WatcherStore {
   }
 
   setTaskActivity(taskId: string, activity: Task["currentActivity"]): void {
-    this.db
-      .update(tasks)
-      .set({
-        currentActivity: activity ? JSON.stringify(activity) : null,
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
+    const update = activity
+      ? { currentActivity: JSON.stringify(activity) }
+      : { currentActivity: null, activityPublishedAt: null };
+    this.db.update(tasks).set(update).where(eq(tasks.id, taskId)).run();
   }
 
   markTaskActivityPublished(taskId: string, publishedAt: Date): void {

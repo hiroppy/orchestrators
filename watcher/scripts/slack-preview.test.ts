@@ -169,7 +169,9 @@ describe("Slack preview", () => {
     const blocks = JSON.stringify(message.blocks);
 
     assert.match(blocks, /\*Current activity\*\\nitem started: command execution/);
-    assert.match(blocks, /status-timeline\.ts.*runner\.ts.*\+2 more/);
+    assert.match(blocks, /status-timeline\.ts.*runner\.ts.*task-activity\.ts.*\+2 more/);
+    assert.match(blocks, /\+42/);
+    assert.match(blocks, /−8/);
   });
 
   it("previews every standalone notification with blocks", () => {
