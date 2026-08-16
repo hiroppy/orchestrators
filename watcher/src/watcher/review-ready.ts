@@ -1,4 +1,5 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
+import { DEFAULT_REVIEW_READY_DELAY_MS } from "orchestrator-config";
 
 import type { PullRequest, Task } from "../domain/types.ts";
 import { normalizeStatus } from "../domain/status.ts";
@@ -8,7 +9,7 @@ const REVIEW_READY_OBSERVED_EVENT = "review_ready_observed";
 const REVIEW_READY_NOTIFICATION_PENDING_EVENT = "review_ready_notification_pending";
 export const REVIEW_READY_NOTIFIED_EVENT = "review_ready_notified";
 const REVIEW_READY_NOTIFICATION_DELIVERED_EVENT = "review_ready_notification_delivered";
-export const REVIEW_READY_DELAY_MS = 20 * 60 * 1_000;
+export const REVIEW_READY_DELAY_MS = DEFAULT_REVIEW_READY_DELAY_MS;
 const REVIEW_READY_RESET_BODY = "reset";
 
 interface ReviewReadyPayload {

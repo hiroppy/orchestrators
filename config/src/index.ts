@@ -14,3 +14,4 @@ export type {
   WatcherSettings,
 } from "./types.ts";
 export { defineConfig } from "./types.ts";
+export { DEFAULT_REVIEW_READY_DELAY_MS } from "./constants.ts";

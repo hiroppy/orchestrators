@@ -1,0 +1,1 @@
+export const DEFAULT_REVIEW_READY_DELAY_MS = 20 * 60 * 1_000;

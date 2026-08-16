@@ -1,3 +1,5 @@
+import { DEFAULT_REVIEW_READY_DELAY_MS } from "orchestrator-config";
+
 import type {
   InstanceConfig,
   LinearTeamConfig,
@@ -13,7 +15,6 @@ import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
 const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
-const DEFAULT_REVIEW_READY_DELAY_MS = 20 * 60 * 1_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";

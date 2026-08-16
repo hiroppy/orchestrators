@@ -11,6 +11,33 @@ import {
 } from "./review-ready.ts";
 
 describe("review-ready notifications", () => {
+  it("notifies on the next observation when the configured delay is zero", async () => {
+    await withStore(async (store) => {
+      const { calls, firstSeen, pullRequest, slackClient, task } = setupReviewReadyTask(store);
+
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs: 0,
+        now: firstSeen,
+      });
+      await checkReviewReadyNotification({
+        store,
+        slackClient,
+        task,
+        inReviewStatus: "In Review",
+        pullRequest,
+        delayMs: 0,
+        now: firstSeen,
+      });
+
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
   it("uses the configured review-ready delay", async () => {
     await withStore(async (store) => {
       const { calls, firstSeen, pullRequest, slackClient, task } = setupReviewReadyTask(store);
