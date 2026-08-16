@@ -27,8 +27,7 @@ while `symphony_template/` remains identical to upstream.
 The watcher example configuration uses `In Review`, matching the default
 `customize` profile. The `official` profile uses Symphony's upstream
 `Human Review` status. When using it, set
-`watcher.reviewComment.inReviewStatus` and matching
-`slack.notifications.statuses` entries to `Human Review`.
+`watcher.reviewComment.inReviewStatus` to `Human Review`.
 
 ## Per-instance configuration
 
