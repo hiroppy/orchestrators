@@ -1,8 +1,9 @@
-import { asc, and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { asc, and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
 import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type {
   ResolvedLinearTeamConfig,
   ServiceDefinition,
@@ -249,11 +250,27 @@ export class WatcherStore {
       : undefined;
   }
 
-  getTasksForLinearSync(includedTaskIds: ReadonlySet<string> = new Set()): Task[] {
+  getTasksForLinearSync(
+    includedTaskIds: ReadonlySet<string> = new Set(),
+    includedStatusesByService: ReadonlyMap<string, readonly string[]> = new Map(),
+  ): Task[] {
+    const includedStatusConditions = [...includedStatusesByService].flatMap(
+      ([serviceName, statusNames]) => {
+        const normalizedStatusNames = [...new Set(statusNames.map(normalizeStatus))];
+        if (normalizedStatusNames.length === 0) return [];
+        return [
+          and(
+            eq(services.name, serviceName),
+            inArray(sql<string>`lower(trim(${statuses.name}))`, normalizedStatusNames),
+          ),
+        ];
+      },
+    );
     const activeOrIncluded = or(
       isNull(tasks.linearStateType),
       notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
       includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
+      ...includedStatusConditions,
     );
 
     return this.db

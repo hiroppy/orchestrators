@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
@@ -32,7 +32,12 @@ export function workflowPathFor(symphoniesDirectory: string, serviceName: string
   const root = resolve(symphoniesDirectory);
   const workflowPath = resolve(root, serviceName, "elixir/WORKFLOW.md");
   const pathFromRoot = relative(root, workflowPath);
-  if (pathFromRoot.startsWith("..") || pathFromRoot === "" || pathFromRoot.startsWith("/")) {
+  if (
+    pathFromRoot === "" ||
+    pathFromRoot === ".." ||
+    pathFromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromRoot)
+  ) {
     throw new Error(`Service name cannot resolve outside the symphonies directory: ${serviceName}`);
   }
   return workflowPath;

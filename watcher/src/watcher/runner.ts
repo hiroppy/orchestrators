@@ -362,18 +362,34 @@ async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
-  const tasks = store.getTasksForLinearSync().filter((task) => {
-    const hasCurrentLinearState =
-      skipTaskIds.has(task.id) &&
-      Boolean(task.linearStateType) &&
-      !shouldFetchReviewComments(config, task.status);
-    return !(
-      hasCurrentLinearState ||
-      task.issueIdentifier.startsWith("watcher:") ||
-      !task.parentChannelId ||
-      !task.parentMessageTs
-    );
-  });
+  const activeStatusesByService = new Map(
+    config.services.map(({ name, activeStates }) => [name, activeStates ?? []]),
+  );
+  const tasks = store
+    .getTasksForLinearSync(new Set(), activeStatusesByService)
+    .map((task) => {
+      const effectiveStateType = effectiveLinearStateTypeForService(
+        config,
+        task.serviceName,
+        task.status,
+        task.linearStateType,
+      );
+      if (!effectiveStateType || effectiveStateType === task.linearStateType) return task;
+      store.setTaskLinearStateType(task.id, effectiveStateType);
+      return { ...task, linearStateType: effectiveStateType };
+    })
+    .filter((task) => {
+      const hasCurrentLinearState =
+        skipTaskIds.has(task.id) &&
+        Boolean(task.linearStateType) &&
+        !shouldFetchReviewComments(config, task.status);
+      return !(
+        hasCurrentLinearState ||
+        task.issueIdentifier.startsWith("watcher:") ||
+        !task.parentChannelId ||
+        !task.parentMessageTs
+      );
+    });
   const summaries = new Map<string, Awaited<ReturnType<typeof fetchLinearIssueStateSummaries>>>();
   const rateLimitedTeams = new Set<string>();
   for (const task of tasks) {

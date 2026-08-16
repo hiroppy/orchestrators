@@ -70,6 +70,10 @@ tracker:
       workflowPathFor("/app/symphonies", "service-a"),
       "/app/symphonies/service-a/elixir/WORKFLOW.md",
     );
+    assert.equal(
+      workflowPathFor("/app/symphonies", "..service"),
+      "/app/symphonies/..service/elixir/WORKFLOW.md",
+    );
     assert.throws(() => workflowPathFor("/app/symphonies", "../outside"), /cannot resolve outside/);
   });
 });
