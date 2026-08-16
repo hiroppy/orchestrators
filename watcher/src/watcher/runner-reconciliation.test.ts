@@ -129,7 +129,7 @@ describe("watcher reconciliation and snapshots", () => {
             issue: {
               identifier: "ENG-62",
               title: "Merge the pull request",
-              state: { name: "In Staging Check", type: "started" },
+              state: { name: "Ready for Release", type: "started" },
               url: "https://linear.app/example/issue/ENG-62/example",
               attachments: { nodes: [] },
               relations: { nodes: [] },
@@ -144,10 +144,10 @@ describe("watcher reconciliation and snapshots", () => {
             url: dataUrl({ running: [], retrying: [], blocked: [] }),
             linearTeam: "workspace-a-eng",
             activeStates: ["In Progress"],
-            terminalStates: ["Done", "In Staging Check"],
+            terminalStates: ["Done", "Ready for Release"],
           },
         ],
-        linearTeams: linearTeams(["In Review", "In Staging Check", "Done"]),
+        linearTeams: linearTeams(["In Review", "Ready for Release", "Done"]),
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const task = store.upsertTaskFromEvent({
@@ -161,7 +161,7 @@ describe("watcher reconciliation and snapshots", () => {
       store.setParentMessage(task.id, "C123", "1.000", "{}");
       const { task: closedTask } = store.updateTaskStatusAtomically(
         task.id,
-        "In Staging Check",
+        "Ready for Release",
         () => undefined,
       );
       const calls: Array<Record<string, unknown>> = [];
@@ -177,7 +177,7 @@ describe("watcher reconciliation and snapshots", () => {
       assert.equal(store.getTask(task.id)?.linearStateType, "completed");
       assert.equal(
         calls.find(({ method, thread_ts }) => method === "postMessage" && !thread_ts)?.text,
-        "Task closed | *In Staging Check*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
+        "Task closed | *Ready for Release*\n<https://example.slack.com/archives/C123/p1000|Merge the pull request>",
       );
     });
   });

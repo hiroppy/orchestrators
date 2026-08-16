@@ -5,11 +5,11 @@ import { effectiveLinearStateType } from "./linear.ts";
 
 describe("effectiveLinearStateType", () => {
   const activeStates = ["Todo", "In Progress"];
-  const terminalStates = ["Done", "In Staging Check"];
+  const terminalStates = ["Done", "Ready for Release"];
 
   it("uses Symphony terminal states to override the Linear state type", () => {
     assert.equal(
-      effectiveLinearStateType("In Staging Check", "started", activeStates, terminalStates),
+      effectiveLinearStateType("Ready for Release", "started", activeStates, terminalStates),
       "completed",
     );
   });

@@ -17,7 +17,7 @@ tracker:
     project_slug: project-123
   terminal_states:
     - Done
-    - In Staging Check
+    - Ready for Release
 ---
 Instructions
 `),
@@ -25,7 +25,7 @@ Instructions
         tracker: {
           kind: "linear",
           provider: { project_slug: "project-123" },
-          terminal_states: ["Done", "In Staging Check"],
+          terminal_states: ["Done", "Ready for Release"],
         },
       },
     );
@@ -42,12 +42,12 @@ Instructions
       trackerStatesFromWorkflow(`---
 tracker:
   active_states: [Todo, " In Progress "]
-  terminal_states: [Done, " In Staging Check "]
+  terminal_states: [Done, " Ready for Release "]
 ---
 `),
       {
         activeStates: ["Todo", "In Progress"],
-        terminalStates: ["Done", "In Staging Check"],
+        terminalStates: ["Done", "Ready for Release"],
       },
     );
     assert.equal(trackerStatesFromWorkflow("---\ntracker: {}\n---\n"), undefined);
@@ -67,8 +67,8 @@ tracker:
 
   it("resolves a service workflow without allowing traversal", () => {
     assert.equal(
-      workflowPathFor("/app/symphonies", "iiba"),
-      "/app/symphonies/iiba/elixir/WORKFLOW.md",
+      workflowPathFor("/app/symphonies", "service-a"),
+      "/app/symphonies/service-a/elixir/WORKFLOW.md",
     );
     assert.throws(() => workflowPathFor("/app/symphonies", "../outside"), /cannot resolve outside/);
   });

@@ -177,7 +177,7 @@ describe("watcher configuration", () => {
         return `---
 tracker:
   active_states: [Todo, In Progress]
-  terminal_states: [Done, In Staging Check]
+  terminal_states: [Done, Ready for Release]
 ---
 `;
       },
@@ -185,7 +185,7 @@ tracker:
 
     assert.deepEqual(paths, ["/app/symphonies/service-a/elixir/WORKFLOW.md"]);
     assert.deepEqual(resolved.services[0].activeStates, ["Todo", "In Progress"]);
-    assert.deepEqual(resolved.services[0].terminalStates, ["Done", "In Staging Check"]);
+    assert.deepEqual(resolved.services[0].terminalStates, ["Done", "Ready for Release"]);
   });
 
   it("requires valid review comment settings", () => {
