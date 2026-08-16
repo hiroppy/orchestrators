@@ -3,10 +3,11 @@ import {
   type ResolvedWatcherRuntimeConfig,
   type WatcherRuntimeConfig,
 } from "../config/runtime.ts";
-import type { RelatedIssue, ResolvedLinearTeamConfig } from "../domain/types.ts";
+import type { RelatedIssue } from "../domain/linear.ts";
+import type { ResolvedLinearTeamConfig } from "../domain/service.ts";
 import { effectiveLinearStateType, isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
-import { fetchLinearWorkflowStates } from "../integrations/linear.ts";
+import { fetchLinearWorkflowStates } from "../integrations/linear/index.ts";
 import {
   readWorkflow,
   trackerStatesFromWorkflow,

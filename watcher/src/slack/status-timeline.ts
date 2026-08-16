@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 
 import type { KnownBlock } from "@slack/web-api";
 
-import type { PullRequest, Task, TaskActivity, TaskEvent } from "../domain/types.ts";
+import type { PullRequest } from "../domain/github.ts";
+import type { Task, TaskActivity, TaskEvent } from "../domain/task.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "./client-types.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";

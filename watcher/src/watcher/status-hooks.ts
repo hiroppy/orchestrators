@@ -1,11 +1,13 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
+import type { StatusHookContext, StatusHookHelpers } from "orchestrator-config";
 
 import type { ResolvedStatusHookConfig } from "../config/runtime.ts";
-import type { PullRequest, StatusHookContext, StatusHookHelpers, Task } from "../domain/types.ts";
+import type { PullRequest } from "../domain/github.ts";
 import { normalizeStatus } from "../domain/status.ts";
+import type { Task } from "../domain/task.ts";
 import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 
-export type { StatusHookContext } from "../domain/types.ts";
+export type { StatusHookContext } from "orchestrator-config";
 
 export interface StatusHookResult {
   output?: string;

@@ -1,8 +1,8 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
-import type { WatcherEvent } from "../domain/types.ts";
-import type { updateLinearIssueStatus } from "../integrations/linear-status.ts";
+import type { WatcherEvent } from "../domain/watcher-event.ts";
+import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { buildReviewRequeueMessage } from "../slack/views.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";

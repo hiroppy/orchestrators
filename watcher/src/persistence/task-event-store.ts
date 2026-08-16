@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
-import type { TaskEvent } from "../domain/types.ts";
+import type { TaskEvent } from "../domain/task.ts";
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses, taskEvents, tasks } from "./schema.ts";
 import { insertTaskEvent, type TaskEventInput } from "./store-helpers.ts";

@@ -1,4 +1,5 @@
-import type { ServiceDefinition, Snapshot, SnapshotsByService } from "../domain/types.ts";
+import type { ServiceDefinition } from "../domain/service.ts";
+import type { Snapshot, SnapshotsByService } from "../domain/snapshot.ts";
 import { normalizeSnapshot } from "./diff.ts";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;

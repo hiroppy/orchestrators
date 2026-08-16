@@ -5,7 +5,10 @@ import type { SlackConfig } from "orchestrator-config";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { EventType, Task, WatcherEvent } from "../src/domain/types.ts";
+import type { EventType } from "orchestrator-config";
+
+import type { Task } from "../src/domain/task.ts";
+import type { WatcherEvent } from "../src/domain/watcher-event.ts";
 import { createDatabase } from "../src/persistence/database.ts";
 import { tasks } from "../src/persistence/schema.ts";
 import { DEFAULT_DATABASE_PATH, WatcherStore } from "../src/persistence/store.ts";

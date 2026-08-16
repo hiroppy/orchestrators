@@ -1,12 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
-import {
-  GITHUB_REACTIONS,
-  type GitHubReaction,
-  type PullRequest,
-  type WatcherEvent,
-} from "../domain/types.ts";
+import { GITHUB_REACTIONS, type GitHubReaction, type PullRequest } from "../../domain/github.ts";
+import type { WatcherEvent } from "../../domain/watcher-event.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =

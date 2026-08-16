@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 
 import type { WatcherStore } from "../persistence/store.ts";
-import type { TaskEvent } from "../domain/types.ts";
+import type { TaskEvent } from "../domain/task.ts";
 import type { SlackClient } from "./client-types.ts";
 import {
   buildStatusCard,

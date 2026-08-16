@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { AmbiguousLinearTakePrIssueError, createLinearTakePrIssue } from "./linear.ts";
+import { AmbiguousLinearTakePrIssueError, createLinearTakePrIssue } from "./index.ts";
 
 const input = {
   idempotencyKey: "request123",

@@ -36,6 +36,45 @@ flowchart LR
 Symphony, Linear, and GitHub are polled. Slack interactions arrive through Socket Mode; GitHub
 comments do not use a webhook.
 
+## Source boundaries
+
+The watcher source is organized by responsibility:
+
+- `domain/` contains business data grouped by concept (`task`, `snapshot`, `service`, watcher
+  events, and provider value models). Domain modules do not call external services or persistence.
+- `integrations/<provider>/` translates each external Linear, GitHub, or Slack API into domain
+  values. Provider clients, queries, and feature operations remain together under that boundary.
+- `persistence/` owns database schema and storage operations.
+- `slack/` owns Slack presentation, commands, interactions, and Slack-specific parsing.
+- `watcher/` orchestrates polling, enrichment, reconciliation, and notification delivery.
+- `entrypoints/` wires runtime dependencies and starts the long-lived processes.
+
+Imports should name the domain concept they consume instead of depending on a shared catch-all type
+module. Provider-specific parsing belongs with that provider, while API communication remains in
+`integrations/`.
+
+Large orchestration modules use narrow entry-point facades. `slack/app.ts` exposes app creation,
+status actions, and event publishing implemented in separate modules. Watcher polling, event
+processing, and Linear reconciliation are likewise separated so retry control, event side effects,
+and reconciliation policy can be reviewed independently. Persistence keeps the `WatcherStore`
+facade while delegating snapshot storage, task-event storage, and temporary take-PR requests to
+focused modules.
+
+Feature-heavy areas use the same pattern without adding a dependency-injection layer:
+
+- Linear issue reads and take-PR issue creation live in separate integration modules; the provider
+  `index.ts` only exposes their public operations.
+- Slack take-PR handling separates mention intake, interactive actions, validation, and Block Kit
+  rendering. Mention commands and general Slack views are also grouped by user-facing operation.
+- `WatcherStore` remains the concrete persistence API while delegating task, status, assignee,
+  snapshot, and event operations to focused modules.
+- Watcher startup and one polling iteration are separate functions, and runtime configuration keeps
+  resolved types, validation, and value construction separate.
+
+Dependencies continue to be passed explicitly through function arguments and constructors already
+present in the application. There is intentionally no service container, generic repository
+interface, or runtime dependency-injection framework.
+
 ## Tracking model
 
 See [Symphony workflows](workflows.md) for profile selection and per-instance

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import type { ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/types.ts";
+import type { ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/service.ts";
 import type { WatcherDatabase } from "./database.ts";
 import { services, statuses } from "./schema.ts";
 

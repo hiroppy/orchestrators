@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveSupervisorConfig, type SupervisorInstance } from "../config/runtime.ts";
-import type { OrchestratorConfig } from "../domain/types.ts";
+import type { OrchestratorConfig } from "orchestrator-config";
 
 const currentFile = fileURLToPath(import.meta.url);
 const sourceDirectory = dirname(dirname(currentFile));

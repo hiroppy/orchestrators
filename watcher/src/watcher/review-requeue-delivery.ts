@@ -1,6 +1,6 @@
 import type { WebClient } from "@slack/web-api";
 
-import type { TaskEvent } from "../domain/types.ts";
+import type { TaskEvent } from "../domain/task.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import { buildTaskCard } from "../slack/views.ts";
 import { publishStatusTimeline } from "../slack/status-timeline.ts";

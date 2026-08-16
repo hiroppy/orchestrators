@@ -1,4 +1,4 @@
-import { isSlackAssigneeMention } from "../domain/slack-assignee.ts";
+import { isSlackAssigneeMention } from "./assignee.ts";
 
 export function initialTaskAssignees(
   defaultAssignees: string[],

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchLinearIssueState, fetchLinearIssueStateSummaries } from "./linear.ts";
+import { fetchLinearIssueState, fetchLinearIssueStateSummaries } from "./index.ts";
 
 describe("fetchLinearIssueStateSummaries", () => {
   it("fetches multiple issue states in one lightweight GraphQL request", async (context) => {

@@ -1,13 +1,13 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
-import type { WatcherEvent } from "../domain/types.ts";
+import type { WatcherEvent } from "../domain/watcher-event.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
-} from "../integrations/github.ts";
-import { fetchLinearIssueState } from "../integrations/linear.ts";
+} from "../integrations/github/index.ts";
+import { fetchLinearIssueState } from "../integrations/linear/index.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 import { shouldFetchReviewComments } from "./review-comments.ts";
 

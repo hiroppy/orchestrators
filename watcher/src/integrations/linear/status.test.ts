@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchLinearWorkflowStates, updateLinearIssueStatus } from "./linear.ts";
+import { fetchLinearWorkflowStates, updateLinearIssueStatus } from "./index.ts";
 
 describe("updateLinearIssueStatus", () => {
   it("reuses cached team workflow states when updating the Linear issue", async (context) => {

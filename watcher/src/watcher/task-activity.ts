@@ -3,7 +3,8 @@ import { lstat, open } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
-import type { SnapshotRow, SnapshotsByService, TaskActivity } from "../domain/types.ts";
+import type { SnapshotRow, SnapshotsByService } from "../domain/snapshot.ts";
+import type { TaskActivity } from "../domain/task.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import type { SlackClient } from "../slack/client-types.ts";
 import { publishStatusTimeline, reloadStatusTimeline } from "../slack/status-timeline.ts";
