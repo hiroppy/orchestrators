@@ -541,6 +541,83 @@ describe("watcher reconciliation and snapshots", () => {
     });
   });
 
+  it("processes a status change before completing snapshot terminal recovery", async (context) => {
+    await withStore(async (store) => {
+      const snapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "Ready for Release" }],
+        retrying: [],
+        blocked: [],
+      };
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Merge the pull request",
+              state: { name: "In Progress", type: "started" },
+              url: "https://linear.app/example/issue/ENG-62/example",
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+            issue0: {
+              identifier: "ENG-62",
+              state: { name: "In Progress", type: "started" },
+            },
+          },
+        });
+      });
+      let hookAttempts = 0;
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl(snapshot),
+            linearTeam: "workspace-a-eng",
+            terminalStates: ["Done"],
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "Ready for Release", "Done"]),
+        statusHooks: [
+          {
+            id: "capture-recovered-transition",
+            status: "In Progress",
+            run: () => {
+              hookAttempts += 1;
+            },
+          },
+        ],
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({ "service-a": snapshot });
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Merge the pull request",
+        resolvedState: "Ready for Release",
+        resolvedStateType: "completed",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const calls: Array<Record<string, unknown>> = [];
+
+      const result = await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(calls),
+        slackChannelId: "C123",
+        persistedTerminalTaskIds: new Set([task.id]),
+      });
+
+      assert.equal(result.persistedTerminalReconciliationComplete, true);
+      assert.equal(store.getTask(task.id)?.status, "In Progress");
+      assert.equal(store.getTask(task.id)?.linearStateType, "started");
+      assert.ok(calls.some(({ method }) => method === "update"));
+      assert.equal(hookAttempts, 1);
+    });
+  });
+
   it("announces an existing task when its status becomes a terminal override", async (context) => {
     await withStore(async (store) => {
       const nativeFetch = globalThis.fetch;

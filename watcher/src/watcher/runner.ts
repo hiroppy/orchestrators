@@ -469,7 +469,7 @@ async function reconcileLinearStatuses({
         }
         if (!pendingPersistedTerminalTaskIds.has(task.id)) continue;
       }
-      if (effectiveStateType && recoveringPersistedTerminalTask) {
+      if (effectiveStateType && recoveringPersistedTerminalTask && sameStatus) {
         store.setTaskLinearStateType(task.id, effectiveStateType);
         pendingPersistedTerminalTaskIds.delete(task.id);
         if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
@@ -489,7 +489,7 @@ async function reconcileLinearStatuses({
       linearIssue.state,
       linearIssue.stateType,
     );
-    if (effectiveStateType && recoveringPersistedTerminalTask) {
+    if (effectiveStateType && recoveringPersistedTerminalTask && detailedSameStatus) {
       store.setTaskLinearStateType(task.id, effectiveStateType);
       pendingPersistedTerminalTaskIds.delete(task.id);
       if (!isTaskEligibleForNormalLinearReconciliation(config, task, skipTaskIds)) continue;
@@ -557,6 +557,9 @@ async function reconcileLinearStatuses({
       reviewDecision,
       updateLinearStatus,
     });
+    if (recoveringPersistedTerminalTask) {
+      pendingPersistedTerminalTaskIds.delete(task.id);
+    }
   }
   return pendingPersistedTerminalTaskIds;
 }
