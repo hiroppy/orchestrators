@@ -1,10 +1,10 @@
-import { normalizeStatus } from "../domain/status.ts";
-import { isTransientLinearError, linearRequest } from "./linear-client.ts";
+import { normalizeStatus } from "../../domain/status.ts";
+import { isTransientLinearError, linearRequest } from "./client.ts";
 import {
   ISSUE_STATUS_TARGET_QUERY,
   ISSUE_STATUS_UPDATE_MUTATION,
   TEAM_WORKFLOW_STATES_QUERY,
-} from "./linear-queries.ts";
+} from "./queries.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const WORKFLOW_STATE_CACHE_TTL_MS = 60 * 60 * 1_000;

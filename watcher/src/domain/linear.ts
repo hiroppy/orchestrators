@@ -1,5 +1,13 @@
 import { normalizeStatus } from "./status.ts";
 
+export interface RelatedIssue {
+  identifier: string;
+  title: string | null;
+  url: string | null;
+  state?: string | null;
+  stateType?: string | null;
+}
+
 export const TERMINAL_LINEAR_STATE_TYPES = ["completed", "canceled", "duplicate"] as const;
 
 export function isTerminalLinearStateType(stateType?: string | null): boolean {

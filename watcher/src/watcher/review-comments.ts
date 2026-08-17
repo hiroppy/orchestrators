@@ -1,5 +1,5 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
-import type { WatcherEvent } from "../domain/types.ts";
+import type { WatcherEvent } from "../domain/watcher-event.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 

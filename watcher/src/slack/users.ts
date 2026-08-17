@@ -1,4 +1,4 @@
-import { slackAssigneeIdFromMention } from "../domain/slack-assignee.ts";
+import { slackAssigneeIdFromMention } from "./assignee.ts";
 import type { SlackClient } from "./client-types.ts";
 
 const USERS_PAGE_SIZE = 200;

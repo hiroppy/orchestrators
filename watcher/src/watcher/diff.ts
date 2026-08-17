@@ -1,10 +1,7 @@
-import type {
-  EventType,
-  Snapshot,
-  SnapshotRow,
-  SnapshotsByService,
-  WatcherEvent,
-} from "../domain/types.ts";
+import type { EventType } from "orchestrator-config";
+
+import type { Snapshot, SnapshotRow, SnapshotsByService } from "../domain/snapshot.ts";
+import type { WatcherEvent } from "../domain/watcher-event.ts";
 import type { WatcherRuntimeConfig } from "../config/runtime.ts";
 
 export function normalizeSnapshot(snapshot?: Partial<Snapshot>): Snapshot {

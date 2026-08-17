@@ -1,25 +1,9 @@
-import { asc, and, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
-
 import type { WatcherDatabase } from "./database.ts";
-import { services, statuses, taskAssignees, taskObservations, tasks } from "./schema.ts";
-import { TERMINAL_LINEAR_STATE_TYPES } from "../domain/linear.ts";
-import { normalizeStatus } from "../domain/status.ts";
-import type {
-  ResolvedLinearTeamConfig,
-  ServiceDefinition,
-  Snapshot,
-  SnapshotsByService,
-  Task,
-  TaskEvent,
-  WatcherEvent,
-} from "../domain/types.ts";
-import {
-  ensureStatus,
-  issueIdentifierFor,
-  observationToRow,
-  taskFromRow,
-  type TaskEventInput,
-} from "./store-helpers.ts";
+import type { ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/service.ts";
+import type { SnapshotsByService } from "../domain/snapshot.ts";
+import type { Task, TaskEvent } from "../domain/task.ts";
+import type { WatcherEvent } from "../domain/watcher-event.ts";
+import type { TaskEventInput } from "./store-helpers.ts";
 import {
   addTaskEvent,
   addTaskEvents,
@@ -38,39 +22,29 @@ import {
   setTaskEventSlackThreadTs,
 } from "./task-event-store.ts";
 import { syncDefinitions } from "./definitions.ts";
+import { assignTask, getTaskAssignees, unassignTask } from "./assignee-store.ts";
+import { getSelectableStatuses } from "./status-store.ts";
+import { getSnapshots, replaceSnapshots } from "./snapshot-store.ts";
+import { TaskStore } from "./task-store.ts";
+import {
+  PendingTakePrStore,
+  type NewPendingTakePrRequest,
+  type PendingTakePrRequest,
+} from "./pending-take-pr-store.ts";
 
 export type { TaskEventInput } from "./store-helpers.ts";
 
 export const DEFAULT_DATABASE_PATH = "data/watcher/watcher.db";
-const TAKE_PR_ACTIVE_RETENTION_MS = 24 * 60 * 60 * 1_000;
-const DEFAULT_STATUS_BY_BUCKET = {
-  running: "running",
-  retrying: "Retrying",
-  blocked: "Blocked",
-} as const;
-
-export interface PendingTakePrRequest {
-  id: string;
-  pullRequestUrl: string;
-  repository: string;
-  pullRequestTitle: string;
-  pullRequestBody: string;
-  headBranch: string;
-  baseBranch: string;
-  channelId: string;
-  threadTs: string;
-  requesterSlackUserId?: string;
-  createdAt: string;
-}
-
-type NewPendingTakePrRequest = Omit<PendingTakePrRequest, "createdAt">;
+export type { PendingTakePrRequest } from "./pending-take-pr-store.ts";
 
 export class WatcherStore {
   private readonly db: WatcherDatabase;
-  private readonly pendingTakePrRequests = new Map<string, PendingTakePrRequest>();
+  private readonly pendingTakePrStore = new PendingTakePrStore();
+  private readonly taskStore: TaskStore;
 
   constructor(db: WatcherDatabase) {
     this.db = db;
+    this.taskStore = new TaskStore(db);
   }
 
   syncDefinitions(
@@ -82,172 +56,23 @@ export class WatcherStore {
   }
 
   getSelectableStatuses(serviceName: string): string[] {
-    return this.db
-      .select({ name: statuses.name })
-      .from(statuses)
-      .innerJoin(services, eq(statuses.serviceId, services.id))
-      .where(
-        and(
-          eq(services.name, serviceName),
-          eq(services.active, true),
-          eq(statuses.selectable, true),
-        ),
-      )
-      .orderBy(asc(statuses.sortOrder))
-      .all()
-      .map(({ name }) => name);
+    return getSelectableStatuses(this.db, serviceName);
   }
 
   getSnapshots(): SnapshotsByService {
-    const serviceRows = this.db.select().from(services).where(eq(services.active, true)).all();
-    const rows = this.db
-      .select({
-        task: tasks,
-        observation: taskObservations,
-        trackerStatus: statuses.name,
-      })
-      .from(taskObservations)
-      .innerJoin(tasks, eq(taskObservations.taskId, tasks.id))
-      .innerJoin(services, eq(tasks.serviceId, services.id))
-      .leftJoin(statuses, eq(taskObservations.trackerStatusId, statuses.id))
-      .where(eq(services.active, true))
-      .all();
-    const snapshots: Record<string, Snapshot> = Object.fromEntries(
-      serviceRows.map((service) => [
-        service.name,
-        { running: [], retrying: [], blocked: [] } satisfies Snapshot,
-      ]),
-    );
-    const servicesById = new Map(serviceRows.map((service) => [service.id, service.name]));
-
-    for (const row of rows) {
-      const serviceName = servicesById.get(row.task.serviceId);
-      if (!serviceName) continue;
-      const snapshot = snapshots[serviceName];
-      snapshot[row.observation.bucket].push(
-        observationToRow(row.task.issueIdentifier, row.observation, row.trackerStatus),
-      );
-    }
-
-    return snapshots;
+    return getSnapshots(this.db);
   }
 
   replaceSnapshots(snapshots: SnapshotsByService, now = new Date()): void {
-    const timestamp = now.toISOString();
-    const serviceRows = this.db.select().from(services).where(eq(services.active, true)).all();
-    const servicesByName = new Map(serviceRows.map((service) => [service.name, service]));
-    const activeTaskIds = this.db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .innerJoin(services, eq(tasks.serviceId, services.id))
-      .where(eq(services.active, true));
-
-    this.db.transaction((tx) => {
-      tx.delete(taskObservations).where(inArray(taskObservations.taskId, activeTaskIds)).run();
-
-      for (const [serviceName, snapshot] of Object.entries(snapshots)) {
-        const service = servicesByName.get(serviceName);
-        if (!service || !snapshot) continue;
-
-        for (const bucket of ["running", "retrying", "blocked"] as const) {
-          for (const row of snapshot[bucket]) {
-            const issueIdentifier = issueIdentifierFor(row);
-            if (!issueIdentifier) continue;
-            const taskId = taskIdFor(serviceName, issueIdentifier);
-            const statusName = row.state ?? DEFAULT_STATUS_BY_BUCKET[bucket];
-            const statusId = ensureStatus(tx, service.id, statusName, timestamp);
-
-            tx.insert(tasks)
-              .values({
-                id: taskId,
-                serviceId: service.id,
-                issueIdentifier,
-                title: issueIdentifier,
-                statusId,
-                createdAt: timestamp,
-                updatedAt: timestamp,
-              })
-              .onConflictDoNothing()
-              .run();
-
-            tx.insert(taskObservations)
-              .values({
-                taskId,
-                bucket,
-                trackerStatusId: row.state ? statusId : null,
-                issueUrl: row.issue_url,
-                error: row.error,
-                workspacePath: row.workspace_path,
-                startedAt: row.started_at,
-                blockedAt: row.blocked_at,
-                lastEvent: row.last_event,
-                lastEventAt: row.last_event_at,
-                attempt: row.attempt,
-                dueAt: row.due_at,
-                observedAt: timestamp,
-              })
-              .onConflictDoUpdate({
-                target: taskObservations.taskId,
-                set: {
-                  bucket,
-                  trackerStatusId: row.state ? statusId : null,
-                  issueUrl: row.issue_url ?? null,
-                  error: row.error ?? null,
-                  workspacePath: row.workspace_path ?? null,
-                  startedAt: row.started_at ?? null,
-                  blockedAt: row.blocked_at ?? null,
-                  lastEvent: row.last_event ?? null,
-                  lastEventAt: row.last_event_at ?? null,
-                  attempt: row.attempt ?? null,
-                  dueAt: row.due_at ?? null,
-                  observedAt: timestamp,
-                },
-              })
-              .run();
-          }
-        }
-      }
-    });
+    replaceSnapshots(this.db, snapshots, now);
   }
 
   getTask(id: string): Task | undefined {
-    const row = this.db
-      .select({
-        task: tasks,
-        serviceName: services.name,
-        statusName: statuses.name,
-        observationIssueUrl: taskObservations.issueUrl,
-      })
-      .from(tasks)
-      .innerJoin(services, eq(tasks.serviceId, services.id))
-      .innerJoin(statuses, eq(tasks.statusId, statuses.id))
-      .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(eq(tasks.id, id))
-      .get();
-
-    return row
-      ? taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl)
-      : undefined;
+    return this.taskStore.getTask(id);
   }
 
   getTaskBySlackThread(channel: string, threadTs: string): Task | undefined {
-    const row = this.db
-      .select({
-        task: tasks,
-        serviceName: services.name,
-        statusName: statuses.name,
-        observationIssueUrl: taskObservations.issueUrl,
-      })
-      .from(tasks)
-      .innerJoin(services, eq(tasks.serviceId, services.id))
-      .innerJoin(statuses, eq(tasks.statusId, statuses.id))
-      .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(and(eq(tasks.parentChannelId, channel), eq(tasks.parentMessageTs, threadTs)))
-      .get();
-
-    return row
-      ? taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl)
-      : undefined;
+    return this.taskStore.getTaskBySlackThread(channel, threadTs);
   }
 
   getTasksForLinearSync(
@@ -255,91 +80,15 @@ export class WatcherStore {
     includedStatusesByService: ReadonlyMap<string, readonly string[]> = new Map(),
     includeTerminalTasks = false,
   ): Task[] {
-    const includedStatusConditions = [...includedStatusesByService].flatMap(
-      ([serviceName, statusNames]) => {
-        const normalizedStatusNames = [...new Set(statusNames.map(normalizeStatus))];
-        if (normalizedStatusNames.length === 0) return [];
-        return [
-          and(
-            eq(services.name, serviceName),
-            inArray(sql<string>`lower(trim(${statuses.name}))`, normalizedStatusNames),
-          ),
-        ];
-      },
+    return this.taskStore.getTasksForLinearSync(
+      includedTaskIds,
+      includedStatusesByService,
+      includeTerminalTasks,
     );
-    const activeOrIncluded = includeTerminalTasks
-      ? undefined
-      : or(
-          isNull(tasks.linearStateType),
-          notInArray(tasks.linearStateType, [...TERMINAL_LINEAR_STATE_TYPES]),
-          includedTaskIds.size > 0 ? inArray(tasks.id, [...includedTaskIds]) : undefined,
-          ...includedStatusConditions,
-        );
-
-    return this.db
-      .select({
-        task: tasks,
-        serviceName: services.name,
-        statusName: statuses.name,
-        observationIssueUrl: taskObservations.issueUrl,
-      })
-      .from(tasks)
-      .innerJoin(services, eq(tasks.serviceId, services.id))
-      .innerJoin(statuses, eq(tasks.statusId, statuses.id))
-      .leftJoin(taskObservations, eq(tasks.id, taskObservations.taskId))
-      .where(and(eq(services.active, true), activeOrIncluded))
-      .all()
-      .map((row) =>
-        taskFromRow(row.task, row.serviceName, row.statusName, row.observationIssueUrl),
-      );
   }
 
   upsertTaskFromEvent(event: WatcherEvent, now = new Date()): Task {
-    const timestamp = now.toISOString();
-    const id = taskIdFor(event.service, event.issueIdentifier);
-    const existing = this.getTask(id);
-    const service = this.db.select().from(services).where(eq(services.name, event.service)).get();
-    if (!service) throw new Error(`Service not found: ${event.service}`);
-    const statusName = event.resolvedState ?? event.state ?? existing?.status ?? "Unknown";
-    const statusId = ensureStatus(this.db, service.id, statusName, timestamp);
-    const pullRequestLabels = JSON.stringify(event.pullRequest?.labels);
-
-    this.db
-      .insert(tasks)
-      .values({
-        id,
-        serviceId: service.id,
-        issueIdentifier: event.issueIdentifier,
-        title: event.issueTitle ?? event.issueIdentifier,
-        statusId,
-        linearStateType: event.resolvedStateType,
-        linkUrl: event.issueUrl,
-        pullRequestUrl: event.pullRequest?.url,
-        pullRequestNumber: event.pullRequest?.number,
-        pullRequestTitle: event.pullRequest?.title,
-        pullRequestLabels,
-        lastEventAt: event.lastEventAt ?? timestamp,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .onConflictDoUpdate({
-        target: tasks.id,
-        set: {
-          title: event.issueTitle ?? existing?.title ?? event.issueIdentifier,
-          statusId,
-          linearStateType: event.resolvedStateType ?? existing?.linearStateType,
-          linkUrl: event.issueUrl ?? existing?.linkUrl,
-          pullRequestUrl: event.pullRequest?.url ?? existing?.pullRequest?.url,
-          pullRequestNumber: event.pullRequest?.number ?? existing?.pullRequest?.number,
-          pullRequestTitle: event.pullRequest?.title ?? existing?.pullRequest?.title,
-          pullRequestLabels,
-          lastEventAt: event.lastEventAt ?? timestamp,
-          updatedAt: timestamp,
-        },
-      })
-      .run();
-
-    return this.getTask(id)!;
+    return this.taskStore.upsertTaskFromEvent(event, now);
   }
 
   upsertTaskFromEventAtomically(
@@ -347,13 +96,7 @@ export class WatcherStore {
     createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
     now = new Date(),
   ): { task: Task; previousTask: Task | undefined } {
-    return this.db.transaction(() => {
-      const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier));
-      const task = this.upsertTaskFromEvent(event, now);
-      const transitionEvent = createEvent(task, previousTask);
-      if (transitionEvent) this.addEvent(transitionEvent);
-      return { task, previousTask };
-    });
+    return this.taskStore.upsertTaskFromEventAtomically(event, createEvent, now);
   }
 
   setParentMessage(
@@ -363,139 +106,54 @@ export class WatcherStore {
     summary: string,
     now = new Date(),
   ): Task {
-    this.db
-      .update(tasks)
-      .set({
-        parentChannelId: channel,
-        parentMessageTs: ts,
-        lastRenderedSummary: summary,
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
-
-    return this.requireTask(taskId);
+    return this.taskStore.setParentMessage(taskId, channel, ts, summary, now);
   }
 
   setRenderedSummary(taskId: string, summary: string, now = new Date()): void {
-    this.db
-      .update(tasks)
-      .set({
-        lastRenderedSummary: summary,
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
+    this.taskStore.setRenderedSummary(taskId, summary, now);
   }
 
   setTaskLinearStateType(taskId: string, stateType: string | undefined, now = new Date()): void {
-    this.db
-      .update(tasks)
-      .set({
-        linearStateType: stateType ?? null,
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
+    this.taskStore.setTaskLinearStateType(taskId, stateType, now);
   }
 
   assignTask(taskId: string, slackUserId: string, now = new Date()): boolean {
-    const result = this.db
-      .insert(taskAssignees)
-      .values({
-        taskId,
-        slackUserId,
-        createdAt: now.toISOString(),
-      })
-      .onConflictDoNothing()
-      .run();
-
-    return result.changes > 0;
+    return assignTask(this.db, taskId, slackUserId, now);
   }
 
   unassignTask(taskId: string, slackUserId: string): boolean {
-    const result = this.db
-      .delete(taskAssignees)
-      .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.slackUserId, slackUserId)))
-      .run();
-
-    return result.changes > 0;
+    return unassignTask(this.db, taskId, slackUserId);
   }
 
   getTaskAssignees(taskId: string): string[] {
-    return this.db
-      .select({ slackUserId: taskAssignees.slackUserId })
-      .from(taskAssignees)
-      .where(eq(taskAssignees.taskId, taskId))
-      .orderBy(asc(taskAssignees.createdAt), asc(taskAssignees.slackUserId))
-      .all()
-      .map(({ slackUserId }) =>
-        slackUserId.startsWith("!subteam^") ? `<${slackUserId}>` : `<@${slackUserId}>`,
-      );
+    return getTaskAssignees(this.db, taskId);
   }
 
   createPendingTakePrRequest(
     request: NewPendingTakePrRequest,
     now = new Date(),
   ): PendingTakePrRequest {
-    this.pruneExpiredTakePrRequests(now);
-    const existing = this.pendingTakePrRequests.get(request.id);
-    if (existing) return existing;
-    const pending: PendingTakePrRequest = {
-      ...request,
-      createdAt: now.toISOString(),
-    };
-    this.pendingTakePrRequests.set(request.id, pending);
-    return pending;
+    return this.pendingTakePrStore.create(request, now);
   }
 
   getPendingTakePrRequest(id: string, now = new Date()): PendingTakePrRequest | undefined {
-    this.pruneExpiredTakePrRequests(now);
-    return this.pendingTakePrRequests.get(id);
+    return this.pendingTakePrStore.get(id, now);
   }
 
   takePendingTakePrRequest(id: string, now = new Date()): PendingTakePrRequest | undefined {
-    const request = this.getPendingTakePrRequest(id, now);
-    if (request) this.pendingTakePrRequests.delete(id);
-    return request;
+    return this.pendingTakePrStore.take(id, now);
   }
 
   restorePendingTakePrRequest(request: PendingTakePrRequest): void {
-    this.pendingTakePrRequests.set(request.id, request);
+    this.pendingTakePrStore.restore(request);
   }
 
   updateTaskStatus(
     taskId: string,
     statusName: string,
     now = new Date(),
-  ): {
-    task: Task;
-    fromStatus: string;
-  } {
-    const existing = this.requireTask(taskId);
-    const timestamp = now.toISOString();
-    const status = this.db
-      .select({ id: statuses.id })
-      .from(statuses)
-      .innerJoin(tasks, eq(statuses.serviceId, tasks.serviceId))
-      .where(
-        and(eq(tasks.id, taskId), eq(statuses.name, statusName), eq(statuses.selectable, true)),
-      )
-      .get();
-    if (!status) {
-      throw new Error(`Status is not configured for ${existing.serviceName}: ${statusName}`);
-    }
-    this.db
-      .update(tasks)
-      .set({
-        statusId: status.id,
-        linearStateType: null,
-        updatedAt: timestamp,
-      })
-      .where(eq(tasks.id, taskId))
-      .run();
-
-    return { task: this.requireTask(taskId), fromStatus: existing.status };
+  ): { task: Task; fromStatus: string } {
+    return this.taskStore.updateTaskStatus(taskId, statusName, now);
   }
 
   updateTaskStatusAtomically(
@@ -504,14 +162,7 @@ export class WatcherStore {
     createEvents: (task: Task, fromStatus: string) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; fromStatus: string } {
-    return this.db.transaction(() => {
-      const transition = this.updateTaskStatus(taskId, statusName, now);
-      const events = createEvents(transition.task, transition.fromStatus);
-      if (events) {
-        for (const event of Array.isArray(events) ? events : [events]) this.addEvent(event);
-      }
-      return transition;
-    });
+    return this.taskStore.updateTaskStatusAtomically(taskId, statusName, createEvents, now);
   }
 
   addEvent(event: TaskEventInput): TaskEvent {
@@ -563,18 +214,11 @@ export class WatcherStore {
   }
 
   setTaskActivity(taskId: string, activity: Task["currentActivity"]): void {
-    const update = activity
-      ? { currentActivity: JSON.stringify(activity) }
-      : { currentActivity: null, activityPublishedAt: null };
-    this.db.update(tasks).set(update).where(eq(tasks.id, taskId)).run();
+    this.taskStore.setTaskActivity(taskId, activity);
   }
 
   markTaskActivityPublished(taskId: string, publishedAt: Date): void {
-    this.db
-      .update(tasks)
-      .set({ activityPublishedAt: publishedAt.toISOString() })
-      .where(eq(tasks.id, taskId))
-      .run();
+    this.taskStore.markTaskActivityPublished(taskId, publishedAt);
   }
 
   getTaskIdsWithIncompleteEvent(pendingType: string, completedType: string): string[] {
@@ -588,22 +232,6 @@ export class WatcherStore {
   countEventsAfterLatest(taskId: string, type: string, boundaryType: string): number {
     return countTaskEventsAfterLatest(this.db, taskId, type, boundaryType);
   }
-
-  private requireTask(taskId: string): Task {
-    const task = this.getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-    return task;
-  }
-
-  private pruneExpiredTakePrRequests(now: Date): void {
-    for (const [id, request] of this.pendingTakePrRequests) {
-      if (Date.parse(request.createdAt) <= now.getTime() - TAKE_PR_ACTIVE_RETENTION_MS) {
-        this.pendingTakePrRequests.delete(id);
-      }
-    }
-  }
 }
 
-export function taskIdFor(serviceName: string, issueIdentifier: string): string {
-  return `${serviceName}:${issueIdentifier}`;
-}
+export { taskIdFor } from "./task-store.ts";

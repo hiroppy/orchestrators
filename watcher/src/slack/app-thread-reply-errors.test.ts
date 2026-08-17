@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { LinearRateLimitError } from "../integrations/linear-client.ts";
+import { LinearRateLimitError } from "../integrations/linear/client.ts";
 import { handleThreadReply, publishWatcherEvent } from "./app.ts";
 import { fakeClient, reactionClient, withStore } from "./app.test-support.ts";
 

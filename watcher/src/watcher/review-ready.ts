@@ -1,7 +1,8 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
 import { DEFAULT_REVIEW_READY_DELAY_MS } from "orchestrator-config";
 
-import type { PullRequest, Task } from "../domain/types.ts";
+import type { PullRequest } from "../domain/github.ts";
+import type { Task } from "../domain/task.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 

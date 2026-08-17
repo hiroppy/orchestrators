@@ -1,5 +1,5 @@
-import type { Task } from "../domain/types.ts";
-import { isLinearRateLimitError } from "../integrations/linear-client.ts";
+import type { Task } from "../domain/task.ts";
+import { isLinearRateLimitError } from "../integrations/linear/client.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import { withQueue } from "./async-queue.ts";
 import { postSlackOperationError } from "./errors.ts";

@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 
 import type { WatcherDatabase } from "./database.ts";
 import { statuses, taskEvents, taskObservations, tasks } from "./schema.ts";
-import type { SnapshotRow, Task, TaskActivity, TaskEvent } from "../domain/types.ts";
+import type { SnapshotRow } from "../domain/snapshot.ts";
+import type { Task, TaskActivity, TaskEvent } from "../domain/task.ts";
 
 export type TaskEventInput = {
   taskId: string;

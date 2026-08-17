@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { linearRequest } from "./linear-client.ts";
+import { linearRequest } from "./client.ts";
 
 describe("linearRequest", () => {
   it("includes GraphQL error details from an unsuccessful HTTP response", async (context) => {

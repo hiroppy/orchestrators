@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
-import { runOnce } from "./runner.ts";
+import { runOnce } from "./run-once.ts";
 import {
   dataUrl,
   fakeSlackClient,

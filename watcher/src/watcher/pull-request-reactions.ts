@@ -1,4 +1,5 @@
-import type { GitHubReaction, PullRequest, Task } from "../domain/types.ts";
+import type { GitHubReaction, PullRequest } from "../domain/github.ts";
+import type { Task } from "../domain/task.ts";
 
 const slackReactionByGitHubReaction: Record<GitHubReaction, string> = {
   THUMBS_UP: "+1",

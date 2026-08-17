@@ -1,11 +1,11 @@
-import { isTransientLinearError, linearRequest, retryLinearRequest } from "./linear-client.ts";
-import { stableLinearUuid } from "./linear-id.ts";
+import { isTransientLinearError, linearRequest, retryLinearRequest } from "./client.ts";
+import { stableLinearUuid } from "./id.ts";
 import {
   COMMENT_BY_ID_QUERY,
   COMMENT_REPLY_CREATE_MUTATION,
   FILE_UPLOAD_MUTATION,
   ISSUE_WORKPAD_QUERY,
-} from "./linear-queries.ts";
+} from "./queries.ts";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;

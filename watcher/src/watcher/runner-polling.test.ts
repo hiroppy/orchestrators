@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { runOnce, runWatcherPollingLoop } from "./runner.ts";
+import { runWatcherPollingLoop } from "./polling-loop.ts";
+import { runOnce } from "./run-once.ts";
 import {
   dataUrl,
   fakeSlackClient,

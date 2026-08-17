@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { downloadSlackFile } from "./slack.ts";
+import { downloadSlackFile } from "./files.ts";
 
 describe("downloadSlackFile", () => {
   it("downloads a private Slack file with the bot token", async (context) => {
