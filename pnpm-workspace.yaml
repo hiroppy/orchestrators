@@ -1,6 +1,11 @@
 packages:
   - config
   - watcher
+minimumReleaseAgeExclude:
+  - oxfmt
+  - "@oxfmt/*"
+  - oxlint
+  - "@oxlint/*"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
