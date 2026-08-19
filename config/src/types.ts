@@ -30,7 +30,7 @@ export interface ReviewCommentConfig {
   symphonyGitHubLogins?: string[];
 }
 
-export interface PullRequestContext {
+interface PullRequestContext {
   url: string;
   number?: number | null;
   title?: string | null;
