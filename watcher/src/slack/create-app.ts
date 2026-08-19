@@ -16,6 +16,7 @@ import {
   TAKE_PR_SERVICE_ACTION_ID,
   type TakePrOptions,
 } from "./take-pr.ts";
+import type { SlackCommandConfig } from "orchestrator-config";
 
 export interface SlackAppOptions {
   botToken: string;
@@ -28,6 +29,7 @@ export interface SlackAppOptions {
   onStatusTransition?: StatusTransitionHandler;
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
+  slackCommandsForService?: (serviceName: string) => SlackCommandConfig[];
 }
 
 export function createSlackApp({
@@ -41,6 +43,7 @@ export function createSlackApp({
   onStatusTransition,
   takePr,
   statusSummary,
+  slackCommandsForService,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -61,10 +64,16 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, botUserId, takePr, statusSummary);
+    await handleAppMention(args, store, botUserId, takePr, statusSummary, slackCommandsForService);
   });
   app.message(async (args) => {
-    await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
+    await handleThreadReply(
+      args,
+      store,
+      createLinearWorkpadReply,
+      botUserId,
+      slackCommandsForService,
+    );
   });
   return app;
 }

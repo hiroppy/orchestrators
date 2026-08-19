@@ -218,4 +218,152 @@ describe("Slack mention commands", () => {
       assert.deepEqual(calls, []);
     });
   });
+
+  it("runs the Slack command provided by the task service", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-60",
+        issueTitle: "Build a preview",
+        issueUrl: "https://linear.app/example/issue/ENG-60/preview",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let received: unknown;
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            ts: "20.000",
+            thread_ts: "10.000",
+            text: "<@UBOT> preview staging now",
+            user: "U456",
+          },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        "UBOT",
+        undefined,
+        undefined,
+        (serviceName) =>
+          serviceName === "service-a"
+            ? [
+                {
+                  command: "preview",
+                  run: async (context, helpers) => {
+                    received = context;
+                    assert.equal(helpers.slack.channelId, "C123");
+                    assert.equal(helpers.slack.messageTs, "20.000");
+                    assert.equal(helpers.slack.threadTs, "10.000");
+                    await helpers.slack.client.reactions.add({
+                      channel: helpers.slack.channelId,
+                      timestamp: helpers.slack.messageTs,
+                      name: "eyes",
+                    });
+                    await helpers.slack.postMessage({ text: "Starting preview" });
+                    return "Preview ready";
+                  },
+                },
+              ]
+            : [],
+      );
+
+      assert.deepEqual(received, {
+        service: "service-a",
+        command: "preview",
+        args: ["staging", "now"],
+        user: "U456",
+        issue: {
+          identifier: "ENG-60",
+          url: "https://linear.app/example/issue/ENG-60/preview",
+          title: "Build a preview",
+          status: "In Progress",
+        },
+      });
+      assert.deepEqual(
+        calls.map(({ args }) => args),
+        [
+          { channel: "C123", timestamp: "20.000", name: "eyes" },
+          { channel: "C123", text: "Starting preview" },
+          { channel: "C123", thread_ts: "10.000", text: "Preview ready" },
+        ],
+      );
+    });
+  });
+
+  it("runs Slack commands whose names match Object prototype properties", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-60",
+        resolvedState: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      let runs = 0;
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            ts: "20.000",
+            thread_ts: "10.000",
+            text: "<@UBOT> constructor",
+          },
+          client: fakeClient([]),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        "UBOT",
+        undefined,
+        undefined,
+        () => [
+          {
+            command: "constructor",
+            run: () => {
+              runs += 1;
+            },
+          },
+        ],
+      );
+
+      assert.equal(runs, 1);
+    });
+  });
+
+  it("does not run a service Slack command outside its tracked task thread", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      let runs = 0;
+      const commands = () => [
+        {
+          command: "preview",
+          run: () => {
+            runs += 1;
+          },
+        },
+      ];
+
+      await handleAppMention(
+        {
+          event: { channel: "C123", ts: "20.000", text: "<@UBOT> preview" },
+          client: fakeClient(calls),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        "UBOT",
+        undefined,
+        undefined,
+        commands,
+      );
+
+      assert.equal(runs, 0);
+      assert.deepEqual(calls, []);
+    });
+  });
 });

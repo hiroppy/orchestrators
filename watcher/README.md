@@ -122,3 +122,32 @@ effects.
 Put larger hook implementations in the gitignored root `hooks/` directory and import them from
 `config.ts`. Hooks run inside the watcher process, so do not block while waiting for long-running
 work such as CI or a build. Make that work a required CI check and use the hook to report its result.
+
+### Custom commands
+
+Use `instances.<service>.slackCommands` to add service-specific Slack mention commands:
+
+```ts
+export default defineConfig({
+  instances: {
+    "service-a": {
+      port: 4105,
+      linearTeam: "workspace-a-eng",
+      slackCommands: [
+        {
+          command: "preview",
+          run: ({ issue, args }) => `Preview for ${issue.identifier}: ${args.join(" ")}`,
+        },
+      ],
+    },
+  },
+  // linearTeams and Slack configuration...
+});
+```
+
+Run the example with `@Bot preview <arguments>` inside a tracked task thread. The watcher selects
+the command configured by that task's service. Returning a string posts it to the task thread.
+`helpers.slack.postMessage` and `helpers.slack.postThreadMessage` provide convenient scoped posting.
+For other Slack APIs, use `helpers.slack.client` together with `channelId`, `messageTs`, and
+`threadTs`. Command names must be unique per service, use lowercase letters, numbers, and hyphens,
+and must not conflict with built-in commands.

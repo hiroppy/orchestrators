@@ -1,4 +1,4 @@
-import type { ChatPostMessageArguments } from "@slack/web-api";
+import type { ChatPostMessageArguments, WebClient } from "@slack/web-api";
 
 export type EventType = "started" | "updated" | "retrying" | "blocked" | "ended" | "recovered";
 
@@ -13,6 +13,7 @@ export interface InstanceConfig {
   linearTeam: string;
   enabled?: boolean;
   statusHooks?: StatusHookConfig[];
+  slackCommands?: SlackCommandConfig[];
 }
 
 export interface SlackConfig {
@@ -80,6 +81,38 @@ export interface StatusHookConfig {
   run: (
     context: StatusHookContext,
     helpers: StatusHookHelpers,
+  ) => string | void | Promise<string | void>;
+}
+
+export interface SlackCommandContext {
+  service: string;
+  command: string;
+  args: string[];
+  user?: string;
+  issue: {
+    identifier: string;
+    url?: string;
+    title: string;
+    status: string;
+  };
+}
+
+export interface SlackCommandHelpers {
+  slack: {
+    client: WebClient;
+    channelId: string;
+    messageTs: string;
+    threadTs: string;
+    postMessage: (message: StatusHookSlackPostMessage) => Promise<void>;
+    postThreadMessage: (message: StatusHookSlackThreadMessage) => Promise<void>;
+  };
+}
+
+export interface SlackCommandConfig {
+  command: string;
+  run: (
+    context: SlackCommandContext,
+    helpers: SlackCommandHelpers,
   ) => string | void | Promise<string | void>;
 }
 

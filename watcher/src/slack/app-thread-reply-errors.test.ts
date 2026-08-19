@@ -95,6 +95,43 @@ describe("Slack thread reply errors", () => {
     });
   });
 
+  it("does not copy service Slack commands to the Linear Workpad", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      await publishWatcherEvent(fakeClient(calls), store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+      });
+      let replies = 0;
+
+      await handleThreadReply(
+        {
+          message: {
+            channel: "C123",
+            thread_ts: "1.000",
+            ts: "2.000",
+            user: "U123",
+            text: "<@UBOT> preview staging now",
+          },
+          client: reactionClient([]),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        async () => {
+          replies += 1;
+          return true;
+        },
+        "UBOT",
+        (serviceName) =>
+          serviceName === "service-a" ? [{ command: "preview", run: () => {} }] : [],
+      );
+
+      assert.equal(replies, 0);
+    });
+  });
+
   it("reports missing Workpads and Linear failures in the Slack thread", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
