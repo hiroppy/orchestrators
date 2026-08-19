@@ -296,6 +296,46 @@ describe("Slack mention commands", () => {
     });
   });
 
+  it("runs Slack commands whose names match Object prototype properties", async () => {
+    await withStore(async (store) => {
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-60",
+        resolvedState: "In Progress",
+      });
+      store.setParentMessage(task.id, "C123", "10.000", "{}");
+      let runs = 0;
+
+      await handleAppMention(
+        {
+          event: {
+            channel: "C123",
+            ts: "20.000",
+            thread_ts: "10.000",
+            text: "<@UBOT> constructor",
+          },
+          client: fakeClient([]),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+        },
+        store,
+        "UBOT",
+        undefined,
+        undefined,
+        () => [
+          {
+            command: "constructor",
+            run: () => {
+              runs += 1;
+            },
+          },
+        ],
+      );
+
+      assert.equal(runs, 1);
+    });
+  });
+
   it("does not run a service Slack command outside its tracked task thread", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

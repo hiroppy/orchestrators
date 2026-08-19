@@ -11,13 +11,13 @@ import { handleStatusCommand } from "./commands/status.ts";
 import { handleSlackCommand } from "./commands/slack-command.ts";
 
 type CommandHandler = (context: MentionCommandContext) => Promise<void>;
-const commandHandlers: Record<string, CommandHandler> = {
-  assign: handleAssignCommand,
-  help: handleHelpCommand,
-  status: handleStatusCommand,
-  "take-pr": handleTakePrCommand,
-  unassign: handleUnassignCommand,
-};
+const commandHandlers = new Map<string, CommandHandler>([
+  ["assign", handleAssignCommand],
+  ["help", handleHelpCommand],
+  ["status", handleStatusCommand],
+  ["take-pr", handleTakePrCommand],
+  ["unassign", handleUnassignCommand],
+]);
 
 export async function handleAppMention(
   { event, client, logger }: AppMentionArguments,
@@ -29,7 +29,7 @@ export async function handleAppMention(
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
-  let handler = commandHandlers[mention.command];
+  let handler = commandHandlers.get(mention.command);
   let isSlackCommand = false;
   if (!handler && mention.event.threadTs) {
     const task = store.getTaskBySlackThread(mention.event.channel, mention.event.threadTs);

@@ -1,10 +1,15 @@
 import type { Task } from "../domain/task.ts";
+import type { SlackCommandConfig } from "orchestrator-config";
 import { isLinearRateLimitError } from "../integrations/linear/client.ts";
 import type { WatcherStore } from "../persistence/store.ts";
 import { withQueue } from "./async-queue.ts";
 import { postSlackOperationError } from "./errors.ts";
 import { addSuccessReaction, type ReactionClient } from "./reactions.ts";
-import { parseUserThreadReply, type UserThreadReply } from "./thread-replies.ts";
+import {
+  isRecognizedMentionCommand,
+  parseUserThreadReply,
+  type UserThreadReply,
+} from "./thread-replies.ts";
 import { resolveSlackDisplayName } from "./users.ts";
 import type { SlackClient } from "./client-types.ts";
 
@@ -34,12 +39,16 @@ export async function handleThreadReply(
   store: WatcherStore,
   createLinearWorkpadReply: LinearWorkpadReplier,
   botUserId?: string,
+  slackCommandsForService?: (serviceName: string) => SlackCommandConfig[],
 ): Promise<void> {
   const reply = parseUserThreadReply(message, botUserId);
   if (!reply) return;
 
   const task = store.getTaskBySlackThread(reply.channel, reply.thread_ts);
   if (!task) return;
+  const slackCommandNames =
+    slackCommandsForService?.(task.serviceName).map(({ command }) => command) ?? [];
+  if (isRecognizedMentionCommand(reply.text, botUserId, slackCommandNames)) return;
 
   const queueKey = `${reply.channel}:${reply.thread_ts}`;
   await withQueue(replyQueues, queueKey, async () => {

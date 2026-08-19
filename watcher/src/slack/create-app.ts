@@ -67,7 +67,13 @@ export function createSlackApp({
     await handleAppMention(args, store, botUserId, takePr, statusSummary, slackCommandsForService);
   });
   app.message(async (args) => {
-    await handleThreadReply(args, store, createLinearWorkpadReply, botUserId);
+    await handleThreadReply(
+      args,
+      store,
+      createLinearWorkpadReply,
+      botUserId,
+      slackCommandsForService,
+    );
   });
   return app;
 }
