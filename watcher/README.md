@@ -151,3 +151,6 @@ the command configured by that task's service. Returning a string posts it to th
 For other Slack APIs, use `helpers.slack.client` together with `channelId`, `messageTs`, and
 `threadTs`. Command names must be unique per service, use lowercase letters, numbers, and hyphens,
 and must not conflict with built-in commands.
+
+Put larger command implementations in the gitignored root `commands/` directory and import them
+from `config.ts`.

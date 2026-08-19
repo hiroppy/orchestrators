@@ -23,6 +23,8 @@
 /launchd/
 /hooks/*
 !/hooks/.gitkeep
+/commands/*
+!/commands/.gitkeep
 
 # macOS/editor
 node_modules/
