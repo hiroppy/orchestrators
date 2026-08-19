@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { handleAppMention } from "./app.ts";
 import { fakeClient, withStore } from "./app.test-support.ts";
+import { handleSlackCommand } from "./commands/slack-command.ts";
 
 describe("Slack mention commands", () => {
   it("replies to an exact help mention with the available commands", async () => {
@@ -229,6 +230,12 @@ describe("Slack mention commands", () => {
         issueUrl: "https://linear.app/example/issue/ENG-60/preview",
         resolvedState: "In Progress",
         resolvedStateType: "started",
+        pullRequest: {
+          url: "https://github.com/example/service-a/pull/42",
+          number: 42,
+          title: "Build a preview",
+          labels: ["preview"],
+        },
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -284,6 +291,12 @@ describe("Slack mention commands", () => {
           title: "Build a preview",
           status: "In Progress",
         },
+        pullRequest: {
+          url: "https://github.com/example/service-a/pull/42",
+          number: 42,
+          title: "Build a preview",
+          labels: ["preview"],
+        },
       });
       assert.deepEqual(
         calls.map(({ args }) => args),
@@ -293,6 +306,72 @@ describe("Slack mention commands", () => {
           { channel: "C123", thread_ts: "10.000", text: "Preview ready" },
         ],
       );
+    });
+  });
+
+  it("exposes only public pull request fields to Slack commands", async () => {
+    await withStore(async (store) => {
+      let received: unknown;
+
+      await handleSlackCommand(
+        {
+          command: "preview",
+          run: ({ pullRequest }) => {
+            received = pullRequest;
+          },
+        },
+        {
+          id: "service-a:ENG-60",
+          serviceName: "service-a",
+          issueIdentifier: "ENG-60",
+          title: "Build a preview",
+          status: "In Progress",
+          updatedAt: "2026-08-19T00:00:00.000Z",
+          pullRequest: {
+            url: "https://github.com/example/service-a/pull/42",
+            number: 42,
+            title: "Build a preview",
+            body: "Internal PR body",
+            state: "OPEN",
+            isDraft: false,
+            reviewDecision: "APPROVED",
+            mergeable: "MERGEABLE",
+            headRefName: "feature/preview",
+            headRefOid: "abc123",
+            baseRefName: "main",
+            repository: "example/service-a",
+            labels: ["preview"],
+            reactions: ["ROCKET"],
+            latestReviewCommentAt: "2026-08-19T01:00:00.000Z",
+          },
+        },
+        {
+          event: {
+            channel: "C123",
+            ts: "20.000",
+            threadTs: "10.000",
+            text: "<@UBOT> preview",
+            botMention: "<@UBOT>",
+            botUserId: "UBOT",
+          },
+          client: fakeClient([]),
+          logger: { error: (error: unknown) => assert.fail(String(error)) },
+          store,
+          args: [],
+        },
+      );
+
+      assert.deepEqual(received, {
+        url: "https://github.com/example/service-a/pull/42",
+        number: 42,
+        title: "Build a preview",
+        state: "OPEN",
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        headRefName: "feature/preview",
+        headRefOid: "abc123",
+        labels: ["preview"],
+      });
     });
   });
 

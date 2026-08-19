@@ -30,6 +30,18 @@ export interface ReviewCommentConfig {
   symphonyGitHubLogins?: string[];
 }
 
+export interface PullRequestContext {
+  url: string;
+  number?: number | null;
+  title?: string | null;
+  state?: string | null;
+  isDraft?: boolean | null;
+  reviewDecision?: string | null;
+  headRefName?: string | null;
+  headRefOid?: string | null;
+  labels?: string[];
+}
+
 export interface StatusHookContext {
   event: "issue.status_changed";
   service: string;
@@ -42,17 +54,7 @@ export interface StatusHookContext {
     from: string;
     to: string;
   };
-  pullRequest?: {
-    url: string;
-    number?: number | null;
-    title?: string | null;
-    state?: string | null;
-    isDraft?: boolean | null;
-    reviewDecision?: string | null;
-    headRefName?: string | null;
-    headRefOid?: string | null;
-    labels?: string[];
-  };
+  pullRequest?: PullRequestContext;
 }
 
 export interface StatusHookHelpers {
@@ -95,6 +97,7 @@ export interface SlackCommandContext {
     title: string;
     status: string;
   };
+  pullRequest?: PullRequestContext;
 }
 
 export interface SlackCommandHelpers {

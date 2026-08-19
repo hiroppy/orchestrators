@@ -7,6 +7,7 @@ export type {
   LinearTeamConfig,
   OrchestratorConfig,
   OrchestratorConfigInput,
+  PullRequestContext,
   ReviewCommentConfig,
   SlackConfig,
   StatusHookConfig,

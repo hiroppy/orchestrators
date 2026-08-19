@@ -146,7 +146,8 @@ export default defineConfig({
 ```
 
 Run the example with `@Bot preview <arguments>` inside a tracked task thread. The watcher selects
-the command configured by that task's service. Returning a string posts it to the task thread.
+the command configured by that task's service. The command context includes `issue` and, when the
+task has one, an optional `pullRequest`. Returning a string posts it to the task thread.
 `helpers.slack.postMessage` and `helpers.slack.postThreadMessage` provide convenient scoped posting.
 For other Slack APIs, use `helpers.slack.client` together with `channelId`, `messageTs`, and
 `threadTs`. Command names must be unique per service, use lowercase letters, numbers, and hyphens,
