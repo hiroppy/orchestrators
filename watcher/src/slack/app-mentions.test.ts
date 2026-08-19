@@ -229,6 +229,12 @@ describe("Slack mention commands", () => {
         issueUrl: "https://linear.app/example/issue/ENG-60/preview",
         resolvedState: "In Progress",
         resolvedStateType: "started",
+        pullRequest: {
+          url: "https://github.com/example/service-a/pull/42",
+          number: 42,
+          title: "Build a preview",
+          labels: ["preview"],
+        },
       });
       store.setParentMessage(task.id, "C123", "10.000", "{}");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
@@ -283,6 +289,12 @@ describe("Slack mention commands", () => {
           url: "https://linear.app/example/issue/ENG-60/preview",
           title: "Build a preview",
           status: "In Progress",
+        },
+        pullRequest: {
+          url: "https://github.com/example/service-a/pull/42",
+          number: 42,
+          title: "Build a preview",
+          labels: ["preview"],
         },
       });
       assert.deepEqual(

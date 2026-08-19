@@ -37,6 +37,7 @@ export async function handleSlackCommand(
         title: task.title,
         status: task.status,
       },
+      ...(task.pullRequest ? { pullRequest: task.pullRequest } : {}),
     },
     helpers,
   );
