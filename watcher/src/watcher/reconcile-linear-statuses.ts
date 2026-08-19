@@ -152,6 +152,7 @@ export async function reconcileLinearStatuses({
       task.linearStateType,
       effectiveStateType,
     );
+    const reviewComment = config.reviewComment;
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
     if (detailedSameStatus && !detailedEnteredTerminalState && !fetchDetailedReviewComments) {
       if (effectiveStateType) {
@@ -163,7 +164,7 @@ export async function reconcileLinearStatuses({
     if (pullRequest?.url) {
       const enrichedPullRequest = await findPullRequestByUrl(pullRequest.url, {
         includeLatestReviewComment: fetchDetailedReviewComments,
-        symphonyGitHubLogins: config.reviewComment?.symphonyGitHubLogins,
+        symphonyGitHubLogins: reviewComment?.symphonyGitHubLogins,
       }).catch(() => null);
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
@@ -185,13 +186,13 @@ export async function reconcileLinearStatuses({
       relatedIssues: linearIssue.relatedIssues,
     };
     const reviewDecision = decideReviewRequeue(config, store, event);
-    if (!reviewDecision.shouldRequeue && config.reviewComment) {
+    if (!reviewDecision.shouldRequeue && reviewComment) {
       await checkReviewReadyNotificationSafely({
         store,
         slackClient,
         task: { ...task, status: linearIssue.state },
-        inReviewStatus: config.reviewComment.inReviewStatus,
-        delayMs: config.reviewComment.reviewReadyDelayMs,
+        inReviewStatus: reviewComment.inReviewStatus,
+        delayMs: reviewComment.reviewReadyDelayMs,
         pullRequest,
       });
     }

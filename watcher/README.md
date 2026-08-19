@@ -87,19 +87,23 @@ The configured status names must exist in every enabled instance's Linear workfl
 
 ### Status hooks
 
-Use `watcher.statusHooks` to post custom Slack messages when a task enters a Linear status:
+Use `instances.<service>.statusHooks` to post custom Slack messages when a task enters a Linear status:
 
 ```ts
 export default defineConfig({
-  watcher: {
-    statusHooks: [
-      {
-        id: "ready-for-review",
-        status: "In Review",
-        run: ({ issue, pullRequest }) =>
-          pullRequest ? `Ready for review: ${issue.identifier} ${pullRequest.url}` : undefined,
-      },
-    ],
+  instances: {
+    "service-a": {
+      port: 4105,
+      linearTeam: "workspace-a-eng",
+      statusHooks: [
+        {
+          id: "ready-for-review",
+          status: "In Review",
+          run: ({ issue, pullRequest }) =>
+            pullRequest ? `Ready for review: ${issue.identifier} ${pullRequest.url}` : undefined,
+        },
+      ],
+    },
   },
   // linearTeams, instances, and Slack configuration...
 });

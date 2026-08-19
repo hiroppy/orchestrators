@@ -372,18 +372,18 @@ describe("watcher terminal recovery", () => {
             url: dataUrl(snapshot),
             linearTeam: "workspace-a-eng",
             terminalStates: ["Done"],
+            statusHooks: [
+              {
+                id: "capture-recovered-transition",
+                status: "In Progress",
+                run: () => {
+                  hookAttempts += 1;
+                },
+              },
+            ],
           },
         ],
         linearTeams: linearTeams(["In Progress", "Ready for Release", "Done"]),
-        statusHooks: [
-          {
-            id: "capture-recovered-transition",
-            status: "In Progress",
-            run: () => {
-              hookAttempts += 1;
-            },
-          },
-        ],
       });
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });

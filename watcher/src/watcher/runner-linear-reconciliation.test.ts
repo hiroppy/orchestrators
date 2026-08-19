@@ -42,18 +42,18 @@ describe("watcher Linear reconciliation and snapshots", () => {
             name: "service-a",
             url: dataUrl(emptySnapshot),
             linearTeam: "workspace-a-eng",
+            statusHooks: [
+              {
+                id: "capture-attempt",
+                status: "In Review",
+                run: () => {
+                  hookAttempts += 1;
+                },
+              },
+            ],
           },
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
-        statusHooks: [
-          {
-            id: "capture-attempt",
-            status: "In Review",
-            run: () => {
-              hookAttempts += 1;
-            },
-          },
-        ],
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const task = store.upsertTaskFromEvent({
@@ -65,7 +65,7 @@ describe("watcher Linear reconciliation and snapshots", () => {
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
       const pendingHook = createPendingStatusHookEvent(
-        config.statusHooks,
+        config.services[0].statusHooks ?? [],
         task,
         "In Progress",
         "In Review",
