@@ -1,4 +1,8 @@
-import type { SlackCommandConfig, SlackCommandHelpers } from "orchestrator-config";
+import type {
+  PullRequestContext,
+  SlackCommandConfig,
+  SlackCommandHelpers,
+} from "orchestrator-config";
 
 import type { Task } from "../../domain/task.ts";
 import type { MentionCommandContext } from "../mention-commands.ts";
@@ -37,9 +41,25 @@ export async function handleSlackCommand(
         title: task.title,
         status: task.status,
       },
-      ...(task.pullRequest ? { pullRequest: task.pullRequest } : {}),
+      ...(task.pullRequest ? { pullRequest: toPullRequestContext(task.pullRequest) } : {}),
     },
     helpers,
   );
   if (output) await helpers.slack.postThreadMessage({ text: output });
+}
+
+function toPullRequestContext(pullRequest: NonNullable<Task["pullRequest"]>): PullRequestContext {
+  return {
+    url: pullRequest.url,
+    ...(pullRequest.number !== undefined ? { number: pullRequest.number } : {}),
+    ...(pullRequest.title !== undefined ? { title: pullRequest.title } : {}),
+    ...(pullRequest.state !== undefined ? { state: pullRequest.state } : {}),
+    ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}),
+    ...(pullRequest.reviewDecision !== undefined
+      ? { reviewDecision: pullRequest.reviewDecision }
+      : {}),
+    ...(pullRequest.headRefName !== undefined ? { headRefName: pullRequest.headRefName } : {}),
+    ...(pullRequest.headRefOid !== undefined ? { headRefOid: pullRequest.headRefOid } : {}),
+    ...(pullRequest.labels !== undefined ? { labels: pullRequest.labels } : {}),
+  };
 }
