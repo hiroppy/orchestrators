@@ -28,6 +28,10 @@ export function linearTeamForService(
   return service ? config.linearTeams[service.linearTeam] : undefined;
 }
 
+export function serviceConfigFor(config: ResolvedWatcherRuntimeConfig, serviceName: string) {
+  return config.services.find(({ name }) => name === serviceName);
+}
+
 export async function resolveLinearWorkflowStatuses(
   config: WatcherRuntimeConfig,
   fetchStates: typeof fetchLinearWorkflowStates = fetchLinearWorkflowStates,
@@ -98,22 +102,28 @@ export function nonterminalRelatedIssuesForService(
 }
 
 function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
-  const rules: Array<[label: string, status: string]> = [];
   if (config.reviewComment) {
-    rules.push(
+    for (const [label, expected] of [
       ["watcher.reviewComment.inReviewStatus", config.reviewComment.inReviewStatus],
       ["watcher.reviewComment.inProgressStatus", config.reviewComment.inProgressStatus],
-    );
-  }
-  for (const [index, hook] of config.statusHooks.entries()) {
-    rules.push([`watcher.statusHooks[${index}].status`, hook.status]);
+    ] as const) {
+      const normalizedExpected = normalizeStatus(expected);
+      for (const [teamName, team] of Object.entries(config.linearTeams)) {
+        if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected))
+          continue;
+        throw new Error(`${label} references unknown Linear status "${expected}" for ${teamName}.`);
+      }
+    }
   }
 
-  for (const [label, expected] of rules) {
-    const normalizedExpected = normalizeStatus(expected);
-    for (const [teamName, team] of Object.entries(config.linearTeams)) {
-      if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected)) continue;
-      throw new Error(`${label} references unknown Linear status "${expected}" for ${teamName}.`);
+  for (const service of config.services) {
+    const team = config.linearTeams[service.linearTeam];
+    for (const [index, hook] of (service.statusHooks ?? []).entries()) {
+      const normalizedStatus = normalizeStatus(hook.status);
+      if (team.statuses.some((status) => normalizeStatus(status) === normalizedStatus)) continue;
+      throw new Error(
+        `instances.${service.name}.statusHooks[${index}].status references unknown Linear status "${hook.status}" for ${service.linearTeam}.`,
+      );
     }
   }
 }

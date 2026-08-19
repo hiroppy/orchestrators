@@ -51,12 +51,14 @@ export function createPendingStatusHookEvent(
 
 export async function deliverPendingStatusHooks({
   hooks,
+  hooksForService,
   store,
   slackClient,
   watcherChannelId,
   taskId,
 }: {
   hooks: ResolvedStatusHookConfig[];
+  hooksForService?: (serviceName: string) => ResolvedStatusHookConfig[];
   store: WatcherStore;
   slackClient: StatusHookSlackClient;
   watcherChannelId: string;
@@ -64,7 +66,14 @@ export async function deliverPendingStatusHooks({
 }): Promise<void> {
   const previousDelivery = deliveryQueues.get(store) ?? Promise.resolve();
   const delivery = previousDelivery.then(() =>
-    deliverPendingStatusHooksSerially({ hooks, store, slackClient, watcherChannelId, taskId }),
+    deliverPendingStatusHooksSerially({
+      hooks,
+      hooksForService,
+      store,
+      slackClient,
+      watcherChannelId,
+      taskId,
+    }),
   );
   deliveryQueues.set(
     store,
@@ -85,12 +94,14 @@ export async function deliverPendingStatusHooksSafely(
 
 async function deliverPendingStatusHooksSerially({
   hooks,
+  hooksForService,
   store,
   slackClient,
   watcherChannelId,
   taskId,
 }: {
   hooks: ResolvedStatusHookConfig[];
+  hooksForService?: (serviceName: string) => ResolvedStatusHookConfig[];
   store: WatcherStore;
   slackClient: StatusHookSlackClient;
   watcherChannelId: string;
@@ -105,14 +116,15 @@ async function deliverPendingStatusHooksSerially({
     if (!task?.parentChannelId || !task.parentMessageTs || !event.fromStatus || !event.toStatus) {
       continue;
     }
+    const serviceHooks = hooksForService?.(task.serviceName) ?? hooks;
     const payload = JSON.parse(event.body ?? "{}") as {
       pullRequest?: PullRequest;
       hookIds?: string[];
     };
-    const hooksById = new Map(hooks.map((hook) => [hook.id, hook]));
+    const hooksById = new Map(serviceHooks.map((hook) => [hook.id, hook]));
     const hookIds =
       payload.hookIds ??
-      hooks
+      serviceHooks
         .filter(({ status }) => normalizeStatus(status) === normalizeStatus(event.toStatus!))
         .map(({ id }) => id);
     let completed = true;

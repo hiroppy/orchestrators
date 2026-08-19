@@ -8,7 +8,7 @@ import { publishWatcherEvent } from "../slack/event-publisher.ts";
 import { checkReviewReadyNotificationSafely } from "./review-ready.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 import type { ReviewRequeueDecision } from "./review-comments.ts";
-import { nonterminalRelatedIssuesForService } from "./runtime-config.ts";
+import { nonterminalRelatedIssuesForService, serviceConfigFor } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 
 export async function processWatcherEvent({
@@ -28,6 +28,8 @@ export async function processWatcherEvent({
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
+  const service = serviceConfigFor(config, event.service);
+  const hooks = service?.statusHooks ?? [];
   const publishEvent = {
     ...event,
     relatedIssues: nonterminalRelatedIssuesForService(config, event.service, event.relatedIssues),
@@ -35,16 +37,10 @@ export async function processWatcherEvent({
   await publishWatcherEvent(slackClient, store, slackChannelId, publishEvent, {
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>
-      createPendingStatusHookEvent(
-        config.statusHooks ?? [],
-        task,
-        fromStatus,
-        task.status,
-        event.pullRequest,
-      ),
+      createPendingStatusHookEvent(hooks, task, fromStatus, task.status, event.pullRequest),
     afterPublish: async (task) => {
       await deliverPendingStatusHooksSafely({
-        hooks: config.statusHooks ?? [],
+        hooks,
         store,
         slackClient,
         watcherChannelId: slackChannelId,

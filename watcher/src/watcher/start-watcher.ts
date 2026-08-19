@@ -14,6 +14,7 @@ import { isTerminalLinearStateType } from "../domain/linear.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import {
   linearTeamForService,
+  serviceConfigFor,
   resolveLinearWorkflowStatuses,
   resolveSymphonyWorkflowSettings,
 } from "./runtime-config.ts";
@@ -88,7 +89,12 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       startedAt,
     },
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
-      createPendingStatusHookEvent(runtimeConfig.statusHooks, task, fromStatus, toStatus),
+      createPendingStatusHookEvent(
+        serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],
+        task,
+        fromStatus,
+        toStatus,
+      ),
     onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
@@ -98,7 +104,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         task,
       });
       await deliverPendingStatusHooksSafely({
-        hooks: runtimeConfig.statusHooks,
+        hooks: serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],
         store,
         slackClient,
         watcherChannelId: slackConfig.channelId,

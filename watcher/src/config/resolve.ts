@@ -11,7 +11,6 @@ import {
 import { isSlackAssigneeMention } from "../slack/assignee.ts";
 import type {
   ResolvedSlackConfig,
-  ResolvedStatusHookConfig,
   SupervisorInstance,
   WatcherRuntimeConfig,
 } from "./runtime-types.ts";
@@ -42,6 +41,7 @@ export function resolveWatcherConfig(
     name,
     url: observabilityUrl(instance.port),
     linearTeam: instance.linearTeam,
+    statusHooks: resolveStatusHooks(instance.statusHooks, name),
   }));
   const endedTaskRetry = {
     maxAttempts: Number(
@@ -52,29 +52,29 @@ export function resolveWatcherConfig(
 
   validateEndedTaskRetry(endedTaskRetry);
   const reviewComment = resolveReviewCommentConfig(config.watcher?.reviewComment);
-  const statusHooks = resolveStatusHooks(config.watcher?.statusHooks);
-
   return {
     services,
     linearTeams: referencedLinearTeams(config.linearTeams, instances),
     pollIntervalMs: POLL_INTERVAL_MS,
     endedTaskRetry,
     reviewComment,
-    statusHooks,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
 }
 
-function resolveStatusHooks(config: StatusHookConfig[] | undefined): ResolvedStatusHookConfig[] {
+function resolveStatusHooks(
+  config: StatusHookConfig[] | undefined,
+  service: string,
+): StatusHookConfig[] {
   if (config === undefined) return [];
   if (!Array.isArray(config)) {
-    throw new Error("watcher.statusHooks must be an array.");
+    throw new Error(`instances.${service}.statusHooks must be an array.`);
   }
 
   const ids = new Set<string>();
   return config.map((hook, index) => {
-    const label = `watcher.statusHooks[${index}]`;
+    const label = `instances.${service}.statusHooks[${index}]`;
     if (!hook || typeof hook !== "object" || Array.isArray(hook)) {
       throw new Error(`${label} must be an object.`);
     }

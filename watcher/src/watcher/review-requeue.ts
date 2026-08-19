@@ -12,7 +12,7 @@ import {
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   type ReviewRequeueDecision,
 } from "./review-comments.ts";
-import { linearTeamForService } from "./runtime-config.ts";
+import { linearTeamForService, serviceConfigFor } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 
 export async function requeueReviewTask({
@@ -32,7 +32,9 @@ export async function requeueReviewTask({
   decision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
+  const service = serviceConfigFor(config, event.service);
   const review = config.reviewComment;
+  const hooks = service?.statusHooks ?? [];
   if (!decision.shouldRequeue || !review) return;
 
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier))!;
@@ -59,7 +61,7 @@ export async function requeueReviewTask({
     review.inProgressStatus,
     (updatedTask, fromStatus) => {
       const statusHookEvent = createPendingStatusHookEvent(
-        config.statusHooks ?? [],
+        hooks,
         updatedTask,
         fromStatus,
         updatedTask.status,
@@ -101,7 +103,7 @@ export async function requeueReviewTask({
     },
   );
   await deliverPendingStatusHooksSafely({
-    hooks: config.statusHooks ?? [],
+    hooks,
     store,
     slackClient,
     watcherChannelId,

@@ -15,7 +15,7 @@ import { reconcileLinearStatuses } from "./reconcile-linear-statuses.ts";
 import { decideReviewRequeue } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
-import { effectiveLinearStateTypeForService } from "./runtime-config.ts";
+import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { publishTaskActivities } from "./task-activity.ts";
@@ -47,7 +47,8 @@ export async function runOnce({
   if (runPeriodicMaintenance) {
     await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
-      hooks: config.statusHooks ?? [],
+      hooks: [],
+      hooksForService: (serviceName) => serviceConfigFor(config, serviceName)?.statusHooks ?? [],
       store,
       slackClient,
       watcherChannelId: slackChannelId,

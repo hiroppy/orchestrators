@@ -10,10 +10,6 @@ export default defineConfig({
       reviewReadyDelayMs: 20 * 60 * 1_000,
       symphonyGitHubLogins: ["your-symphony-account"],
     },
-    // Put local TypeScript hooks in ./hooks and import them from config.ts.
-    // A hook's returned string is posted back to the task's Slack thread.
-    // Failed hooks are attempted 10 times by default; set maxAttempts per hook to override it.
-    statusHooks: [],
   },
   slack: {
     botToken: process.env.SLACK_BOT_TOKEN ?? "", // xoxb-...
@@ -33,6 +29,8 @@ export default defineConfig({
       enabled: true,
       port: 4105,
       linearTeam: "workspace-a-eng",
+      // Put local TypeScript hooks in ./hooks and import them from config.ts.
+      statusHooks: [],
     },
   },
 });

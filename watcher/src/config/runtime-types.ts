@@ -13,7 +13,6 @@ export interface WatcherRuntimeConfig {
   pollIntervalMs: number;
   endedTaskRetry: { maxAttempts: number; delayMs: number };
   reviewComment?: ReviewCommentConfig;
-  statusHooks: ResolvedStatusHookConfig[];
   defaultAssignees: string[];
   slack?: ResolvedSlackConfig;
 }

@@ -12,6 +12,7 @@ export interface InstanceConfig {
   port: number;
   linearTeam: string;
   enabled?: boolean;
+  statusHooks?: StatusHookConfig[];
 }
 
 export interface SlackConfig {
@@ -88,7 +89,6 @@ export interface WatcherSettings {
     delayMs?: number;
   };
   reviewComment?: ReviewCommentConfig;
-  statusHooks?: StatusHookConfig[];
 }
 
 export interface OrchestratorConfig {

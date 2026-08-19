@@ -9,6 +9,16 @@ import {
 } from "./runtime-config.ts";
 import { baseConfig, linearTeams } from "./runner.test-support.ts";
 
+function configWithService(overrides: object) {
+  const config = baseConfig();
+  return {
+    ...config,
+    instances: {
+      "service-a": { ...config.instances["service-a"], ...overrides },
+    },
+  };
+}
+
 describe("requireSlackBotUserId", () => {
   it("requires Slack to return the bot identity before message consumption starts", async () => {
     assert.equal(
@@ -326,69 +336,68 @@ tracker:
     const run = () => "ready";
     const config = resolveWatcherConfig(
       {
-        ...baseConfig(),
-        watcher: { statusHooks: [{ id: " app-distribution ", status: " In Review ", run }] },
+        ...configWithService({
+          statusHooks: [{ id: " app-distribution ", status: " In Review ", run }],
+        }),
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.statusHooks, [
+    assert.deepEqual(config.services[0].statusHooks, [
       { id: "app-distribution", status: "In Review", maxAttempts: 10, run },
     ]);
     await assert.rejects(
       resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
-      /watcher\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
+      /instances\.service-a\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
     );
     assert.throws(
       () =>
         resolveWatcherConfig(
           {
-            ...baseConfig(),
-            watcher: { statusHooks: [{ id: "broken", status: "In Review" } as never] },
+            ...configWithService({
+              statusHooks: [{ id: "broken", status: "In Review" } as never],
+            }),
           },
           { requireSlack: false },
         ),
-      /watcher\.statusHooks\[0\]\.run must be a function/,
+      /instances\.service-a\.statusHooks\[0\]\.run must be a function/,
     );
     assert.throws(
       () =>
         resolveWatcherConfig(
           {
-            ...baseConfig(),
-            watcher: { statusHooks: [{ status: "In Review", run } as never] },
+            ...configWithService({ statusHooks: [{ status: "In Review", run } as never] }),
           },
           { requireSlack: false },
         ),
-      /watcher\.statusHooks\[0\]\.id must be a non-empty string/,
+      /instances\.service-a\.statusHooks\[0\]\.id must be a non-empty string/,
     );
     assert.throws(
       () =>
         resolveWatcherConfig(
           {
-            ...baseConfig(),
-            watcher: {
+            ...configWithService({
               statusHooks: [
                 { id: "duplicate", status: "In Review", run },
                 { id: "duplicate", status: "Done", run },
               ],
-            },
+            }),
           },
           { requireSlack: false },
         ),
-      /watcher\.statusHooks\[1\]\.id must be unique/,
+      /instances\.service-a\.statusHooks\[1\]\.id must be unique/,
     );
     assert.throws(
       () =>
         resolveWatcherConfig(
           {
-            ...baseConfig(),
-            watcher: {
+            ...configWithService({
               statusHooks: [{ id: "invalid-attempts", status: "In Review", maxAttempts: 0, run }],
-            },
+            }),
           },
           { requireSlack: false },
         ),
-      /watcher\.statusHooks\[0\]\.maxAttempts must be a positive integer/,
+      /instances\.service-a\.statusHooks\[0\]\.maxAttempts must be a positive integer/,
     );
   });
 
