@@ -88,6 +88,8 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
       serviceNames: runtimeConfig.services.map(({ name }) => name),
       startedAt,
     },
+    slackCommandsForService: (serviceName) =>
+      serviceConfigFor(runtimeConfig, serviceName)?.slackCommands ?? [],
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(
         serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],

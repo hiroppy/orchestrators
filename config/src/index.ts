@@ -1,4 +1,7 @@
 export type {
+  SlackCommandConfig,
+  SlackCommandContext,
+  SlackCommandHelpers,
   EventType,
   InstanceConfig,
   LinearTeamConfig,

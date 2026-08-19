@@ -401,6 +401,43 @@ tracker:
     );
   });
 
+  it("resolves and validates service-specific Slack commands", () => {
+    const run = () => "preview ready";
+    const config = resolveWatcherConfig(
+      {
+        ...configWithService({
+          slackCommands: [{ command: " Preview-Env ", run }],
+        }),
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.services[0].slackCommands, [
+      {
+        command: "preview-env",
+        run,
+      },
+    ]);
+    for (const slackCommands of [
+      [{ command: "help", run }],
+      [{ command: "not_valid", run }],
+      [
+        { command: "preview", run },
+        { command: "PREVIEW", run },
+      ],
+      [{ command: "preview" }],
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            { ...configWithService({ slackCommands: slackCommands as never }) },
+            { requireSlack: false },
+          ),
+        /instances\.service-a\.slackCommands\[\d+\]/,
+      );
+    }
+  });
+
   it("rejects duplicate ports and non-boolean enabled values", () => {
     assert.throws(
       () =>

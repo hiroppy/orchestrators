@@ -5,6 +5,7 @@ import {
   type OrchestratorConfig,
   type ReviewCommentConfig,
   type SlackConfig,
+  type SlackCommandConfig,
   type StatusHookConfig,
 } from "orchestrator-config";
 
@@ -22,6 +23,7 @@ const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
+const BUILT_IN_SLACK_COMMANDS = new Set(["assign", "help", "status", "take-pr", "unassign"]);
 interface ResolveWatcherOptions {
   requireSlack: boolean;
 }
@@ -42,6 +44,7 @@ export function resolveWatcherConfig(
     url: observabilityUrl(instance.port),
     linearTeam: instance.linearTeam,
     statusHooks: resolveStatusHooks(instance.statusHooks, name),
+    slackCommands: resolveSlackCommands(instance.slackCommands, name),
   }));
   const endedTaskRetry = {
     maxAttempts: Number(
@@ -61,6 +64,39 @@ export function resolveWatcherConfig(
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolveSlackCommands(
+  config: SlackCommandConfig[] | undefined,
+  service: string,
+): SlackCommandConfig[] {
+  if (config === undefined) return [];
+  if (!Array.isArray(config)) {
+    throw new Error(`instances.${service}.slackCommands must be an array.`);
+  }
+
+  const commands = new Set<string>();
+  return config.map((slackCommand, index) => {
+    const label = `instances.${service}.slackCommands[${index}]`;
+    if (!slackCommand || typeof slackCommand !== "object" || Array.isArray(slackCommand)) {
+      throw new Error(`${label} must be an object.`);
+    }
+    const command = slackCommand.command?.trim().toLowerCase();
+    if (!command || !/^[a-z0-9][a-z0-9-]*$/.test(command)) {
+      throw new Error(
+        `${label}.command must contain only lowercase letters, numbers, and hyphens.`,
+      );
+    }
+    if (BUILT_IN_SLACK_COMMANDS.has(command)) {
+      throw new Error(`${label}.command conflicts with built-in command: ${command}`);
+    }
+    if (commands.has(command)) throw new Error(`${label}.command must be unique: ${command}`);
+    commands.add(command);
+    if (typeof slackCommand.run !== "function") {
+      throw new Error(`${label}.run must be a function.`);
+    }
+    return { command, run: slackCommand.run };
+  });
 }
 
 function resolveStatusHooks(

@@ -1,12 +1,14 @@
+import type { WebClient } from "@slack/web-api";
+import type { SlackCommandConfig } from "orchestrator-config";
+
 import type { WatcherStore } from "../persistence/store.ts";
-import type { ReactionClient } from "./reactions.ts";
 import { postSlackOperationError } from "./errors.ts";
 import type { StatusSummaryContext } from "./views.ts";
-import type { SlackClient } from "./client-types.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
 import { handleAssignCommand, handleUnassignCommand } from "./commands/assignment.ts";
 import { handleHelpCommand } from "./commands/help.ts";
 import { handleStatusCommand } from "./commands/status.ts";
+import { handleSlackCommand } from "./commands/slack-command.ts";
 
 type CommandHandler = (context: MentionCommandContext) => Promise<void>;
 const commandHandlers: Record<string, CommandHandler> = {
@@ -23,10 +25,24 @@ export async function handleAppMention(
   botUserId?: string,
   takePrOptions?: TakePrOptions,
   statusSummaryContext?: StatusSummaryContext,
+  slackCommandsForService?: (serviceName: string) => SlackCommandConfig[],
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
-  const handler = commandHandlers[mention.command];
+  let handler = commandHandlers[mention.command];
+  let isSlackCommand = false;
+  if (!handler && mention.event.threadTs) {
+    const task = store.getTaskBySlackThread(mention.event.channel, mention.event.threadTs);
+    const slackCommand = task
+      ? slackCommandsForService?.(task.serviceName).find(
+          ({ command }) => command === mention.command,
+        )
+      : undefined;
+    if (task && slackCommand) {
+      handler = (context) => handleSlackCommand(slackCommand, task, context);
+      isSlackCommand = true;
+    }
+  }
   if (!handler) return;
 
   try {
@@ -50,7 +66,9 @@ export async function handleAppMention(
             ? (mention.event.threadTs ?? mention.event.ts)
             : mention.event.threadTs,
       },
-      commandFailureMessage(mention.command),
+      isSlackCommand
+        ? `Slack command \`${mention.command}\` failed.`
+        : commandFailureMessage(mention.command),
       logger,
     );
   }
@@ -141,13 +159,13 @@ interface AppMentionEvent {
 
 interface AppMentionArguments {
   event: unknown;
-  client: Pick<SlackClient, "chat" | "users"> & ReactionClient;
+  client: WebClient;
   logger: { error(error: unknown): void };
 }
 
 export interface MentionCommandContext {
   event: AppMentionEvent;
-  client: Pick<SlackClient, "chat" | "users"> & ReactionClient;
+  client: WebClient;
   logger: { error(error: unknown): void };
   store: WatcherStore;
   args: string[];

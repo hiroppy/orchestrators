@@ -31,6 +31,8 @@ export default defineConfig({
       linearTeam: "workspace-a-eng",
       // Put local TypeScript hooks in ./hooks and import them from config.ts.
       statusHooks: [],
+      // Commands run only when mentioned from a tracked task thread for this service.
+      slackCommands: [],
     },
   },
 });
