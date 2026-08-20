@@ -102,6 +102,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         toStatus,
       ),
     onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+      pullRequestMonitors.handleStatusTransition(task);
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,

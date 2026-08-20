@@ -87,6 +87,13 @@ export class PullRequestMonitorRegistry {
     });
   }
 
+  handleStatusTransition(task: Task): void {
+    if (this.isInReview(task)) return;
+    for (const [key, activation] of this.activations) {
+      if (activation.taskId === task.id) this.activations.delete(key);
+    }
+  }
+
   async poll(): Promise<void> {
     for (const [key, activation] of Array.from(this.activations)) {
       const task = this.store.getTask(activation.taskId);

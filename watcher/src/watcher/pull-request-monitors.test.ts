@@ -310,6 +310,40 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("discards a monitor when a task leaves and re-enters In Review between polls", async () => {
+    await withStore(async (store) => {
+      let monitorCalls = 0;
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient([]),
+        async () => task.pullRequest!,
+      );
+
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            monitorCalls += 1;
+            return { status: "complete", message: { text: "Preview ready" } };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      const { task: taskOutsideReview } = store.updateTaskStatus(task.id, "In Progress");
+      registry.handleStatusTransition(taskOutsideReview);
+      store.updateTaskStatus(task.id, "In Review");
+
+      await registry.poll();
+
+      assert.equal(monitorCalls, 0);
+    });
+  });
+
   it("validates the monitor and current pull request when starting", async () => {
     await withStore((store) => {
       const monitor: PullRequestMonitorConfig = {
