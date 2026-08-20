@@ -64,10 +64,11 @@ export class PullRequestMonitorRegistry {
   start(task: Task, monitor: PullRequestMonitorConfig, trigger: PullRequestMonitorTrigger): void {
     validateMonitor(monitor);
     const monitorId = monitor.id.trim();
-    if (!task.pullRequest?.url) {
+    const currentTask = this.store.getTask(task.id);
+    if (!currentTask?.pullRequest?.url) {
       throw new Error(`Task ${task.issueIdentifier} does not have a pull request.`);
     }
-    if (!this.isInReview(task)) {
+    if (!this.isInReview(currentTask)) {
       throw new Error(
         `Pull request monitors can only start while ${task.issueIdentifier} is In Review.`,
       );
@@ -118,13 +119,18 @@ export class PullRequestMonitorRegistry {
       });
       validateResult(result);
       if (this.activations.get(key) !== activation) return;
+      const currentTask = this.store.getTask(task.id);
+      if (!currentTask?.pullRequest?.url || !this.isInReview(currentTask)) {
+        this.activations.delete(key);
+        return;
+      }
       if (result.status === "complete") {
         const notifying = { ...activation, state: "notifying", message: result.message } as const;
         this.activations.set(key, notifying);
-        await this.notify(key, notifying, task);
+        await this.notify(key, notifying, currentTask);
         return;
       }
-      await this.recordFailedAttempt(key, activation, task, monitor);
+      await this.recordFailedAttempt(key, activation, currentTask, monitor);
     } catch (error) {
       console.error(
         `Pull request monitor ${monitor.id} failed for ${task.issueIdentifier}:`,

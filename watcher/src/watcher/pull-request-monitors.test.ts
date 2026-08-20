@@ -148,6 +148,56 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("rejects a stale task after its stored status leaves In Review", async () => {
+    await withStore((store) => {
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const registry = new PullRequestMonitorRegistry(config, store, fakeSlackClient([]));
+      store.updateTaskStatus(task.id, "In Progress");
+
+      assert.throws(
+        () =>
+          registry.start(
+            task,
+            { id: "preview", run: () => ({ status: "pending" }) },
+            { command: "retry", args: [] },
+          ),
+        /only start while .* In Review/,
+      );
+    });
+  });
+
+  it("does not notify when the task leaves In Review while the monitor runs", async () => {
+    await withStore(async (store) => {
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const slackCalls: Array<Record<string, unknown>> = [];
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient(slackCalls),
+        async () => task.pullRequest!,
+      );
+
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            store.updateTaskStatus(task.id, "In Progress");
+            return { status: "complete", message: { text: "Preview ready" } };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      await registry.poll();
+
+      assert.deepEqual(slackCalls, []);
+    });
+  });
+
   it("stops after the attempt limit or leaving In Review", async () => {
     await withStore(async (store) => {
       let monitorCalls = 0;
@@ -183,7 +233,7 @@ describe("pull request monitors", () => {
     });
   });
 
-  it("validates the monitor, pull request, and In Review status when starting", async () => {
+  it("validates the monitor and current pull request when starting", async () => {
     await withStore((store) => {
       const monitor: PullRequestMonitorConfig = {
         id: "preview",
@@ -204,19 +254,11 @@ describe("pull request monitors", () => {
       );
       assert.throws(
         () =>
-          registry.start({ ...task, pullRequest: undefined }, monitor, {
+          registry.start({ ...task, id: "missing-task", pullRequest: undefined }, monitor, {
             command: "retry",
             args: [],
           }),
         /does not have a pull request/,
-      );
-      assert.throws(
-        () =>
-          registry.start({ ...task, status: "In Progress" }, monitor, {
-            command: "retry",
-            args: [],
-          }),
-        /only start while .* In Review/,
       );
     });
   });
