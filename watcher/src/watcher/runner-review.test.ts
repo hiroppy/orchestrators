@@ -178,6 +178,7 @@ describe("watcher review requeue", () => {
       });
       store.setParentMessage("service-a:ENG-62", "C123", "1.000", "{}");
       const updates: string[] = [];
+      const transitions: string[] = [];
 
       await requeueReviewTask({
         config,
@@ -198,9 +199,13 @@ describe("watcher review requeue", () => {
         updateLinearStatus: async (_identifier, status) => {
           updates.push(status);
         },
+        onStatusTransition: (task) => {
+          transitions.push(task.status);
+        },
       });
 
       assert.deepEqual(updates, ["In Progress"]);
+      assert.deepEqual(transitions, ["In Progress"]);
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Progress");
       assert.equal(
         store.getLatestEvent("service-a:ENG-62", "review_comment_handled")?.body,

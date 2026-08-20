@@ -62,6 +62,7 @@ export async function processWatcherEvent({
     event,
     decision: reviewDecision,
     updateLinearStatus,
+    onStatusTransition,
   });
   const task = store.getTask(taskIdFor(event.service, event.issueIdentifier));
   if (task && config.reviewComment) {
