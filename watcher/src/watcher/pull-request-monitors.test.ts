@@ -168,6 +168,26 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("rejects a stale task after its stored pull request changes", async () => {
+    await withStore((store) => {
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      trackedTask(store, "https://github.com/example/service-a/pull/43");
+      const registry = new PullRequestMonitorRegistry(config, store, fakeSlackClient([]));
+
+      assert.throws(
+        () =>
+          registry.start(
+            task,
+            { id: "preview", run: () => ({ status: "pending" }) },
+            { command: "retry", args: [] },
+          ),
+        /changed to a different pull request/,
+      );
+    });
+  });
+
   it("does not notify when the task leaves In Review while the monitor runs", async () => {
     await withStore(async (store) => {
       const config = monitorConfig();
@@ -188,6 +208,37 @@ describe("pull request monitors", () => {
           run: () => {
             store.updateTaskStatus(task.id, "In Progress");
             return { status: "complete", message: { text: "Preview ready" } };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      await registry.poll();
+
+      assert.deepEqual(slackCalls, []);
+    });
+  });
+
+  it("does not notify a monitor failure after the task leaves In Review", async () => {
+    await withStore(async (store) => {
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const slackCalls: Array<Record<string, unknown>> = [];
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient(slackCalls),
+        async () => task.pullRequest!,
+      );
+
+      registry.start(
+        task,
+        {
+          id: "preview",
+          maxAttempts: 1,
+          run: () => {
+            store.updateTaskStatus(task.id, "In Progress");
+            throw new Error("preview lookup failed");
           },
         },
         { command: "retry", args: [] },
@@ -283,7 +334,10 @@ function monitorConfig() {
   });
 }
 
-function trackedTask(store: WatcherStore) {
+function trackedTask(
+  store: WatcherStore,
+  pullRequestUrl = "https://github.com/example/service-a/pull/42",
+) {
   const task = store.upsertTaskFromEvent({
     type: "updated",
     service: "service-a",
@@ -293,7 +347,7 @@ function trackedTask(store: WatcherStore) {
     resolvedState: "In Review",
     resolvedStateType: "started",
     pullRequest: {
-      url: "https://github.com/example/service-a/pull/42",
+      url: pullRequestUrl,
       number: 42,
       headRefOid: "abc123",
       labels: ["stg-deploy"],

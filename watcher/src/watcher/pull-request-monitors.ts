@@ -68,6 +68,9 @@ export class PullRequestMonitorRegistry {
     if (!currentTask?.pullRequest?.url) {
       throw new Error(`Task ${task.issueIdentifier} does not have a pull request.`);
     }
+    if (currentTask.pullRequest.url !== task.pullRequest?.url) {
+      throw new Error(`Task ${task.issueIdentifier} changed to a different pull request.`);
+    }
     if (!this.isInReview(currentTask)) {
       throw new Error(
         `Pull request monitors can only start while ${task.issueIdentifier} is In Review.`,
@@ -119,8 +122,8 @@ export class PullRequestMonitorRegistry {
       });
       validateResult(result);
       if (this.activations.get(key) !== activation) return;
-      const currentTask = this.store.getTask(task.id);
-      if (!currentTask?.pullRequest?.url || !this.isInReview(currentTask)) {
+      const currentTask = this.getCurrentMonitorTask(task);
+      if (!currentTask) {
         this.activations.delete(key);
         return;
       }
@@ -137,7 +140,12 @@ export class PullRequestMonitorRegistry {
         error,
       );
       if (this.activations.get(key) === activation) {
-        await this.recordFailedAttempt(key, activation, task, monitor);
+        const currentTask = this.getCurrentMonitorTask(task);
+        if (!currentTask) {
+          this.activations.delete(key);
+          return;
+        }
+        await this.recordFailedAttempt(key, activation, currentTask, monitor);
       }
     }
   }
@@ -186,6 +194,18 @@ export class PullRequestMonitorRegistry {
     return Boolean(
       inReviewStatus && normalizeStatus(task.status) === normalizeStatus(inReviewStatus),
     );
+  }
+
+  private getCurrentMonitorTask(task: Task): Task | null {
+    const currentTask = this.store.getTask(task.id);
+    if (
+      !currentTask?.pullRequest?.url ||
+      currentTask.pullRequest.url !== task.pullRequest?.url ||
+      !this.isInReview(currentTask)
+    ) {
+      return null;
+    }
+    return currentTask;
   }
 }
 
