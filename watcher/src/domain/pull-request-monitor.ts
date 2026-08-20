@@ -2,7 +2,7 @@ import type { JsonValue, PullRequestMonitorConfig } from "orchestrator-config";
 
 import type { Task } from "./task.ts";
 
-export interface PullRequestMonitorTrigger {
+interface PullRequestMonitorTrigger {
   command: string;
   args: string[];
   user?: string;
