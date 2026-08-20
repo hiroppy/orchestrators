@@ -174,7 +174,7 @@ export default defineConfig({
           command: "retry-preview",
           run: async ({ pullRequest }, { pullRequestMonitors }) => {
             if (!pullRequest) throw new Error("This task has no pull request.");
-            await rerunPreview(pullRequest);
+            const { sha } = await rerunPreview(pullRequest);
             await pullRequestMonitors.start(
               {
                 id: "preview-deployment",
@@ -189,7 +189,7 @@ export default defineConfig({
                     : { status: "pending" };
                 },
               },
-              { metadata: { sha: pullRequest.headRefOid ?? "" } },
+              { metadata: { sha } },
             );
             return "Preview CI restarted; monitoring for completion.";
           },
