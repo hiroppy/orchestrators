@@ -107,6 +107,47 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("replaces an activation when monitor IDs differ only by whitespace", async () => {
+    await withStore(async (store) => {
+      const calls: string[] = [];
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient([]),
+        async () => task.pullRequest!,
+      );
+
+      registry.start(
+        task,
+        {
+          id: " preview ",
+          run: () => {
+            calls.push("first");
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            calls.push("second");
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      await registry.poll();
+
+      assert.deepEqual(calls, ["second"]);
+    });
+  });
+
   it("stops after the attempt limit or leaving In Review", async () => {
     await withStore(async (store) => {
       let monitorCalls = 0;

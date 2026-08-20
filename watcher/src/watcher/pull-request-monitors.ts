@@ -63,6 +63,7 @@ export class PullRequestMonitorRegistry {
 
   start(task: Task, monitor: PullRequestMonitorConfig, trigger: PullRequestMonitorTrigger): void {
     validateMonitor(monitor);
+    const monitorId = monitor.id.trim();
     if (!task.pullRequest?.url) {
       throw new Error(`Task ${task.issueIdentifier} does not have a pull request.`);
     }
@@ -71,10 +72,10 @@ export class PullRequestMonitorRegistry {
         `Pull request monitors can only start while ${task.issueIdentifier} is In Review.`,
       );
     }
-    this.activations.set(activationKey(task.id, monitor.id), {
+    this.activations.set(activationKey(task.id, monitorId), {
       state: "monitoring",
       taskId: task.id,
-      monitor: { ...monitor, id: monitor.id.trim() },
+      monitor: { ...monitor, id: monitorId },
       attempts: 0,
       trigger: { ...trigger, args: [...trigger.args], startedAt: new Date().toISOString() },
     });
