@@ -86,6 +86,43 @@ export interface StatusHookConfig {
   ) => string | void | Promise<string | void>;
 }
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type PullRequestMonitorResult =
+  | { status: "pending" }
+  | { status: "complete"; message: StatusHookSlackThreadMessage };
+
+export interface PullRequestMonitorContext {
+  service: string;
+  issue: {
+    identifier: string;
+    url?: string;
+    title: string;
+  };
+  pullRequest: PullRequestContext;
+  trigger: {
+    command: string;
+    args: string[];
+    user?: string;
+    startedAt: string;
+    metadata?: JsonValue;
+  };
+}
+
+export interface PullRequestMonitorConfig {
+  id: string;
+  maxAttempts?: number;
+  run: (
+    context: PullRequestMonitorContext,
+  ) => PullRequestMonitorResult | Promise<PullRequestMonitorResult>;
+}
+
 export interface SlackCommandContext {
   service: string;
   command: string;
@@ -108,6 +145,9 @@ export interface SlackCommandHelpers {
     threadTs: string;
     postMessage: (message: StatusHookSlackPostMessage) => Promise<void>;
     postThreadMessage: (message: StatusHookSlackThreadMessage) => Promise<void>;
+  };
+  pullRequestMonitors: {
+    start: (monitor: PullRequestMonitorConfig, options?: { metadata?: JsonValue }) => Promise<void>;
   };
 }
 

@@ -1,6 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { SnapshotsByService } from "../domain/snapshot.ts";
+import type { Task } from "../domain/task.ts";
 import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
@@ -30,6 +31,8 @@ interface RunOnceOptions {
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
   persistedTerminalTaskIds?: ReadonlySet<string>;
+  pollPullRequestMonitors?: () => Promise<void>;
+  onStatusTransition?: (task: Task) => void | Promise<void>;
 }
 
 export async function runOnce({
@@ -42,6 +45,8 @@ export async function runOnce({
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
   persistedTerminalTaskIds = new Set(),
+  pollPullRequestMonitors,
+  onStatusTransition,
 }: RunOnceOptions) {
   let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
@@ -93,6 +98,7 @@ export async function runOnce({
       event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
+      onStatusTransition,
     });
     await syncPullRequestReactionsSafely(
       slackClient,
@@ -113,7 +119,9 @@ export async function runOnce({
       findPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,
+      onStatusTransition,
     });
+    await pollPullRequestMonitors?.();
   }
   return {
     events,

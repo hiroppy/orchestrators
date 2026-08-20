@@ -29,6 +29,7 @@ export async function reconcileLinearStatuses({
   findPullRequestByUrl,
   updateLinearStatus,
   persistedTerminalTaskIds,
+  onStatusTransition,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -38,6 +39,7 @@ export async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
   persistedTerminalTaskIds: ReadonlySet<string>;
+  onStatusTransition?: (task: Task) => void | Promise<void>;
 }): Promise<Set<string>> {
   const pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   const activeStatusesByService = new Map(
@@ -213,6 +215,7 @@ export async function reconcileLinearStatuses({
       event: enrichedEvent,
       reviewDecision,
       updateLinearStatus,
+      onStatusTransition,
     });
     if (recoveringPersistedTerminalTask) {
       pendingPersistedTerminalTaskIds.delete(task.id);

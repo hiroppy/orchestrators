@@ -21,6 +21,7 @@ import {
 import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
 import { runWatcherPollingLoop } from "./polling-loop.ts";
 import { runOnce } from "./run-once.ts";
+import { PullRequestMonitorRegistry } from "./pull-request-monitors.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PERIODIC_MAINTENANCE_INTERVAL_MS = 30_000;
@@ -50,6 +51,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   const database = createDatabase(databasePath);
   const store = new WatcherStore(database.db);
   store.syncDefinitions(runtimeConfig.services, runtimeConfig.linearTeams);
+  const pullRequestMonitors = new PullRequestMonitorRegistry(runtimeConfig, store, client);
 
   const app = createSlackApp({
     botToken: slackConfig.botToken,
@@ -90,6 +92,8 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     },
     slackCommandsForService: (serviceName) =>
       serviceConfigFor(runtimeConfig, serviceName)?.slackCommands ?? [],
+    startPullRequestMonitor: (task, monitor, trigger) =>
+      pullRequestMonitors.start(task, monitor, trigger),
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
       createPendingStatusHookEvent(
         serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],
@@ -98,6 +102,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         toStatus,
       ),
     onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+      pullRequestMonitors.handleStatusTransition(task);
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,
@@ -138,6 +143,8 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
           slackChannelId: slackConfig.channelId,
           runPeriodicMaintenance,
           persistedTerminalTaskIds: pendingPersistedTerminalTaskIds,
+          pollPullRequestMonitors: () => pullRequestMonitors.poll(),
+          onStatusTransition: (task) => pullRequestMonitors.handleStatusTransition(task),
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;

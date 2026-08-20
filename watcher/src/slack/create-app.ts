@@ -1,6 +1,7 @@
 import { App } from "@slack/bolt";
 
 import type { WatcherStore } from "../persistence/store.ts";
+import type { PullRequestMonitorStarter } from "../domain/pull-request-monitor.ts";
 import { handleAppMention } from "./mention-commands.ts";
 import {
   registerStatusAction,
@@ -30,6 +31,7 @@ export interface SlackAppOptions {
   takePr: TakePrOptions;
   statusSummary: StatusSummaryContext;
   slackCommandsForService?: (serviceName: string) => SlackCommandConfig[];
+  startPullRequestMonitor?: PullRequestMonitorStarter;
 }
 
 export function createSlackApp({
@@ -44,6 +46,7 @@ export function createSlackApp({
   takePr,
   statusSummary,
   slackCommandsForService,
+  startPullRequestMonitor,
 }: SlackAppOptions): App {
   const app = new App({
     token: botToken,
@@ -64,7 +67,15 @@ export function createSlackApp({
     await handleTakePrAction(args, store, takePr);
   });
   app.event("app_mention", async (args) => {
-    await handleAppMention(args, store, botUserId, takePr, statusSummary, slackCommandsForService);
+    await handleAppMention(
+      args,
+      store,
+      botUserId,
+      takePr,
+      statusSummary,
+      slackCommandsForService,
+      startPullRequestMonitor,
+    );
   });
   app.message(async (args) => {
     await handleThreadReply(

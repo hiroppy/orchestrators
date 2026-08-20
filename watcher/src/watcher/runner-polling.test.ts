@@ -12,6 +12,31 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher polling", () => {
+  it("runs pull request monitors only during periodic maintenance", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [],
+        linearTeams: {},
+        defaultAssignees: [],
+      });
+      let polls = 0;
+      const options = {
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        pollPullRequestMonitors: async () => {
+          polls += 1;
+        },
+      };
+
+      await runOnce({ ...options, runPeriodicMaintenance: false });
+      await runOnce({ ...options, runPeriodicMaintenance: true });
+
+      assert.equal(polls, 1);
+    });
+  });
+
   it("continues polling after a transient poll failure", async () => {
     const attempts: number[] = [];
     const errors: unknown[] = [];
@@ -160,6 +185,44 @@ describe("watcher polling", () => {
       });
       assert.equal(calls.filter(({ method }) => method === "postMessage").length, 2);
       assert.equal(calls.filter(({ method }) => method === "update").length, 1);
+    });
+  });
+
+  it("reports every watcher-observed status transition between maintenance cycles", async () => {
+    await withStore(async (store) => {
+      const configFor = (state: string) =>
+        runtimeConfig({
+          services: [
+            {
+              name: "service-a",
+              url: dataUrl({
+                running: [{ issue_identifier: "ENG-62", state }],
+                retrying: [],
+                blocked: [],
+              }),
+              linearTeam: "workspace-a-eng",
+            },
+          ],
+          linearTeams: linearTeams(["In Progress", "In Review"]),
+        });
+      const initialConfig = configFor("In Review");
+      store.syncDefinitions(initialConfig.services, initialConfig.linearTeams);
+      const statuses: string[] = [];
+      const options = {
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        runPeriodicMaintenance: false,
+        onStatusTransition: (task: { status: string }) => {
+          statuses.push(task.status);
+        },
+      };
+
+      await runOnce({ ...options, config: initialConfig });
+      await runOnce({ ...options, config: configFor("In Progress") });
+      await runOnce({ ...options, config: configFor("In Review") });
+
+      assert.deepEqual(statuses, ["In Progress", "In Review"]);
     });
   });
 

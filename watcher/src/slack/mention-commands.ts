@@ -2,6 +2,7 @@ import type { WebClient } from "@slack/web-api";
 import type { SlackCommandConfig } from "orchestrator-config";
 
 import type { WatcherStore } from "../persistence/store.ts";
+import type { PullRequestMonitorStarter } from "../domain/pull-request-monitor.ts";
 import { postSlackOperationError } from "./errors.ts";
 import type { StatusSummaryContext } from "./views.ts";
 import { handleTakePrMention, type TakePrOptions } from "./take-pr.ts";
@@ -26,6 +27,7 @@ export async function handleAppMention(
   takePrOptions?: TakePrOptions,
   statusSummaryContext?: StatusSummaryContext,
   slackCommandsForService?: (serviceName: string) => SlackCommandConfig[],
+  startPullRequestMonitor?: PullRequestMonitorStarter,
 ): Promise<void> {
   const mention = parseMentionCommand(event, botUserId);
   if (!mention) return;
@@ -39,7 +41,8 @@ export async function handleAppMention(
         )
       : undefined;
     if (task && slackCommand) {
-      handler = (context) => handleSlackCommand(slackCommand, task, context);
+      handler = (context) =>
+        handleSlackCommand(slackCommand, task, context, startPullRequestMonitor);
       isSlackCommand = true;
     }
   }

@@ -240,6 +240,7 @@ describe("Slack mention commands", () => {
       store.setParentMessage(task.id, "C123", "10.000", "{}");
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
       let received: unknown;
+      let monitorStart: unknown;
 
       await handleAppMention(
         {
@@ -273,11 +274,21 @@ describe("Slack mention commands", () => {
                       name: "eyes",
                     });
                     await helpers.slack.postMessage({ text: "Starting preview" });
+                    await helpers.pullRequestMonitors.start(
+                      {
+                        id: "deployment",
+                        run: () => ({ status: "pending" }),
+                      },
+                      { metadata: { environment: "staging" } },
+                    );
                     return "Preview ready";
                   },
                 },
               ]
             : [],
+        async (startedTask, monitor, trigger) => {
+          monitorStart = { taskId: startedTask.id, monitorId: monitor.id, trigger };
+        },
       );
 
       assert.deepEqual(received, {
@@ -306,6 +317,16 @@ describe("Slack mention commands", () => {
           { channel: "C123", thread_ts: "10.000", text: "Preview ready" },
         ],
       );
+      assert.deepEqual(monitorStart, {
+        taskId: "service-a:ENG-60",
+        monitorId: "deployment",
+        trigger: {
+          command: "preview",
+          args: ["staging", "now"],
+          user: "U456",
+          metadata: { environment: "staging" },
+        },
+      });
     });
   });
 
