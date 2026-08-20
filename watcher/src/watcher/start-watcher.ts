@@ -144,6 +144,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
           runPeriodicMaintenance,
           persistedTerminalTaskIds: pendingPersistedTerminalTaskIds,
           pollPullRequestMonitors: () => pullRequestMonitors.poll(),
+          onStatusTransition: (task) => pullRequestMonitors.handleStatusTransition(task),
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;

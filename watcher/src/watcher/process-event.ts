@@ -1,6 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
+import type { Task } from "../domain/task.ts";
 import type { WatcherEvent } from "../domain/watcher-event.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
@@ -19,6 +20,7 @@ export async function processWatcherEvent({
   event,
   reviewDecision,
   updateLinearStatus,
+  onStatusTransition,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -27,6 +29,7 @@ export async function processWatcherEvent({
   event: WatcherEvent;
   reviewDecision: ReviewRequeueDecision;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  onStatusTransition?: (task: Task) => void | Promise<void>;
 }): Promise<void> {
   const service = serviceConfigFor(config, event.service);
   const hooks = service?.statusHooks ?? [];
@@ -38,6 +41,9 @@ export async function processWatcherEvent({
     defaultAssignees: config.defaultAssignees ?? [],
     createStatusTransitionEvent: (task, fromStatus) =>
       createPendingStatusHookEvent(hooks, task, fromStatus, task.status, event.pullRequest),
+    onStatusTransition: async (task) => {
+      await onStatusTransition?.(task);
+    },
     afterPublish: async (task) => {
       await deliverPendingStatusHooksSafely({
         hooks,

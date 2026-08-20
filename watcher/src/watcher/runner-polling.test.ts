@@ -188,6 +188,44 @@ describe("watcher polling", () => {
     });
   });
 
+  it("reports every watcher-observed status transition between maintenance cycles", async () => {
+    await withStore(async (store) => {
+      const configFor = (state: string) =>
+        runtimeConfig({
+          services: [
+            {
+              name: "service-a",
+              url: dataUrl({
+                running: [{ issue_identifier: "ENG-62", state }],
+                retrying: [],
+                blocked: [],
+              }),
+              linearTeam: "workspace-a-eng",
+            },
+          ],
+          linearTeams: linearTeams(["In Progress", "In Review"]),
+        });
+      const initialConfig = configFor("In Review");
+      store.syncDefinitions(initialConfig.services, initialConfig.linearTeams);
+      const statuses: string[] = [];
+      const options = {
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        runPeriodicMaintenance: false,
+        onStatusTransition: (task: { status: string }) => {
+          statuses.push(task.status);
+        },
+      };
+
+      await runOnce({ ...options, config: initialConfig });
+      await runOnce({ ...options, config: configFor("In Progress") });
+      await runOnce({ ...options, config: configFor("In Review") });
+
+      assert.deepEqual(statuses, ["In Progress", "In Review"]);
+    });
+  });
+
   it("fetches task metadata and creator in one Linear request", async (context) => {
     await withStore(async (store) => {
       const current = {
