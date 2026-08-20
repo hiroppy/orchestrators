@@ -188,6 +188,32 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("discards an activation when its stored pull request changes", async () => {
+    await withStore(async (store) => {
+      let monitorCalls = 0;
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      const registry = new PullRequestMonitorRegistry(config, store, fakeSlackClient([]));
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            monitorCalls += 1;
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+
+      trackedTask(store, "https://github.com/example/service-a/pull/43");
+      await registry.poll();
+
+      assert.equal(monitorCalls, 0);
+    });
+  });
+
   it("does not notify when the task leaves In Review while the monitor runs", async () => {
     await withStore(async (store) => {
       const config = monitorConfig();

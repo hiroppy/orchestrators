@@ -19,6 +19,7 @@ type PullRequestMonitorTrigger = Parameters<PullRequestMonitorStarter>[2];
 interface MonitoringActivation {
   state: "monitoring";
   taskId: string;
+  pullRequestUrl: string;
   monitor: PullRequestMonitorConfig;
   attempts: number;
   trigger: PullRequestMonitorTrigger & { startedAt: string };
@@ -79,6 +80,7 @@ export class PullRequestMonitorRegistry {
     this.activations.set(activationKey(task.id, monitorId), {
       state: "monitoring",
       taskId: task.id,
+      pullRequestUrl: currentTask.pullRequest.url,
       monitor: { ...monitor, id: monitorId },
       attempts: 0,
       trigger: { ...trigger, args: [...trigger.args], startedAt: new Date().toISOString() },
@@ -88,7 +90,12 @@ export class PullRequestMonitorRegistry {
   async poll(): Promise<void> {
     for (const [key, activation] of Array.from(this.activations)) {
       const task = this.store.getTask(activation.taskId);
-      if (!task?.pullRequest?.url || !task.parentChannelId || !task.parentMessageTs) {
+      if (
+        !task?.pullRequest?.url ||
+        task.pullRequest.url !== activation.pullRequestUrl ||
+        !task.parentChannelId ||
+        !task.parentMessageTs
+      ) {
         this.activations.delete(key);
         continue;
       }
@@ -122,7 +129,7 @@ export class PullRequestMonitorRegistry {
       });
       validateResult(result);
       if (this.activations.get(key) !== activation) return;
-      const currentTask = this.getCurrentMonitorTask(task);
+      const currentTask = this.getCurrentMonitorTask(activation);
       if (!currentTask) {
         this.activations.delete(key);
         return;
@@ -140,7 +147,7 @@ export class PullRequestMonitorRegistry {
         error,
       );
       if (this.activations.get(key) === activation) {
-        const currentTask = this.getCurrentMonitorTask(task);
+        const currentTask = this.getCurrentMonitorTask(activation);
         if (!currentTask) {
           this.activations.delete(key);
           return;
@@ -196,11 +203,11 @@ export class PullRequestMonitorRegistry {
     );
   }
 
-  private getCurrentMonitorTask(task: Task): Task | null {
-    const currentTask = this.store.getTask(task.id);
+  private getCurrentMonitorTask(activation: MonitoringActivation): Task | null {
+    const currentTask = this.store.getTask(activation.taskId);
     if (
       !currentTask?.pullRequest?.url ||
-      currentTask.pullRequest.url !== task.pullRequest?.url ||
+      currentTask.pullRequest.url !== activation.pullRequestUrl ||
       !this.isInReview(currentTask)
     ) {
       return null;
