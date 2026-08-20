@@ -12,6 +12,31 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher polling", () => {
+  it("runs pull request monitors only during periodic maintenance", async () => {
+    await withStore(async (store) => {
+      const config = runtimeConfig({
+        services: [],
+        linearTeams: {},
+        defaultAssignees: [],
+      });
+      let polls = 0;
+      const options = {
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        pollPullRequestMonitors: async () => {
+          polls += 1;
+        },
+      };
+
+      await runOnce({ ...options, runPeriodicMaintenance: false });
+      await runOnce({ ...options, runPeriodicMaintenance: true });
+
+      assert.equal(polls, 1);
+    });
+  });
+
   it("continues polling after a transient poll failure", async () => {
     const attempts: number[] = [];
     const errors: unknown[] = [];

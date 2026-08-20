@@ -30,6 +30,7 @@ interface RunOnceOptions {
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
   persistedTerminalTaskIds?: ReadonlySet<string>;
+  pollPullRequestMonitors?: () => Promise<void>;
 }
 
 export async function runOnce({
@@ -42,6 +43,7 @@ export async function runOnce({
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
   persistedTerminalTaskIds = new Set(),
+  pollPullRequestMonitors,
 }: RunOnceOptions) {
   let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
@@ -114,6 +116,7 @@ export async function runOnce({
       updateLinearStatus,
       persistedTerminalTaskIds,
     });
+    await pollPullRequestMonitors?.();
   }
   return {
     events,

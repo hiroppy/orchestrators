@@ -155,3 +155,54 @@ and must not conflict with built-in commands.
 
 Put larger command implementations in the gitignored root `commands/` directory and import them
 from `config.ts`.
+
+### Pull request monitors
+
+Commands can start a monitor when they trigger asynchronous pull request work such as a CI rerun or
+preview deployment. The monitor callback stays next to the command that uses it and runs on the
+watcher's 30-second maintenance interval while the task remains in the configured
+`watcher.reviewComment.inReviewStatus`:
+
+```ts
+export default defineConfig({
+  instances: {
+    "service-a": {
+      port: 4105,
+      linearTeam: "workspace-a-eng",
+      slackCommands: [
+        {
+          command: "retry-preview",
+          run: async ({ pullRequest }, { pullRequestMonitors }) => {
+            if (!pullRequest) throw new Error("This task has no pull request.");
+            await rerunPreview(pullRequest);
+            await pullRequestMonitors.start(
+              {
+                id: "preview-deployment",
+                maxAttempts: 20,
+                run: async ({ pullRequest, trigger }) => {
+                  const preview = await findPreview(pullRequest, trigger.metadata);
+                  return preview
+                    ? {
+                        status: "complete",
+                        message: { text: `Preview ready: ${preview.url}` },
+                      }
+                    : { status: "pending" };
+                },
+              },
+              { metadata: { sha: pullRequest.headRefOid ?? "" } },
+            );
+            return "Preview CI restarted; monitoring for completion.";
+          },
+        },
+      ],
+    },
+  },
+  // watcher, linearTeams, and Slack configuration...
+});
+```
+
+Return `{ status: "pending" }` to check again, or return a `complete` result for the watcher to post
+the message once in the task thread. Exceptions also consume an attempt and retry on the next
+maintenance interval. The default limit is 10 attempts. A repeated `start` replaces the existing
+monitor for that task and ID. Monitor state is process-local: it is discarded when the task leaves
+In Review or the watcher restarts.

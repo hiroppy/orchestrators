@@ -1,16 +1,15 @@
-import type {
-  PullRequestContext,
-  SlackCommandConfig,
-  SlackCommandHelpers,
-} from "orchestrator-config";
+import type { SlackCommandConfig, SlackCommandHelpers } from "orchestrator-config";
 
 import type { Task } from "../../domain/task.ts";
+import { toPullRequestContext } from "../../domain/pull-request-context.ts";
+import type { PullRequestMonitorStarter } from "../../domain/pull-request-monitor.ts";
 import type { MentionCommandContext } from "../mention-commands.ts";
 
 export async function handleSlackCommand(
   slackCommand: SlackCommandConfig,
   task: Task,
   { event, client, args }: MentionCommandContext,
+  startPullRequestMonitor?: PullRequestMonitorStarter,
 ): Promise<void> {
   const threadTs = event.threadTs;
   if (!threadTs) return;
@@ -26,6 +25,19 @@ export async function handleSlackCommand(
       },
       postThreadMessage: async (message) => {
         await client.chat.postMessage({ ...message, channel: event.channel, thread_ts: threadTs });
+      },
+    },
+    pullRequestMonitors: {
+      start: async (monitor, options) => {
+        if (!startPullRequestMonitor) {
+          throw new Error("Pull request monitors are not configured.");
+        }
+        await startPullRequestMonitor(task, monitor, {
+          command: slackCommand.command,
+          args,
+          ...(event.user ? { user: event.user } : {}),
+          ...(options?.metadata === undefined ? {} : { metadata: options.metadata }),
+        });
       },
     },
   };
@@ -46,20 +58,4 @@ export async function handleSlackCommand(
     helpers,
   );
   if (output) await helpers.slack.postThreadMessage({ text: output });
-}
-
-function toPullRequestContext(pullRequest: NonNullable<Task["pullRequest"]>): PullRequestContext {
-  return {
-    url: pullRequest.url,
-    ...(pullRequest.number !== undefined ? { number: pullRequest.number } : {}),
-    ...(pullRequest.title !== undefined ? { title: pullRequest.title } : {}),
-    ...(pullRequest.state !== undefined ? { state: pullRequest.state } : {}),
-    ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}),
-    ...(pullRequest.reviewDecision !== undefined
-      ? { reviewDecision: pullRequest.reviewDecision }
-      : {}),
-    ...(pullRequest.headRefName !== undefined ? { headRefName: pullRequest.headRefName } : {}),
-    ...(pullRequest.headRefOid !== undefined ? { headRefOid: pullRequest.headRefOid } : {}),
-    ...(pullRequest.labels !== undefined ? { labels: pullRequest.labels } : {}),
-  };
 }
