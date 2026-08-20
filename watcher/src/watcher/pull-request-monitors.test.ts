@@ -148,6 +148,97 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("does not run a replaced monitor after its pull request lookup completes", async () => {
+    await withStore(async (store) => {
+      const calls: string[] = [];
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      let resolveLookup!: (pullRequest: NonNullable<typeof task.pullRequest>) => void;
+      const firstLookup = new Promise<NonNullable<typeof task.pullRequest>>((resolve) => {
+        resolveLookup = resolve;
+      });
+      let lookupCalls = 0;
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient([]),
+        async () => {
+          lookupCalls += 1;
+          return lookupCalls === 1 ? firstLookup : task.pullRequest!;
+        },
+      );
+
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            calls.push("first");
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      const stalePoll = registry.poll();
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            calls.push("second");
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      resolveLookup(task.pullRequest!);
+
+      await stalePoll;
+      assert.deepEqual(calls, []);
+      await registry.poll();
+      assert.deepEqual(calls, ["second"]);
+    });
+  });
+
+  it("does not run a cancelled monitor after its pull request lookup completes", async () => {
+    await withStore(async (store) => {
+      let monitorCalls = 0;
+      const config = monitorConfig();
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = trackedTask(store);
+      let resolveLookup!: (pullRequest: NonNullable<typeof task.pullRequest>) => void;
+      const lookup = new Promise<NonNullable<typeof task.pullRequest>>((resolve) => {
+        resolveLookup = resolve;
+      });
+      const registry = new PullRequestMonitorRegistry(
+        config,
+        store,
+        fakeSlackClient([]),
+        async () => lookup,
+      );
+
+      registry.start(
+        task,
+        {
+          id: "preview",
+          run: () => {
+            monitorCalls += 1;
+            return { status: "pending" };
+          },
+        },
+        { command: "retry", args: [] },
+      );
+      const stalePoll = registry.poll();
+      const { task: taskOutsideReview } = store.updateTaskStatus(task.id, "In Progress");
+      registry.handleStatusTransition(taskOutsideReview);
+      resolveLookup(task.pullRequest!);
+
+      await stalePoll;
+      assert.equal(monitorCalls, 0);
+    });
+  });
+
   it("rejects a stale task after its stored status leaves In Review", async () => {
     await withStore((store) => {
       const config = monitorConfig();

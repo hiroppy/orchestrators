@@ -124,30 +124,36 @@ export class PullRequestMonitorRegistry {
     try {
       const pullRequest = await this.findPullRequestByUrl(task.pullRequest!.url);
       if (!pullRequest) throw new Error("GitHub pull request is unavailable.");
-      const result = await monitor.run({
-        service: task.serviceName,
-        issue: {
-          identifier: task.issueIdentifier,
-          ...(task.linkUrl ? { url: task.linkUrl } : {}),
-          title: task.title,
-        },
-        pullRequest: toPullRequestContext(pullRequest),
-        trigger: activation.trigger,
-      });
-      validateResult(result);
       if (this.activations.get(key) !== activation) return;
       const currentTask = this.getCurrentMonitorTask(activation);
       if (!currentTask) {
         this.activations.delete(key);
         return;
       }
+      const result = await monitor.run({
+        service: currentTask.serviceName,
+        issue: {
+          identifier: currentTask.issueIdentifier,
+          ...(currentTask.linkUrl ? { url: currentTask.linkUrl } : {}),
+          title: currentTask.title,
+        },
+        pullRequest: toPullRequestContext(pullRequest),
+        trigger: activation.trigger,
+      });
+      validateResult(result);
+      if (this.activations.get(key) !== activation) return;
+      const taskAfterRun = this.getCurrentMonitorTask(activation);
+      if (!taskAfterRun) {
+        this.activations.delete(key);
+        return;
+      }
       if (result.status === "complete") {
         const notifying = { ...activation, state: "notifying", message: result.message } as const;
         this.activations.set(key, notifying);
-        await this.notify(key, notifying, currentTask);
+        await this.notify(key, notifying, taskAfterRun);
         return;
       }
-      await this.recordFailedAttempt(key, activation, currentTask, monitor);
+      await this.recordFailedAttempt(key, activation, taskAfterRun, monitor);
     } catch (error) {
       console.error(
         `Pull request monitor ${monitor.id} failed for ${task.issueIdentifier}:`,
