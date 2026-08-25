@@ -77,7 +77,7 @@ describe("review-ready notifications", () => {
     });
   });
 
-  it("mentions assignees once after the same review SHA is quiet for 20 minutes", async () => {
+  it("mentions assignees once after the same review SHA is quiet for 10 minutes", async () => {
     await withStore(async (store) => {
       store.syncDefinitions([{ name: "service-a", url: "", linearTeam: "team" }], {
         team: linearTeams(["In Review"])["workspace-a-eng"],

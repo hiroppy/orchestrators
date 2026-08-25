@@ -268,7 +268,7 @@ tracker:
         },
         { requireSlack: false },
       ).reviewComment?.reviewReadyDelayMs,
-      20 * 60 * 1_000,
+      10 * 60 * 1_000,
     );
     assert.equal(
       resolveWatcherConfig(

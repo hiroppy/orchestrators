@@ -67,7 +67,7 @@ export default defineConfig({
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",
-      reviewReadyDelayMs: 20 * 60 * 1_000,
+      reviewReadyDelayMs: 10 * 60 * 1_000,
       symphonyGitHubLogins: ["your-symphony-account"],
     },
   },
@@ -78,7 +78,7 @@ export default defineConfig({
 Set `symphonyGitHubLogins` to every GitHub account Symphony uses to reply to reviews. Comments from
 those accounts and the pull request author are ignored, as are resolved or outdated review threads.
 For pull requests that stay ready at the same revision for `reviewReadyDelayMs`, the watcher also
-mentions the task's assignees. The delay is in milliseconds and defaults to 20 minutes when omitted;
+mentions the task's assignees. The delay is in milliseconds and defaults to 10 minutes when omitted;
 set it to `0` to notify on the first check after the revision has been observed. Changing the revision
 or moving the issue out of review resets the timer, but each pull request SHA is notified only once.
 Remove `reviewComment` to disable both automatic requeueing and review-ready notifications.
