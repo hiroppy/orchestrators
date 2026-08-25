@@ -53,8 +53,8 @@ importers:
         specifier: 9.6.0
         version: 9.6.0
       '@types/node':
-        specifier: 26.2.0
-        version: 26.2.0
+        specifier: 26.3.0
+        version: 26.3.0
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
@@ -1063,6 +1063,9 @@ packages:
 
   '@types/node@26.2.0':
     resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
+
+  '@types/node@26.3.0':
+    resolution: {integrity: sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -2301,21 +2304,21 @@ snapshots:
 
   '@slack/logger@5.0.0':
     dependencies:
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
 
   '@slack/oauth@4.0.0':
     dependencies:
       '@slack/logger': 5.0.0
       '@slack/web-api': 8.0.0
       '@types/jsonwebtoken': 9.0.10
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
       jsonwebtoken: 9.0.3
 
   '@slack/socket-mode@3.0.0(undici@7.29.0)':
     dependencies:
       '@slack/logger': 5.0.0
       '@slack/web-api': 8.0.0
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
       eventemitter3: 5.0.4
       undici: 7.29.0
 
@@ -2325,7 +2328,7 @@ snapshots:
     dependencies:
       '@slack/logger': 5.0.0
       '@slack/types': 3.0.0
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
       '@types/retry': 0.12.0
       eventemitter3: 5.0.4
       p-queue: 6.6.2
@@ -2339,7 +2342,7 @@ snapshots:
 
   '@types/better-sqlite3@9.6.0':
     dependencies:
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -2368,11 +2371,15 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 26.2.0
+      '@types/node': 26.3.0
 
   '@types/ms@2.1.0': {}
 
   '@types/node@26.2.0':
+    dependencies:
+      undici-types: 8.3.0
+
+  '@types/node@26.3.0':
     dependencies:
       undici-types: 8.3.0
 
