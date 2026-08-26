@@ -2,6 +2,7 @@ packages:
   - config
   - watcher
 minimumReleaseAgeExclude:
+  - knip
   - "@types/node"
   - oxfmt
   - "@oxfmt/*"
