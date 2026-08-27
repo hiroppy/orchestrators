@@ -11,6 +11,6 @@
     }
   },
   "dependencies": {
-    "@slack/web-api": "8.0.0"
+    "@slack/web-api": "8.1.0"
   }
 }
