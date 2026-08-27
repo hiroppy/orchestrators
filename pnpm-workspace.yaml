@@ -8,6 +8,11 @@ minimumReleaseAgeExclude:
   - "@oxfmt/*"
   - oxlint
   - "@oxlint/*"
+  - "@slack/types"
+  - "@slack/web-api"
+overrides:
+  "@slack/types": "3.1.0"
+  "@slack/web-api": "8.1.0"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
