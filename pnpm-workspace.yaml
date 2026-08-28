@@ -12,7 +12,7 @@ minimumReleaseAgeExclude:
   - "@slack/web-api"
 overrides:
   "@slack/types": "3.1.0"
-  "@slack/web-api": "8.1.0"
+  "@slack/web-api": "8.1.1"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
