@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { PullRequest } from "../domain/github.ts";
-import { runOnce } from "./run-once.ts";
+import { cachePullRequestLookups, runOnce } from "./run-once.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -13,6 +13,23 @@ import {
 import { runPullRequestMonitors } from "./pull-request-monitors.ts";
 
 describe("pull request monitors", () => {
+  it("upgrades cached metadata when review comment enrichment is requested", async () => {
+    const calls: boolean[] = [];
+    const findPullRequestByUrl = cachePullRequestLookups(async (url, options) => {
+      const enriched = options?.includeLatestReviewComment === true;
+      calls.push(enriched);
+      return { url, ...(enriched ? { latestReviewCommentAt: "2026-08-29T00:00:00Z" } : {}) };
+    });
+    const url = "https://github.com/example/repository/pull/42";
+
+    await findPullRequestByUrl(url);
+    const enriched = await findPullRequestByUrl(url, { includeLatestReviewComment: true });
+    await findPullRequestByUrl(url);
+
+    assert.deepEqual(calls, [false, true]);
+    assert.equal(enriched?.latestReviewCommentAt, "2026-08-29T00:00:00Z");
+  });
+
   it("uses the first observation as an in-memory baseline and reports later changes once", async () => {
     await withStore(async (store) => {
       const calls: Array<Record<string, unknown>> = [];

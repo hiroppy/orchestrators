@@ -146,15 +146,20 @@ export async function runOnce({
   };
 }
 
-function cachePullRequestLookups(
+export function cachePullRequestLookups(
   findPullRequestByUrl: typeof findPullRequestByUrlDefault,
 ): typeof findPullRequestByUrlDefault {
-  const observations = new Map<string, ReturnType<typeof findPullRequestByUrlDefault>>();
+  type Observation = ReturnType<typeof findPullRequestByUrlDefault>;
+  const observations = new Map<string, { basic?: Observation; enriched?: Observation }>();
   return (url, options) => {
-    const existing = observations.get(url);
+    const entry = observations.get(url) ?? {};
+    const needsEnrichment = options?.includeLatestReviewComment === true;
+    const existing = needsEnrichment ? entry.enriched : (entry.enriched ?? entry.basic);
     if (existing) return existing;
     const observation = findPullRequestByUrl(url, options);
-    observations.set(url, observation);
+    if (needsEnrichment) entry.enriched = observation;
+    else entry.basic = observation;
+    observations.set(url, entry);
     return observation;
   };
 }

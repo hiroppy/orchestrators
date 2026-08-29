@@ -78,8 +78,10 @@ function resolveMonitors(config: MonitorConfig[] | undefined, service: string): 
     if (!monitor || typeof monitor !== "object" || Array.isArray(monitor)) {
       throw new Error(`${label} must be an object.`);
     }
-    const id = monitor.id?.trim();
-    if (!id) throw new Error(`${label}.id must be a non-empty string.`);
+    if (typeof monitor.id !== "string" || !monitor.id.trim()) {
+      throw new Error(`${label}.id must be a non-empty string.`);
+    }
+    const id = monitor.id.trim();
     if (ids.has(id)) throw new Error(`${label}.id must be unique: ${id}`);
     ids.add(id);
     if (typeof monitor.run !== "function") throw new Error(`${label}.run must be a function.`);

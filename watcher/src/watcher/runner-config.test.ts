@@ -415,6 +415,8 @@ tracker:
     assert.deepEqual(config.services[0].monitors, [{ id: "review-progress", run }]);
     for (const monitors of [
       [{ id: "", run }],
+      [{ id: 42, run }],
+      [{ id: true, run }],
       [
         { id: "duplicate", run },
         { id: "duplicate", run },
