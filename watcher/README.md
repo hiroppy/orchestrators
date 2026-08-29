@@ -125,8 +125,8 @@ work such as CI or a build. Make that work a required CI check and use the hook 
 
 ### Pull request monitors
 
-Use `instances.<service>.monitors` to observe the complete pull request every 30 seconds while a
-task remains in a Linear status. The first observation establishes an in-memory baseline. Later
+Use `instances.<service>.monitors` to observe the complete pull request for each active task every
+30 seconds. The first observation establishes an in-memory baseline. Later
 calls receive both `pullRequest` and `previousPullRequest`, so one monitor can report label, CI,
 review, draft, and other PR changes together:
 
@@ -134,7 +134,6 @@ review, draft, and other PR changes together:
 monitors: [
   {
     id: "review-progress",
-    status: "In Review",
     run: ({ pullRequest: current, previousPullRequest: previous }) => {
       const messages: string[] = [];
       if (!previous.labels?.includes("ready") && current.labels?.includes("ready")) {

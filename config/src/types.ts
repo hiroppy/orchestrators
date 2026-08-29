@@ -115,7 +115,6 @@ export type MonitorHelpers = StatusHookHelpers;
 
 export interface MonitorConfig {
   id: string;
-  status: string;
   run: (context: MonitorContext, helpers: MonitorHelpers) => string | void | Promise<string | void>;
 }
 

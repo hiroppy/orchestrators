@@ -1,3 +1,5 @@
+import type { PullRequestCheckContext, PullRequestContext } from "orchestrator-config";
+
 export const GITHUB_REACTIONS = [
   "THUMBS_UP",
   "THUMBS_DOWN",
@@ -19,4 +21,3 @@ export interface PullRequest extends PullRequestContext {
   reactions?: GitHubReaction[];
   latestReviewCommentAt?: string | null;
 }
-import type { PullRequestCheckContext, PullRequestContext } from "orchestrator-config";

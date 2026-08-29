@@ -406,26 +406,20 @@ tracker:
     const config = resolveWatcherConfig(
       {
         ...configWithService({
-          monitors: [{ id: " review-progress ", status: " In Review ", run }],
+          monitors: [{ id: " review-progress ", run }],
         }),
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.services[0].monitors, [
-      { id: "review-progress", status: "In Review", run },
-    ]);
-    await assert.rejects(
-      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
-      /instances\.service-a\.monitors\[0\]\.status references unknown Linear status "In Review"/,
-    );
+    assert.deepEqual(config.services[0].monitors, [{ id: "review-progress", run }]);
     for (const monitors of [
-      [{ id: "", status: "In Review", run }],
+      [{ id: "", run }],
       [
-        { id: "duplicate", status: "In Review", run },
-        { id: "duplicate", status: "Done", run },
+        { id: "duplicate", run },
+        { id: "duplicate", run },
       ],
-      [{ id: "broken", status: "In Review" }],
+      [{ id: "broken" }],
     ]) {
       assert.throws(
         () =>

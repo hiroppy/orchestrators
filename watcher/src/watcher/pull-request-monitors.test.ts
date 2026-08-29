@@ -22,7 +22,6 @@ describe("pull request monitors", () => {
         monitors: [
           {
             id: "review-progress",
-            status: "In Review",
             run: ({ pullRequest: current, previousPullRequest: previous }) => {
               monitorRuns += 1;
               const messages: string[] = [];

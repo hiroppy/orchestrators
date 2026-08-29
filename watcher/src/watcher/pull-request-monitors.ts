@@ -6,7 +6,6 @@ import type { PullRequest } from "../domain/github.ts";
 import type { Task } from "../domain/task.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { normalizeStatus } from "../domain/status.ts";
 import { serviceConfigFor } from "./runtime-config.ts";
 
 export type PullRequestMonitorState = Map<string, PullRequest>;
@@ -28,19 +27,11 @@ export async function runPullRequestMonitors({
   state,
   findPullRequestByUrl = findPullRequestByUrlDefault,
 }: RunPullRequestMonitorsOptions): Promise<void> {
-  const statusesByService = new Map(
-    config.services.map((service) => [
-      service.name,
-      (service.monitors ?? []).map(({ status }) => status),
-    ]),
-  );
-  const tasks = store.getTasksForLinearSync(new Set(), statusesByService);
+  const tasks = store.getTasksForLinearSync();
   const monitoredTaskIds = new Set<string>();
 
   for (const task of tasks) {
-    const monitors = (serviceConfigFor(config, task.serviceName)?.monitors ?? []).filter(
-      ({ status }) => normalizeStatus(status) === normalizeStatus(task.status),
-    );
+    const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
     if (monitors.length === 0 || !task.pullRequest?.url) continue;
     monitoredTaskIds.add(task.id);
 

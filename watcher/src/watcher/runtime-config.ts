@@ -125,13 +125,6 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
         `instances.${service.name}.statusHooks[${index}].status references unknown Linear status "${hook.status}" for ${service.linearTeam}.`,
       );
     }
-    for (const [index, monitor] of (service.monitors ?? []).entries()) {
-      const normalizedStatus = normalizeStatus(monitor.status);
-      if (team.statuses.some((status) => normalizeStatus(status) === normalizedStatus)) continue;
-      throw new Error(
-        `instances.${service.name}.monitors[${index}].status references unknown Linear status "${monitor.status}" for ${service.linearTeam}.`,
-      );
-    }
   }
 }
 

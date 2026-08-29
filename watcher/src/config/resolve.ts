@@ -82,10 +82,8 @@ function resolveMonitors(config: MonitorConfig[] | undefined, service: string): 
     if (!id) throw new Error(`${label}.id must be a non-empty string.`);
     if (ids.has(id)) throw new Error(`${label}.id must be unique: ${id}`);
     ids.add(id);
-    const status = monitor.status?.trim();
-    if (!status) throw new Error(`${label}.status must be a non-empty string.`);
     if (typeof monitor.run !== "function") throw new Error(`${label}.run must be a function.`);
-    return { id, status, run: monitor.run };
+    return { id, run: monitor.run };
   });
 }
 

@@ -31,7 +31,7 @@ export default defineConfig({
       linearTeam: "workspace-a-eng",
       // Put local TypeScript hooks in ./hooks and import them from config.ts.
       statusHooks: [],
-      // Run every 30 seconds while a tracked task remains in the configured status.
+      // Run every 30 seconds for active tracked tasks with a pull request.
       monitors: [],
       // Put local TypeScript commands in ./commands and import them from config.ts.
       // They run only when mentioned from a tracked task thread for this service.
