@@ -125,10 +125,11 @@ work such as CI or a build. Make that work a required CI check and use the hook 
 
 ### Pull request monitors
 
-Use `instances.<service>.monitors` to observe the complete pull request for each active task every
-30 seconds. The first observation establishes an in-memory baseline. Later
-calls receive both `pullRequest` and `previousPullRequest`, so one monitor can report label, CI,
-review, draft, and other PR changes together:
+Use `instances.<service>.monitors` to observe the complete pull request every 30 seconds while a
+task is in `watcher.reviewComment.inReviewStatus`. The first observation establishes an in-memory
+baseline. Leaving that status clears the baseline, so returning to review starts with a fresh
+observation. Later calls receive both `pullRequest` and `previousPullRequest`, so one monitor can
+report label, CI, review, draft, and other PR changes together:
 
 ```ts
 monitors: [

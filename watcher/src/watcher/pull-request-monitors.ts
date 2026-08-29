@@ -3,6 +3,7 @@ import type { MonitorContext, MonitorHelpers } from "orchestrator-config";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { PullRequest } from "../domain/github.ts";
+import { normalizeStatus } from "../domain/status.ts";
 import type { Task } from "../domain/task.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { WatcherStore } from "../persistence/store.ts";
@@ -15,6 +16,7 @@ interface RunPullRequestMonitorsOptions {
   store: WatcherStore;
   slackClient: WebClient;
   watcherChannelId: string;
+  inReviewStatus?: string;
   state: PullRequestMonitorState;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
 }
@@ -24,15 +26,24 @@ export async function runPullRequestMonitors({
   store,
   slackClient,
   watcherChannelId,
+  inReviewStatus,
   state,
   findPullRequestByUrl = findPullRequestByUrlDefault,
 }: RunPullRequestMonitorsOptions): Promise<void> {
   const tasks = store.getTasksForLinearSync();
   const monitoredTaskIds = new Set<string>();
+  const normalizedInReviewStatus = normalizeStatus(inReviewStatus);
 
   for (const task of tasks) {
     const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
-    if (monitors.length === 0 || !task.pullRequest?.url) continue;
+    if (
+      !normalizedInReviewStatus ||
+      normalizeStatus(task.status) !== normalizedInReviewStatus ||
+      monitors.length === 0 ||
+      !task.pullRequest?.url
+    ) {
+      continue;
+    }
     monitoredTaskIds.add(task.id);
 
     const observedPullRequest = await findPullRequestByUrl(task.pullRequest.url);

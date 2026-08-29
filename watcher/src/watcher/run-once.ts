@@ -53,6 +53,7 @@ export async function runOnce({
       store,
       slackClient,
       watcherChannelId: slackChannelId,
+      inReviewStatus: config.reviewComment?.inReviewStatus,
       state: pullRequestMonitorState,
       findPullRequestByUrl,
     });

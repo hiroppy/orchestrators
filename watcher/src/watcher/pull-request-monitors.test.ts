@@ -60,6 +60,7 @@ describe("pull request monitors", () => {
         store,
         slackClient: fakeSlackClient(calls),
         watcherChannelId: "CWATCHER",
+        inReviewStatus: "In Review",
         state: new Map(),
         findPullRequestByUrl: async () => observed.shift() ?? null,
       };
@@ -123,6 +124,7 @@ describe("pull request monitors", () => {
         store,
         slackClient: fakeSlackClient([]),
         watcherChannelId: "CWATCHER",
+        inReviewStatus: "In Review",
         state: new Map(),
         findPullRequestByUrl: async () => observed.shift() ?? null,
       };
@@ -131,6 +133,62 @@ describe("pull request monitors", () => {
       await runPullRequestMonitors(options);
 
       assert.deepEqual(currentChecks, [undefined]);
+    });
+  });
+
+  it("stops monitoring outside the configured review status and resets the baseline", async () => {
+    await withStore(async (store) => {
+      let fetches = 0;
+      let monitorRuns = 0;
+      const service = {
+        name: "service-a",
+        url: "http://localhost:4101/api/v1/state",
+        linearTeam: "workspace-a-eng",
+        monitors: [
+          {
+            id: "checks",
+            run: () => {
+              monitorRuns += 1;
+            },
+          },
+        ],
+      };
+      const teams = linearTeams(["In Progress", "Human Review", "Done"]);
+      store.syncDefinitions([service], teams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Monitor the pull request",
+        state: "Human Review",
+        resolvedState: "Human Review",
+        pullRequest: pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }),
+      });
+      store.setParentMessage(task.id, "C123", "100.001", "summary");
+
+      const state = new Map();
+      const options = {
+        config: runtimeConfig({ services: [service], linearTeams: teams }),
+        store,
+        slackClient: fakeSlackClient([]),
+        watcherChannelId: "CWATCHER",
+        inReviewStatus: "Human Review",
+        state,
+        findPullRequestByUrl: async () => {
+          fetches += 1;
+          return pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" });
+        },
+      };
+
+      await runPullRequestMonitors(options);
+      store.updateTaskStatus(task.id, "In Progress");
+      await runPullRequestMonitors(options);
+      assert.equal(state.size, 0);
+      store.updateTaskStatus(task.id, "Human Review");
+      await runPullRequestMonitors(options);
+
+      assert.equal(fetches, 2);
+      assert.equal(monitorRuns, 0);
     });
   });
 });
