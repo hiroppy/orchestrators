@@ -83,7 +83,7 @@ describe("pull request monitors", () => {
     });
   });
 
-  it("does not retain checks when the observed pull request changes", async () => {
+  it("starts a fresh baseline when the observed pull request changes", async () => {
     await withStore(async (store) => {
       const observed: PullRequest[] = [
         pullRequest({ labels: ["review"], checkStatus: "COMPLETED" }),
@@ -132,7 +132,7 @@ describe("pull request monitors", () => {
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
 
-      assert.deepEqual(currentChecks, [undefined]);
+      assert.deepEqual(currentChecks, []);
     });
   });
 

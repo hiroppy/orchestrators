@@ -48,15 +48,6 @@ export async function runOnce({
 }: RunOnceOptions) {
   let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
-    await runPullRequestMonitors({
-      config,
-      store,
-      slackClient,
-      watcherChannelId: slackChannelId,
-      inReviewStatus: config.reviewComment?.inReviewStatus,
-      state: pullRequestMonitorState,
-      findPullRequestByUrl,
-    });
     await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
       hooks: [],
@@ -125,6 +116,15 @@ export async function runOnce({
       findPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,
+    });
+    await runPullRequestMonitors({
+      config,
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+      inReviewStatus: config.reviewComment?.inReviewStatus,
+      state: pullRequestMonitorState,
+      findPullRequestByUrl,
     });
   }
   return {

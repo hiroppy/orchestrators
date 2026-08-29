@@ -50,14 +50,20 @@ export async function runPullRequestMonitors({
     if (!observedPullRequest) continue;
 
     const previousPullRequest = state.get(task.id);
+    const samePullRequest = observedPullRequest.url === previousPullRequest?.url;
     const pullRequest =
-      observedPullRequest.url === previousPullRequest?.url &&
-      observedPullRequest.checks === undefined &&
-      previousPullRequest.checks !== undefined
+      samePullRequest && observedPullRequest.checks === undefined && previousPullRequest.checks
         ? { ...observedPullRequest, checks: previousPullRequest.checks }
         : observedPullRequest;
     state.set(task.id, pullRequest);
-    if (!previousPullRequest || !task.parentChannelId || !task.parentMessageTs) continue;
+    if (
+      !previousPullRequest ||
+      !samePullRequest ||
+      !task.parentChannelId ||
+      !task.parentMessageTs
+    ) {
+      continue;
+    }
 
     const context = createMonitorContext(task, pullRequest, previousPullRequest);
     const helpers = createMonitorHelpers(task, slackClient, watcherChannelId);
