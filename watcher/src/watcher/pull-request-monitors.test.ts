@@ -12,6 +12,10 @@ describe("pull request monitors", () => {
       const observed: PullRequest[] = [
         pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }),
         pullRequest({ labels: ["review", "ready"], checkStatus: "COMPLETED" }),
+        {
+          url: "https://github.com/example/repository/pull/42",
+          labels: ["review", "ready"],
+        },
         pullRequest({ labels: ["review", "ready"], checkStatus: "COMPLETED" }),
       ];
       let monitorRuns = 0;
@@ -63,8 +67,10 @@ describe("pull request monitors", () => {
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
+      await runPullRequestMonitors(options);
+      await runPullRequestMonitors(options);
 
-      assert.equal(monitorRuns, 2);
+      assert.equal(monitorRuns, 3);
       assert.deepEqual(calls, [
         {
           method: "postMessage",

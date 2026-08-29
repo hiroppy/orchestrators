@@ -35,10 +35,14 @@ export async function runPullRequestMonitors({
     if (monitors.length === 0 || !task.pullRequest?.url) continue;
     monitoredTaskIds.add(task.id);
 
-    const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
-    if (!pullRequest) continue;
+    const observedPullRequest = await findPullRequestByUrl(task.pullRequest.url);
+    if (!observedPullRequest) continue;
 
     const previousPullRequest = state.get(task.id);
+    const pullRequest =
+      observedPullRequest.checks === undefined && previousPullRequest?.checks !== undefined
+        ? { ...observedPullRequest, checks: previousPullRequest.checks }
+        : observedPullRequest;
     state.set(task.id, pullRequest);
     if (!previousPullRequest || !task.parentChannelId || !task.parentMessageTs) continue;
 
