@@ -81,6 +81,11 @@ describe("findPullRequest", () => {
                   conclusion: "SUCCESS",
                   detailsUrl: "https://github.com/example/example-service/actions/runs/1",
                 },
+                {
+                  context: "deployment",
+                  state: "PENDING",
+                  targetUrl: "https://ci.example.com/deployments/1",
+                },
               ],
             }),
           };
@@ -110,6 +115,13 @@ describe("findPullRequest", () => {
           status: "COMPLETED",
           conclusion: "SUCCESS",
           detailsUrl: "https://github.com/example/example-service/actions/runs/1",
+        },
+        {
+          name: "deployment",
+          workflowName: null,
+          status: "IN_PROGRESS",
+          conclusion: null,
+          detailsUrl: "https://ci.example.com/deployments/1",
         },
       ],
     });

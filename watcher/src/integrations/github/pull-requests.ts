@@ -170,12 +170,16 @@ function toPullRequestCheck(
 ): PullRequestCheck[] {
   const name = check.name ?? check.context;
   if (!name) return [];
+  const legacyStatus = check.state?.toUpperCase();
+  const legacyPending = legacyStatus === "PENDING" || legacyStatus === "EXPECTED";
+  const status = check.status ?? (legacyPending ? "IN_PROGRESS" : legacyStatus && "COMPLETED");
+  const conclusion = check.conclusion ?? (legacyPending ? null : legacyStatus);
   return [
     {
       name,
       workflowName: check.workflowName ?? null,
-      status: check.status ?? (check.state ? "COMPLETED" : null),
-      conclusion: check.conclusion ?? check.state ?? null,
+      status: status || null,
+      conclusion: conclusion ?? null,
       detailsUrl: check.detailsUrl ?? check.targetUrl ?? null,
     },
   ];
