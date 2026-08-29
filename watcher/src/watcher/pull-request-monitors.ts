@@ -72,7 +72,10 @@ export async function runPullRequestMonitors({
       continue;
     }
 
-    const context = createMonitorContext(task, pullRequest, previousPullRequest);
+    const previousForMonitor = sameHead
+      ? previousPullRequest
+      : { ...previousPullRequest, checks: undefined };
+    const context = createMonitorContext(task, pullRequest, previousForMonitor);
     const helpers = createMonitorHelpers(task, slackClient, watcherChannelId);
     for (const monitor of monitors) {
       try {

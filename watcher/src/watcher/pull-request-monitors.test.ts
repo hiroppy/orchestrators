@@ -164,11 +164,6 @@ describe("pull request monitors", () => {
     await withStore(async (store) => {
       const observed: PullRequest[] = [
         pullRequest({ labels: ["review"], checkStatus: "COMPLETED", headRefOid: "old" }),
-        {
-          url: "https://github.com/example/repository/pull/42",
-          headRefOid: "new",
-          labels: ["review"],
-        },
         pullRequest({ labels: ["review"], checkStatus: "COMPLETED", headRefOid: "new" }),
       ];
       let completions = 0;
@@ -212,7 +207,6 @@ describe("pull request monitors", () => {
         findPullRequestByUrl: async () => observed.shift() ?? null,
       };
 
-      await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
 
