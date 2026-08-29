@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { PullRequest } from "../domain/github.ts";
+import type { ServiceDefinition } from "../domain/service.ts";
+import type { WatcherStore } from "../persistence/store.ts";
 import { cachePullRequestLookups, runOnce } from "./run-once.ts";
 import {
   dataUrl,
@@ -43,51 +45,27 @@ describe("pull request monitors", () => {
         pullRequest({ labels: ["review", "ready"], checkStatus: "COMPLETED" }),
       ];
       let monitorRuns = 0;
-      const service = {
-        name: "service-a",
-        url: "http://localhost:4101/api/v1/state",
-        linearTeam: "workspace-a-eng",
-        pullRequestMonitors: [
-          {
-            id: "review-progress",
-            run: ({ pullRequest: current, previousPullRequest: previous }) => {
-              monitorRuns += 1;
-              const messages: string[] = [];
-              if (!previous.labels?.includes("ready") && current.labels?.includes("ready")) {
-                messages.push("ready label added");
-              }
-              const oldCheck = previous.checks?.find(({ name }) => name === "test");
-              const newCheck = current.checks?.find(({ name }) => name === "test");
-              if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
-                messages.push("test completed");
-              }
-              return messages.length > 0 ? messages.join("\n") : undefined;
-            },
-          },
-        ],
-      };
-      const teams = linearTeams(["Todo", "In Review", "Done"]);
-      store.syncDefinitions([service], teams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-42",
-        issueTitle: "Monitor the pull request",
-        state: "In Review",
-        resolvedState: "In Review",
-        pullRequest: observed[0],
-      });
-      store.setParentMessage(task.id, "C123", "100.001", "summary");
-
-      const options = {
-        config: runtimeConfig({ services: [service], linearTeams: teams }),
+      const options = setupMonitor(
         store,
-        slackClient: fakeSlackClient(calls),
-        watcherChannelId: "CWATCHER",
-        inReviewStatus: "In Review",
-        state: new Map(),
-        findPullRequestByUrl: async () => observed.shift() ?? null,
-      };
+        observed,
+        {
+          id: "review-progress",
+          run: ({ pullRequest: current, previousPullRequest: previous }) => {
+            monitorRuns += 1;
+            const messages: string[] = [];
+            if (!previous.labels?.includes("ready") && current.labels?.includes("ready")) {
+              messages.push("ready label added");
+            }
+            const oldCheck = previous.checks?.find(({ name }) => name === "test");
+            const newCheck = current.checks?.find(({ name }) => name === "test");
+            if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
+              messages.push("test completed");
+            }
+            return messages.length > 0 ? messages.join("\n") : undefined;
+          },
+        },
+        { slackCalls: calls },
+      );
 
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
@@ -117,41 +95,12 @@ describe("pull request monitors", () => {
         },
       ];
       const currentChecks: Array<PullRequest["checks"]> = [];
-      const service = {
-        name: "service-a",
-        url: "http://localhost:4101/api/v1/state",
-        linearTeam: "workspace-a-eng",
-        pullRequestMonitors: [
-          {
-            id: "checks",
-            run: ({ pullRequest: current }) => {
-              currentChecks.push(current.checks);
-            },
-          },
-        ],
-      };
-      const teams = linearTeams(["Todo", "In Review", "Done"]);
-      store.syncDefinitions([service], teams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-42",
-        issueTitle: "Monitor the pull request",
-        state: "In Review",
-        resolvedState: "In Review",
-        pullRequest: observed[0],
+      const options = setupMonitor(store, observed, {
+        id: "checks",
+        run: ({ pullRequest: current }) => {
+          currentChecks.push(current.checks);
+        },
       });
-      store.setParentMessage(task.id, "C123", "100.001", "summary");
-
-      const options = {
-        config: runtimeConfig({ services: [service], linearTeams: teams }),
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "CWATCHER",
-        inReviewStatus: "In Review",
-        state: new Map(),
-        findPullRequestByUrl: async () => observed.shift() ?? null,
-      };
 
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
@@ -167,45 +116,16 @@ describe("pull request monitors", () => {
         pullRequest({ labels: ["review"], checkStatus: "COMPLETED", headRefOid: "new" }),
       ];
       let completions = 0;
-      const service = {
-        name: "service-a",
-        url: "http://localhost:4101/api/v1/state",
-        linearTeam: "workspace-a-eng",
-        pullRequestMonitors: [
-          {
-            id: "checks",
-            run: ({ pullRequest: current, previousPullRequest: previous }) => {
-              const oldCheck = previous.checks?.find(({ name }) => name === "test");
-              const newCheck = current.checks?.find(({ name }) => name === "test");
-              if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
-                completions += 1;
-              }
-            },
-          },
-        ],
-      };
-      const teams = linearTeams(["In Review", "Done"]);
-      store.syncDefinitions([service], teams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-42",
-        issueTitle: "Monitor the pull request",
-        state: "In Review",
-        resolvedState: "In Review",
-        pullRequest: observed[0],
+      const options = setupMonitor(store, observed, {
+        id: "checks",
+        run: ({ pullRequest: current, previousPullRequest: previous }) => {
+          const oldCheck = previous.checks?.find(({ name }) => name === "test");
+          const newCheck = current.checks?.find(({ name }) => name === "test");
+          if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
+            completions += 1;
+          }
+        },
       });
-      store.setParentMessage(task.id, "C123", "100.001", "summary");
-
-      const options = {
-        config: runtimeConfig({ services: [service], linearTeams: teams }),
-        store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "CWATCHER",
-        inReviewStatus: "In Review",
-        state: new Map(),
-        findPullRequestByUrl: async () => observed.shift() ?? null,
-      };
 
       await runPullRequestMonitors(options);
       await runPullRequestMonitors(options);
@@ -218,51 +138,29 @@ describe("pull request monitors", () => {
     await withStore(async (store) => {
       let fetches = 0;
       let monitorRuns = 0;
-      const service = {
-        name: "service-a",
-        url: "http://localhost:4101/api/v1/state",
-        linearTeam: "workspace-a-eng",
-        pullRequestMonitors: [
-          {
-            id: "checks",
-            run: () => {
-              monitorRuns += 1;
-            },
-          },
-        ],
-      };
-      const teams = linearTeams(["In Progress", "Human Review", "Done"]);
-      store.syncDefinitions([service], teams);
-      const task = store.upsertTaskFromEvent({
-        type: "updated",
-        service: "service-a",
-        issueIdentifier: "ENG-42",
-        issueTitle: "Monitor the pull request",
-        state: "Human Review",
-        resolvedState: "Human Review",
-        pullRequest: pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }),
-      });
-      store.setParentMessage(task.id, "C123", "100.001", "summary");
-
-      const state = new Map();
-      const options = {
-        config: runtimeConfig({ services: [service], linearTeams: teams }),
+      const observation = pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" });
+      const options = setupMonitor(
         store,
-        slackClient: fakeSlackClient([]),
-        watcherChannelId: "CWATCHER",
-        inReviewStatus: "Human Review",
-        state,
-        findPullRequestByUrl: async () => {
-          fetches += 1;
-          return pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" });
+        [observation],
+        {
+          id: "checks",
+          run: () => {
+            monitorRuns += 1;
+          },
         },
+        { status: "Human Review", statuses: ["In Progress", "Human Review", "Done"] },
+      );
+      const { state } = options;
+      options.findPullRequestByUrl = async () => {
+        fetches += 1;
+        return observation;
       };
 
       await runPullRequestMonitors(options);
-      store.updateTaskStatus(task.id, "In Progress");
+      store.updateTaskStatus("service-a:ENG-42", "In Progress");
       await runPullRequestMonitors(options);
       assert.equal(state.size, 0);
-      store.updateTaskStatus(task.id, "Human Review");
+      store.updateTaskStatus("service-a:ENG-42", "Human Review");
       await runPullRequestMonitors(options);
 
       assert.equal(fetches, 2);
@@ -382,6 +280,52 @@ describe("pull request monitors", () => {
     });
   });
 });
+
+type PullRequestMonitor = NonNullable<ServiceDefinition["pullRequestMonitors"]>[number];
+
+function setupMonitor(
+  store: WatcherStore,
+  observed: PullRequest[],
+  monitor: PullRequestMonitor,
+  {
+    status = "In Review",
+    statuses = ["Todo", "In Review", "Done"],
+    slackCalls = [],
+  }: {
+    status?: string;
+    statuses?: string[];
+    slackCalls?: Array<Record<string, unknown>>;
+  } = {},
+): Parameters<typeof runPullRequestMonitors>[0] {
+  const service: ServiceDefinition = {
+    name: "service-a",
+    url: "http://localhost:4101/api/v1/state",
+    linearTeam: "workspace-a-eng",
+    pullRequestMonitors: [monitor],
+  };
+  const teams = linearTeams(statuses);
+  store.syncDefinitions([service], teams);
+  const task = store.upsertTaskFromEvent({
+    type: "updated",
+    service: service.name,
+    issueIdentifier: "ENG-42",
+    issueTitle: "Monitor the pull request",
+    state: status,
+    resolvedState: status,
+    pullRequest: observed[0],
+  });
+  store.setParentMessage(task.id, "C123", "100.001", "summary");
+
+  return {
+    config: runtimeConfig({ services: [service], linearTeams: teams }),
+    store,
+    slackClient: fakeSlackClient(slackCalls),
+    watcherChannelId: "CWATCHER",
+    inReviewStatus: status,
+    state: new Map(),
+    findPullRequestByUrl: async () => observed.shift() ?? null,
+  };
+}
 
 function pullRequest({
   labels,

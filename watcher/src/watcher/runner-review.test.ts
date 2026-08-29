@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 
 import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
@@ -320,30 +320,7 @@ describe("watcher review requeue", () => {
         retrying: [],
         blocked: [],
       };
-      const nativeFetch = globalThis.fetch;
-      context.mock.method(globalThis, "fetch", async (url, options) => {
-        if (String(url).startsWith("data:")) return nativeFetch(url, options);
-        const { query } = JSON.parse(String(options?.body)) as { query: string };
-        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
-          return Response.json({
-            data: {
-              issue0: { identifier: "ENG-62", state: { name: "In Review", type: "started" } },
-            },
-          });
-        }
-        return Response.json({
-          data: {
-            issue: {
-              id: "linear-62",
-              identifier: "ENG-62",
-              title: "Review me",
-              state: { name: "In Review", type: "started" },
-              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
-              relations: { nodes: [] },
-            },
-          },
-        });
-      });
+      mockInReviewIssue(context, "https://github.com/acme/example/pull/42");
       const config = reviewConfig(dataUrl(snapshot));
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });
@@ -383,30 +360,7 @@ describe("watcher review requeue", () => {
         retrying: [],
         blocked: [],
       };
-      const nativeFetch = globalThis.fetch;
-      context.mock.method(globalThis, "fetch", async (url, options) => {
-        if (String(url).startsWith("data:")) return nativeFetch(url, options);
-        const { query } = JSON.parse(String(options?.body)) as { query: string };
-        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
-          return Response.json({
-            data: {
-              issue0: { identifier: "ENG-62", state: { name: "In Review", type: "started" } },
-            },
-          });
-        }
-        return Response.json({
-          data: {
-            issue: {
-              id: "linear-62",
-              identifier: "ENG-62",
-              title: "Review me",
-              state: { name: "In Review", type: "started" },
-              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
-              relations: { nodes: [] },
-            },
-          },
-        });
-      });
+      mockInReviewIssue(context, "https://github.com/acme/example/pull/42");
       const config = reviewConfig(dataUrl(snapshot));
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });
@@ -437,3 +391,30 @@ describe("watcher review requeue", () => {
     });
   });
 });
+
+function mockInReviewIssue(context: TestContext, pullRequestUrl: string): void {
+  const nativeFetch = globalThis.fetch;
+  context.mock.method(globalThis, "fetch", async (url, options) => {
+    if (String(url).startsWith("data:")) return nativeFetch(url, options);
+    const { query } = JSON.parse(String(options?.body)) as { query: string };
+    if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+      return Response.json({
+        data: {
+          issue0: { identifier: "ENG-62", state: { name: "In Review", type: "started" } },
+        },
+      });
+    }
+    return Response.json({
+      data: {
+        issue: {
+          id: "linear-62",
+          identifier: "ENG-62",
+          title: "Review me",
+          state: { name: "In Review", type: "started" },
+          attachments: { nodes: [{ url: pullRequestUrl }] },
+          relations: { nodes: [] },
+        },
+      },
+    });
+  });
+}
