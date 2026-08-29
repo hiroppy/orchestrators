@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
+import type { PullRequest } from "../domain/github.ts";
 import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 import { runOnce } from "./run-once.ts";
@@ -374,18 +375,37 @@ describe("watcher review requeue", () => {
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
 
-      await runOnce({
-        config,
-        store,
-        slackClient: fakeSlackClient([]),
-        slackChannelId: "C123",
-        findPullRequestByUrl: async (url) => ({ url, number: 42, title: "Replacement PR" }),
+      const observations: Array<PullRequest | null> = [
+        null,
+        {
+          url: "https://github.com/acme/example/pull/42",
+          number: 42,
+          title: "Replacement PR",
+          labels: ["ready"],
+        },
+      ];
+      const run = () =>
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+          findPullRequestByUrl: async () => observations.shift() ?? null,
+        });
+
+      await run();
+      assert.deepEqual(store.getTask(task.id)?.pullRequest, {
+        url: "https://github.com/acme/example/pull/42",
+        number: 42,
       });
+
+      await run();
 
       assert.deepEqual(store.getTask(task.id)?.pullRequest, {
         url: "https://github.com/acme/example/pull/42",
         number: 42,
         title: "Replacement PR",
+        labels: ["ready"],
       });
       assert.equal(store.getTask(task.id)?.status, "In Review");
     });

@@ -1,6 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
+import type { PullRequest } from "../domain/github.ts";
 import { enteredTerminalLinearState, isTerminalLinearStateType } from "../domain/linear.ts";
 import type { Task } from "../domain/task.ts";
 import type { WatcherEvent } from "../domain/watcher-event.ts";
@@ -168,7 +169,7 @@ export async function reconcileLinearStatuses({
       }).catch(() => null);
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
-    if (pullRequest?.url !== task.pullRequest?.url) {
+    if (storedPullRequestChanged(task.pullRequest, pullRequest)) {
       store.setTaskPullRequest(task.id, pullRequest);
     }
     await syncPullRequestReactionsSafely(slackClient, task, pullRequest);
@@ -222,6 +223,18 @@ export async function reconcileLinearStatuses({
     }
   }
   return pendingPersistedTerminalTaskIds;
+}
+
+function storedPullRequestChanged(
+  previous: PullRequest | undefined,
+  current: PullRequest | undefined,
+) {
+  return (
+    previous?.url !== current?.url ||
+    previous?.number !== current?.number ||
+    previous?.title !== current?.title ||
+    JSON.stringify(previous?.labels) !== JSON.stringify(current?.labels)
+  );
 }
 
 function isTaskEligibleForNormalLinearReconciliation(
