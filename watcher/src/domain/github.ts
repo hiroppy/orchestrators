@@ -11,29 +11,12 @@ export const GITHUB_REACTIONS = [
 
 export type GitHubReaction = (typeof GITHUB_REACTIONS)[number];
 
-export interface PullRequestCheck {
-  name: string;
-  workflowName?: string | null;
-  status?: string | null;
-  conclusion?: string | null;
-  detailsUrl?: string | null;
-}
+export type PullRequestCheck = PullRequestCheckContext;
 
-export interface PullRequest {
-  url: string;
-  number?: number | null;
-  title?: string | null;
+export interface PullRequest extends PullRequestContext {
   body?: string | null;
-  state?: string | null;
-  isDraft?: boolean | null;
-  reviewDecision?: string | null;
-  mergeable?: string | null;
-  headRefName?: string | null;
-  headRefOid?: string | null;
-  baseRefName?: string | null;
   repository?: string | null;
-  labels?: string[];
   reactions?: GitHubReaction[];
   latestReviewCommentAt?: string | null;
-  checks?: PullRequestCheck[];
 }
+import type { PullRequestCheckContext, PullRequestContext } from "orchestrator-config";
