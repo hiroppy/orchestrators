@@ -47,7 +47,7 @@ export async function runPullRequestMonitors({
   const tasks = monitoredTasks(config, store, inReviewStatus);
 
   for (const task of tasks) {
-    const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
+    const monitors = serviceConfigFor(config, task.serviceName)?.pullRequestMonitors ?? [];
 
     const observedPullRequest = await findPullRequestByUrl(task.pullRequest!.url);
     if (!observedPullRequest) continue;
@@ -97,7 +97,7 @@ function monitoredTasks(
   const normalizedInReviewStatus = normalizeStatus(inReviewStatus);
   if (!normalizedInReviewStatus) return [];
   return store.getTasksForLinearSync().filter((task) => {
-    const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
+    const monitors = serviceConfigFor(config, task.serviceName)?.pullRequestMonitors ?? [];
     return (
       normalizeStatus(task.status) === normalizedInReviewStatus &&
       monitors.length > 0 &&

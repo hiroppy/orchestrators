@@ -14,7 +14,7 @@ export interface ServiceDefinition {
   url: string;
   linearTeam: string;
   statusHooks?: StatusHookConfig[];
-  monitors?: MonitorConfig[];
+  pullRequestMonitors?: MonitorConfig[];
   slackCommands?: SlackCommandConfig[];
   activeStates?: string[];
   terminalStates?: string[];

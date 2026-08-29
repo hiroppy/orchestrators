@@ -13,7 +13,7 @@ export interface InstanceConfig {
   linearTeam: string;
   enabled?: boolean;
   statusHooks?: StatusHookConfig[];
-  monitors?: MonitorConfig[];
+  pullRequestMonitors?: MonitorConfig[];
   slackCommands?: SlackCommandConfig[];
 }
 

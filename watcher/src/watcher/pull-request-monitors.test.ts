@@ -47,7 +47,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: "http://localhost:4101/api/v1/state",
         linearTeam: "workspace-a-eng",
-        monitors: [
+        pullRequestMonitors: [
           {
             id: "review-progress",
             run: ({ pullRequest: current, previousPullRequest: previous }) => {
@@ -121,7 +121,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: "http://localhost:4101/api/v1/state",
         linearTeam: "workspace-a-eng",
-        monitors: [
+        pullRequestMonitors: [
           {
             id: "checks",
             run: ({ pullRequest: current }) => {
@@ -176,7 +176,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: "http://localhost:4101/api/v1/state",
         linearTeam: "workspace-a-eng",
-        monitors: [
+        pullRequestMonitors: [
           {
             id: "checks",
             run: ({ pullRequest: current, previousPullRequest: previous }) => {
@@ -228,7 +228,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: "http://localhost:4101/api/v1/state",
         linearTeam: "workspace-a-eng",
-        monitors: [
+        pullRequestMonitors: [
           {
             id: "checks",
             run: () => {
@@ -282,7 +282,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: dataUrl({ running: [], retrying: [], blocked: [] }),
         linearTeam: "workspace-a-eng",
-        monitors: [{ id: "checks", run: () => undefined }],
+        pullRequestMonitors: [{ id: "checks", run: () => undefined }],
       };
       const teams = linearTeams(["In Progress", "Human Review", "Done"]);
       const config = runtimeConfig({
@@ -349,7 +349,7 @@ describe("pull request monitors", () => {
         name: "service-a",
         url: dataUrl({ running: [], retrying: [], blocked: [] }),
         linearTeam: "workspace-a-eng",
-        monitors: [{ id: "checks", run: () => undefined }],
+        pullRequestMonitors: [{ id: "checks", run: () => undefined }],
       };
       const teams = linearTeams(["In Progress", "In Review", "Done"]);
       const config = runtimeConfig({

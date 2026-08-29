@@ -32,7 +32,7 @@ export default defineConfig({
       // Put local TypeScript hooks in ./hooks and import them from config.ts.
       statusHooks: [],
       // Run every 30 seconds for active tracked tasks with a pull request.
-      monitors: [],
+      pullRequestMonitors: [],
       // Put local TypeScript commands in ./commands and import them from config.ts.
       // They run only when mentioned from a tracked task thread for this service.
       slackCommands: [],

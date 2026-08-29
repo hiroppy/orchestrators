@@ -45,7 +45,7 @@ export function resolveWatcherConfig(
     url: observabilityUrl(instance.port),
     linearTeam: instance.linearTeam,
     statusHooks: resolveStatusHooks(instance.statusHooks, name),
-    monitors: resolveMonitors(instance.monitors, name),
+    pullRequestMonitors: resolvePullRequestMonitors(instance.pullRequestMonitors, name),
     slackCommands: resolveSlackCommands(instance.slackCommands, name),
   }));
   const endedTaskRetry = {
@@ -68,13 +68,18 @@ export function resolveWatcherConfig(
   };
 }
 
-function resolveMonitors(config: MonitorConfig[] | undefined, service: string): MonitorConfig[] {
+function resolvePullRequestMonitors(
+  config: MonitorConfig[] | undefined,
+  service: string,
+): MonitorConfig[] {
   if (config === undefined) return [];
-  if (!Array.isArray(config)) throw new Error(`instances.${service}.monitors must be an array.`);
+  if (!Array.isArray(config)) {
+    throw new Error(`instances.${service}.pullRequestMonitors must be an array.`);
+  }
 
   const ids = new Set<string>();
   return config.map((monitor, index) => {
-    const label = `instances.${service}.monitors[${index}]`;
+    const label = `instances.${service}.pullRequestMonitors[${index}]`;
     if (!monitor || typeof monitor !== "object" || Array.isArray(monitor)) {
       throw new Error(`${label} must be an object.`);
     }

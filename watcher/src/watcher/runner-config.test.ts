@@ -406,14 +406,14 @@ tracker:
     const config = resolveWatcherConfig(
       {
         ...configWithService({
-          monitors: [{ id: " review-progress ", run }],
+          pullRequestMonitors: [{ id: " review-progress ", run }],
         }),
       },
       { requireSlack: false },
     );
 
-    assert.deepEqual(config.services[0].monitors, [{ id: "review-progress", run }]);
-    for (const monitors of [
+    assert.deepEqual(config.services[0].pullRequestMonitors, [{ id: "review-progress", run }]);
+    for (const pullRequestMonitors of [
       [{ id: "", run }],
       [{ id: 42, run }],
       [{ id: true, run }],
@@ -426,10 +426,10 @@ tracker:
       assert.throws(
         () =>
           resolveWatcherConfig(
-            { ...configWithService({ monitors: monitors as never }) },
+            { ...configWithService({ pullRequestMonitors: pullRequestMonitors as never }) },
             { requireSlack: false },
           ),
-        /instances\.service-a\.monitors/,
+        /instances\.service-a\.pullRequestMonitors/,
       );
     }
   });
