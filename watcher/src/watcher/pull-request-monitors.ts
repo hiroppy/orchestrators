@@ -21,6 +21,20 @@ interface RunPullRequestMonitorsOptions {
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
 }
 
+type ClearPullRequestMonitorStateOptions = Pick<
+  RunPullRequestMonitorsOptions,
+  "config" | "store" | "inReviewStatus" | "state"
+>;
+
+export function clearInactivePullRequestMonitorState({
+  config,
+  store,
+  inReviewStatus,
+  state,
+}: ClearPullRequestMonitorStateOptions): void {
+  clearUnmonitoredState(state, monitoredTasks(config, store, inReviewStatus));
+}
+
 export async function runPullRequestMonitors({
   config,
   store,
@@ -30,23 +44,12 @@ export async function runPullRequestMonitors({
   state,
   findPullRequestByUrl = findPullRequestByUrlDefault,
 }: RunPullRequestMonitorsOptions): Promise<void> {
-  const tasks = store.getTasksForLinearSync();
-  const monitoredTaskIds = new Set<string>();
-  const normalizedInReviewStatus = normalizeStatus(inReviewStatus);
+  const tasks = monitoredTasks(config, store, inReviewStatus);
 
   for (const task of tasks) {
     const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
-    if (
-      !normalizedInReviewStatus ||
-      normalizeStatus(task.status) !== normalizedInReviewStatus ||
-      monitors.length === 0 ||
-      !task.pullRequest?.url
-    ) {
-      continue;
-    }
-    monitoredTaskIds.add(task.id);
 
-    const observedPullRequest = await findPullRequestByUrl(task.pullRequest.url);
+    const observedPullRequest = await findPullRequestByUrl(task.pullRequest!.url);
     if (!observedPullRequest) continue;
 
     const previousPullRequest = state.get(task.id);
@@ -79,6 +82,28 @@ export async function runPullRequestMonitors({
     }
   }
 
+  clearUnmonitoredState(state, tasks);
+}
+
+function monitoredTasks(
+  config: ResolvedWatcherRuntimeConfig,
+  store: WatcherStore,
+  inReviewStatus?: string,
+): Task[] {
+  const normalizedInReviewStatus = normalizeStatus(inReviewStatus);
+  if (!normalizedInReviewStatus) return [];
+  return store.getTasksForLinearSync().filter((task) => {
+    const monitors = serviceConfigFor(config, task.serviceName)?.monitors ?? [];
+    return (
+      normalizeStatus(task.status) === normalizedInReviewStatus &&
+      monitors.length > 0 &&
+      Boolean(task.pullRequest?.url)
+    );
+  });
+}
+
+function clearUnmonitoredState(state: PullRequestMonitorState, tasks: Task[]): void {
+  const monitoredTaskIds = new Set(tasks.map(({ id }) => id));
   for (const taskId of state.keys()) {
     if (!monitoredTaskIds.has(taskId)) state.delete(taskId);
   }

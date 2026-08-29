@@ -14,7 +14,11 @@ import { processWatcherEvent } from "./process-event.ts";
 import { reconcileLinearStatuses } from "./reconcile-linear-statuses.ts";
 import { decideReviewRequeue } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
-import { runPullRequestMonitors, type PullRequestMonitorState } from "./pull-request-monitors.ts";
+import {
+  clearInactivePullRequestMonitorState,
+  runPullRequestMonitors,
+  type PullRequestMonitorState,
+} from "./pull-request-monitors.ts";
 import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
@@ -106,6 +110,12 @@ export async function runOnce({
 
   store.replaceSnapshots(current);
   await publishTaskActivities(slackClient, store, current);
+  clearInactivePullRequestMonitorState({
+    config,
+    store,
+    inReviewStatus: config.reviewComment?.inReviewStatus,
+    state: pullRequestMonitorState,
+  });
   if (runPeriodicMaintenance) {
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,

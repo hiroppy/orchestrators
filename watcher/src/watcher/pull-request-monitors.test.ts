@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { PullRequest } from "../domain/github.ts";
-import { fakeSlackClient, linearTeams, runtimeConfig, withStore } from "./runner.test-support.ts";
+import { runOnce } from "./run-once.ts";
+import {
+  dataUrl,
+  fakeSlackClient,
+  linearTeams,
+  runtimeConfig,
+  withStore,
+} from "./runner.test-support.ts";
 import { runPullRequestMonitors } from "./pull-request-monitors.ts";
 
 describe("pull request monitors", () => {
@@ -189,6 +196,48 @@ describe("pull request monitors", () => {
 
       assert.equal(fetches, 2);
       assert.equal(monitorRuns, 0);
+    });
+  });
+
+  it("clears the baseline outside periodic maintenance after leaving review", async () => {
+    await withStore(async (store) => {
+      const service = {
+        name: "service-a",
+        url: dataUrl({ running: [], retrying: [], blocked: [] }),
+        linearTeam: "workspace-a-eng",
+        monitors: [{ id: "checks", run: () => undefined }],
+      };
+      const teams = linearTeams(["In Progress", "Human Review", "Done"]);
+      const config = runtimeConfig({
+        services: [service],
+        linearTeams: teams,
+        reviewComment: {
+          inReviewStatus: "Human Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions([service], teams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Monitor the pull request",
+        state: "In Progress",
+        resolvedState: "In Progress",
+        pullRequest: pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }),
+      });
+      const state = new Map([[task.id, task.pullRequest!]]);
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "CWATCHER",
+        runPeriodicMaintenance: false,
+        pullRequestMonitorState: state,
+      });
+
+      assert.equal(state.size, 0);
     });
   });
 });
