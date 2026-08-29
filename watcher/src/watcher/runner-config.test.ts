@@ -401,6 +401,43 @@ tracker:
     );
   });
 
+  it("resolves and validates pull request monitors", async () => {
+    const run = () => "changed";
+    const config = resolveWatcherConfig(
+      {
+        ...configWithService({
+          monitors: [{ id: " review-progress ", status: " In Review ", run }],
+        }),
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.services[0].monitors, [
+      { id: "review-progress", status: "In Review", run },
+    ]);
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      /instances\.service-a\.monitors\[0\]\.status references unknown Linear status "In Review"/,
+    );
+    for (const monitors of [
+      [{ id: "", status: "In Review", run }],
+      [
+        { id: "duplicate", status: "In Review", run },
+        { id: "duplicate", status: "Done", run },
+      ],
+      [{ id: "broken", status: "In Review" }],
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            { ...configWithService({ monitors: monitors as never }) },
+            { requireSlack: false },
+          ),
+        /instances\.service-a\.monitors/,
+      );
+    }
+  });
+
   it("resolves and validates service-specific Slack commands", () => {
     const run = () => "preview ready";
     const config = resolveWatcherConfig(

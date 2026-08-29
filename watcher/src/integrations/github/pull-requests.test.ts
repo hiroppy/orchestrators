@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups",
+            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups,statusCheckRollup",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -72,6 +72,15 @@ describe("findPullRequest", () => {
                 { content: "THUMBS_UP", users: { totalCount: 2 } },
                 { content: "HEART", users: { totalCount: 0 } },
                 { content: "ROCKET", users: { totalCount: 1 } },
+              ],
+              statusCheckRollup: [
+                {
+                  name: "test",
+                  workflowName: "CI",
+                  status: "COMPLETED",
+                  conclusion: "SUCCESS",
+                  detailsUrl: "https://github.com/example/example-service/actions/runs/1",
+                },
               ],
             }),
           };
@@ -94,6 +103,15 @@ describe("findPullRequest", () => {
       repository: "example/example-service",
       labels: ["stg-deploy", "symphony"],
       reactions: ["THUMBS_UP", "ROCKET"],
+      checks: [
+        {
+          name: "test",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://github.com/example/example-service/actions/runs/1",
+        },
+      ],
     });
   });
 

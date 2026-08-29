@@ -123,6 +123,39 @@ Put larger hook implementations in the gitignored root `hooks/` directory and im
 `config.ts`. Hooks run inside the watcher process, so do not block while waiting for long-running
 work such as CI or a build. Make that work a required CI check and use the hook to report its result.
 
+### Pull request monitors
+
+Use `instances.<service>.monitors` to observe the complete pull request every 30 seconds while a
+task remains in a Linear status. The first observation establishes an in-memory baseline. Later
+calls receive both `pullRequest` and `previousPullRequest`, so one monitor can report label, CI,
+review, draft, and other PR changes together:
+
+```ts
+monitors: [
+  {
+    id: "review-progress",
+    status: "In Review",
+    run: ({ pullRequest: current, previousPullRequest: previous }) => {
+      const messages: string[] = [];
+      if (!previous.labels?.includes("ready") && current.labels?.includes("ready")) {
+        messages.push("Label `ready` added");
+      }
+      const oldCheck = previous.checks?.find(({ name }) => name === "test");
+      const newCheck = current.checks?.find(({ name }) => name === "test");
+      if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
+        messages.push(`CI \`test\` completed: ${newCheck.conclusion ?? "unknown"}`);
+      }
+      return messages.length > 0 ? messages.join("\n") : undefined;
+    },
+  },
+],
+```
+
+Returning a string posts one message to the task thread. The same Slack helpers available to status
+hooks are also passed as the second argument. Monitor snapshots intentionally live only in process
+memory: restarting the watcher establishes a new baseline, and changes made while it was stopped are
+not replayed.
+
 ### Custom commands
 
 Use `instances.<service>.slackCommands` to add service-specific Slack mention commands:

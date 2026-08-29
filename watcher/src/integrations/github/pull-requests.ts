@@ -1,12 +1,17 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
-import { GITHUB_REACTIONS, type GitHubReaction, type PullRequest } from "../../domain/github.ts";
+import {
+  GITHUB_REACTIONS,
+  type GitHubReaction,
+  type PullRequest,
+  type PullRequestCheck,
+} from "../../domain/github.ts";
 import type { WatcherEvent } from "../../domain/watcher-event.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
-  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups";
+  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups,statusCheckRollup";
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
@@ -28,6 +33,16 @@ interface GhPullRequest {
   baseRefName?: string;
   labels?: Array<{ name?: string }>;
   reactionGroups?: Array<{ content?: string; users?: { totalCount?: number } }>;
+  statusCheckRollup?: Array<{
+    name?: string;
+    context?: string;
+    workflowName?: string;
+    status?: string;
+    state?: string;
+    conclusion?: string;
+    detailsUrl?: string;
+    targetUrl?: string;
+  }>;
 }
 
 interface GhReviewThreadsResponse {
@@ -144,7 +159,26 @@ function toPullRequest(parsed: GhPullRequest): PullRequest {
       parsed.reactionGroups?.flatMap(({ content, users }) =>
         content && (users?.totalCount ?? 0) > 0 && isGitHubReaction(content) ? [content] : [],
       ) ?? [],
+    ...(parsed.statusCheckRollup
+      ? { checks: parsed.statusCheckRollup.flatMap(toPullRequestCheck) }
+      : {}),
   };
+}
+
+function toPullRequestCheck(
+  check: NonNullable<GhPullRequest["statusCheckRollup"]>[number],
+): PullRequestCheck[] {
+  const name = check.name ?? check.context;
+  if (!name) return [];
+  return [
+    {
+      name,
+      workflowName: check.workflowName ?? null,
+      status: check.status ?? (check.state ? "COMPLETED" : null),
+      conclusion: check.conclusion ?? check.state ?? null,
+      detailsUrl: check.detailsUrl ?? check.targetUrl ?? null,
+    },
+  ];
 }
 
 function isGitHubReaction(value: string): value is GitHubReaction {

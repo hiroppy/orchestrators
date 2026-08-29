@@ -20,6 +20,7 @@ import {
 } from "./runtime-config.ts";
 import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
 import { runWatcherPollingLoop } from "./polling-loop.ts";
+import type { PullRequestMonitorState } from "./pull-request-monitors.ts";
 import { runOnce } from "./run-once.ts";
 
 const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -116,6 +117,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
   });
 
   let nextPeriodicMaintenanceAt = 0;
+  const pullRequestMonitorState: PullRequestMonitorState = new Map();
   let pendingPersistedTerminalTaskIds = new Set(
     store
       .getTasksForLinearSync(new Set(), new Map(), true)
@@ -138,6 +140,7 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
           slackChannelId: slackConfig.channelId,
           runPeriodicMaintenance,
           persistedTerminalTaskIds: pendingPersistedTerminalTaskIds,
+          pullRequestMonitorState,
         });
         if (runPeriodicMaintenance) {
           nextPeriodicMaintenanceAt = performance.now() + PERIODIC_MAINTENANCE_INTERVAL_MS;

@@ -13,6 +13,7 @@ export interface InstanceConfig {
   linearTeam: string;
   enabled?: boolean;
   statusHooks?: StatusHookConfig[];
+  monitors?: MonitorConfig[];
   slackCommands?: SlackCommandConfig[];
 }
 
@@ -39,7 +40,18 @@ export interface PullRequestContext {
   reviewDecision?: string | null;
   headRefName?: string | null;
   headRefOid?: string | null;
+  baseRefName?: string | null;
+  mergeable?: string | null;
   labels?: string[];
+  checks?: PullRequestCheckContext[];
+}
+
+export interface PullRequestCheckContext {
+  name: string;
+  workflowName?: string | null;
+  status?: string | null;
+  conclusion?: string | null;
+  detailsUrl?: string | null;
 }
 
 export interface StatusHookContext {
@@ -84,6 +96,27 @@ export interface StatusHookConfig {
     context: StatusHookContext,
     helpers: StatusHookHelpers,
   ) => string | void | Promise<string | void>;
+}
+
+export interface MonitorContext {
+  event: "issue.monitored";
+  service: string;
+  issue: {
+    identifier: string;
+    url?: string;
+    title?: string | null;
+    status: string;
+  };
+  pullRequest: PullRequestContext;
+  previousPullRequest: PullRequestContext;
+}
+
+export type MonitorHelpers = StatusHookHelpers;
+
+export interface MonitorConfig {
+  id: string;
+  status: string;
+  run: (context: MonitorContext, helpers: MonitorHelpers) => string | void | Promise<string | void>;
 }
 
 export interface SlackCommandContext {

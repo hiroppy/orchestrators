@@ -11,6 +11,14 @@ export const GITHUB_REACTIONS = [
 
 export type GitHubReaction = (typeof GITHUB_REACTIONS)[number];
 
+export interface PullRequestCheck {
+  name: string;
+  workflowName?: string | null;
+  status?: string | null;
+  conclusion?: string | null;
+  detailsUrl?: string | null;
+}
+
 export interface PullRequest {
   url: string;
   number?: number | null;
@@ -27,4 +35,5 @@ export interface PullRequest {
   labels?: string[];
   reactions?: GitHubReaction[];
   latestReviewCommentAt?: string | null;
+  checks?: PullRequestCheck[];
 }
