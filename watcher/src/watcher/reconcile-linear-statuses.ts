@@ -168,6 +168,9 @@ export async function reconcileLinearStatuses({
       }).catch(() => null);
       pullRequest = enrichedPullRequest ?? pullRequest;
     }
+    if (pullRequest?.url !== task.pullRequest?.url) {
+      store.setTaskPullRequest(task.id, pullRequest);
+    }
     await syncPullRequestReactionsSafely(slackClient, task, pullRequest);
 
     const event: WatcherEvent = {
