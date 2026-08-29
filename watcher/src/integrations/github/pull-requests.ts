@@ -1,12 +1,18 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
-import { GITHUB_REACTIONS, type GitHubReaction, type PullRequest } from "../../domain/github.ts";
+import {
+  GITHUB_REACTIONS,
+  type GitHubReaction,
+  type PullRequest,
+  type PullRequestCheck,
+} from "../../domain/github.ts";
 import type { WatcherEvent } from "../../domain/watcher-event.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
   "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups";
+const GH_PR_FIELDS_WITH_CHECKS = `${GH_PR_FIELDS},statusCheckRollup`;
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
@@ -28,6 +34,16 @@ interface GhPullRequest {
   baseRefName?: string;
   labels?: Array<{ name?: string }>;
   reactionGroups?: Array<{ content?: string; users?: { totalCount?: number } }>;
+  statusCheckRollup?: Array<{
+    name?: string;
+    context?: string;
+    workflowName?: string;
+    status?: string;
+    state?: string;
+    conclusion?: string;
+    detailsUrl?: string;
+    targetUrl?: string;
+  }>;
 }
 
 interface GhReviewThreadsResponse {
@@ -102,15 +118,8 @@ async function viewPullRequest(
   cwd?: string,
 ): Promise<PullRequest | null> {
   const execFile = options.execFile ?? execFileDefault;
-  const args = ["pr", "view", ...(selector ? [selector] : []), "--json", GH_PR_FIELDS];
-
   try {
-    const { stdout } = await execFile("gh", args, {
-      ...(cwd ? { cwd } : {}),
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
-    const parsed = JSON.parse(stdout) as GhPullRequest;
+    const parsed = await loadPullRequest(execFile, selector, cwd);
     if (!parsed.url) return null;
     const pullRequest = toPullRequest(parsed);
     if (!options.includeLatestReviewComment) return pullRequest;
@@ -122,6 +131,28 @@ async function viewPullRequest(
     return { ...pullRequest, latestReviewCommentAt };
   } catch {
     return null;
+  }
+}
+
+async function loadPullRequest(
+  execFile: typeof execFileDefault,
+  selector: string | undefined,
+  cwd: string | undefined,
+): Promise<GhPullRequest> {
+  const view = async (fields: string) => {
+    const args = ["pr", "view", ...(selector ? [selector] : []), "--json", fields];
+    const { stdout } = await execFile("gh", args, {
+      ...(cwd ? { cwd } : {}),
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return JSON.parse(stdout) as GhPullRequest;
+  };
+
+  try {
+    return await view(GH_PR_FIELDS_WITH_CHECKS);
+  } catch {
+    return view(GH_PR_FIELDS);
   }
 }
 
@@ -144,7 +175,30 @@ function toPullRequest(parsed: GhPullRequest): PullRequest {
       parsed.reactionGroups?.flatMap(({ content, users }) =>
         content && (users?.totalCount ?? 0) > 0 && isGitHubReaction(content) ? [content] : [],
       ) ?? [],
+    ...(parsed.statusCheckRollup
+      ? { checks: parsed.statusCheckRollup.flatMap(toPullRequestCheck) }
+      : {}),
   };
+}
+
+function toPullRequestCheck(
+  check: NonNullable<GhPullRequest["statusCheckRollup"]>[number],
+): PullRequestCheck[] {
+  const name = check.name ?? check.context;
+  if (!name) return [];
+  const legacyStatus = check.state?.toUpperCase();
+  const legacyPending = legacyStatus === "PENDING" || legacyStatus === "EXPECTED";
+  const status = check.status ?? (legacyPending ? "IN_PROGRESS" : legacyStatus && "COMPLETED");
+  const conclusion = check.conclusion ?? (legacyPending ? null : legacyStatus);
+  return [
+    {
+      name,
+      workflowName: check.workflowName ?? null,
+      status: status || null,
+      conclusion: conclusion ?? null,
+      detailsUrl: check.detailsUrl ?? check.targetUrl ?? null,
+    },
+  ];
 }
 
 function isGitHubReaction(value: string): value is GitHubReaction {

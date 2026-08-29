@@ -52,7 +52,7 @@ describe("findPullRequest", () => {
             "pr",
             "view",
             "--json",
-            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups",
+            "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups,statusCheckRollup",
           ]);
           assert.equal(options.cwd, "/tmp/repo");
 
@@ -72,6 +72,20 @@ describe("findPullRequest", () => {
                 { content: "THUMBS_UP", users: { totalCount: 2 } },
                 { content: "HEART", users: { totalCount: 0 } },
                 { content: "ROCKET", users: { totalCount: 1 } },
+              ],
+              statusCheckRollup: [
+                {
+                  name: "test",
+                  workflowName: "CI",
+                  status: "COMPLETED",
+                  conclusion: "SUCCESS",
+                  detailsUrl: "https://github.com/example/example-service/actions/runs/1",
+                },
+                {
+                  context: "deployment",
+                  state: "PENDING",
+                  targetUrl: "https://ci.example.com/deployments/1",
+                },
               ],
             }),
           };
@@ -94,6 +108,22 @@ describe("findPullRequest", () => {
       repository: "example/example-service",
       labels: ["stg-deploy", "symphony"],
       reactions: ["THUMBS_UP", "ROCKET"],
+      checks: [
+        {
+          name: "test",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://github.com/example/example-service/actions/runs/1",
+        },
+        {
+          name: "deployment",
+          workflowName: null,
+          status: "IN_PROGRESS",
+          conclusion: null,
+          detailsUrl: "https://ci.example.com/deployments/1",
+        },
+      ],
     });
   });
 
@@ -319,6 +349,32 @@ describe("findPullRequest", () => {
 });
 
 describe("findPullRequestByUrl", () => {
+  it("falls back to PR metadata when status checks are inaccessible", async () => {
+    const fields: string[] = [];
+    const result = await findPullRequestByUrl("https://github.com/example/service/pull/123", {
+      execFile: async (_command, args) => {
+        const requestedFields = String(args.at(-1));
+        fields.push(requestedFields);
+        if (requestedFields.includes("statusCheckRollup")) {
+          throw new Error("Resource not accessible by integration");
+        }
+        return {
+          stdout: JSON.stringify({
+            url: "https://github.com/example/service/pull/123",
+            number: 123,
+            labels: [],
+          }),
+        };
+      },
+    });
+
+    assert.equal(result?.url, "https://github.com/example/service/pull/123");
+    assert.equal(result?.checks, undefined);
+    assert.equal(fields.length, 2);
+    assert.ok(fields[0].includes("statusCheckRollup"));
+    assert.ok(!fields[1].includes("statusCheckRollup"));
+  });
+
   it("represents a PR with no inline comments", async () => {
     const url = "https://github.com/example/service/pull/123";
     const result = await findPullRequestByUrl(url, {

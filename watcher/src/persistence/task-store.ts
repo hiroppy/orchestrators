@@ -210,6 +210,20 @@ export class TaskStore {
       .run();
   }
 
+  setTaskPullRequest(taskId: string, pullRequest: Task["pullRequest"], now = new Date()): void {
+    this.db
+      .update(tasks)
+      .set({
+        pullRequestUrl: pullRequest?.url ?? null,
+        pullRequestNumber: pullRequest?.number ?? null,
+        pullRequestTitle: pullRequest?.title ?? null,
+        pullRequestLabels: pullRequest ? JSON.stringify(pullRequest.labels ?? []) : null,
+        updatedAt: now.toISOString(),
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
   updateTaskStatus(
     taskId: string,
     statusName: string,

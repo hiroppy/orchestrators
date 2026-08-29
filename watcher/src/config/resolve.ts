@@ -2,6 +2,7 @@ import {
   DEFAULT_REVIEW_READY_DELAY_MS,
   type InstanceConfig,
   type LinearTeamConfig,
+  type MonitorConfig,
   type OrchestratorConfig,
   type ReviewCommentConfig,
   type SlackConfig,
@@ -44,6 +45,7 @@ export function resolveWatcherConfig(
     url: observabilityUrl(instance.port),
     linearTeam: instance.linearTeam,
     statusHooks: resolveStatusHooks(instance.statusHooks, name),
+    pullRequestMonitors: resolvePullRequestMonitors(instance.pullRequestMonitors, name),
     slackCommands: resolveSlackCommands(instance.slackCommands, name),
   }));
   const endedTaskRetry = {
@@ -64,6 +66,32 @@ export function resolveWatcherConfig(
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolvePullRequestMonitors(
+  config: MonitorConfig[] | undefined,
+  service: string,
+): MonitorConfig[] {
+  if (config === undefined) return [];
+  if (!Array.isArray(config)) {
+    throw new Error(`instances.${service}.pullRequestMonitors must be an array.`);
+  }
+
+  const ids = new Set<string>();
+  return config.map((monitor, index) => {
+    const label = `instances.${service}.pullRequestMonitors[${index}]`;
+    if (!monitor || typeof monitor !== "object" || Array.isArray(monitor)) {
+      throw new Error(`${label} must be an object.`);
+    }
+    if (typeof monitor.id !== "string" || !monitor.id.trim()) {
+      throw new Error(`${label}.id must be a non-empty string.`);
+    }
+    const id = monitor.id.trim();
+    if (ids.has(id)) throw new Error(`${label}.id must be unique: ${id}`);
+    ids.add(id);
+    if (typeof monitor.run !== "function") throw new Error(`${label}.run must be a function.`);
+    return { id, run: monitor.run };
+  });
 }
 
 function resolveSlackCommands(

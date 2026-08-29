@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 
+import type { PullRequest } from "../domain/github.ts";
 import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 import { runOnce } from "./run-once.ts";
@@ -320,30 +321,7 @@ describe("watcher review requeue", () => {
         retrying: [],
         blocked: [],
       };
-      const nativeFetch = globalThis.fetch;
-      context.mock.method(globalThis, "fetch", async (url, options) => {
-        if (String(url).startsWith("data:")) return nativeFetch(url, options);
-        const { query } = JSON.parse(String(options?.body)) as { query: string };
-        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
-          return Response.json({
-            data: {
-              issue0: { identifier: "ENG-62", state: { name: "In Review", type: "started" } },
-            },
-          });
-        }
-        return Response.json({
-          data: {
-            issue: {
-              id: "linear-62",
-              identifier: "ENG-62",
-              title: "Review me",
-              state: { name: "In Review", type: "started" },
-              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
-              relations: { nodes: [] },
-            },
-          },
-        });
-      });
+      mockInReviewIssue(context, "https://github.com/acme/example/pull/42");
       const config = reviewConfig(dataUrl(snapshot));
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });
@@ -375,4 +353,89 @@ describe("watcher review requeue", () => {
       assert.equal(store.getTask(task.id)?.status, "In Progress");
     });
   });
+
+  it("stores a replacement pull request while the task remains In Review", async (context) => {
+    await withStore(async (store) => {
+      const snapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "In Review" }],
+        retrying: [],
+        blocked: [],
+      };
+      mockInReviewIssue(context, "https://github.com/acme/example/pull/42");
+      const config = reviewConfig(dataUrl(snapshot));
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({ "service-a": snapshot });
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+        resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/acme/example/pull/41", labels: ["old"] },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      const observations: Array<PullRequest | null> = [
+        null,
+        {
+          url: "https://github.com/acme/example/pull/42",
+          number: 42,
+          title: "Replacement PR",
+          labels: ["ready"],
+        },
+      ];
+      const run = () =>
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+          findPullRequestByUrl: async () => observations.shift() ?? null,
+        });
+
+      await run();
+      assert.deepEqual(store.getTask(task.id)?.pullRequest, {
+        url: "https://github.com/acme/example/pull/42",
+        number: 42,
+        labels: [],
+      });
+
+      await run();
+
+      assert.deepEqual(store.getTask(task.id)?.pullRequest, {
+        url: "https://github.com/acme/example/pull/42",
+        number: 42,
+        title: "Replacement PR",
+        labels: ["ready"],
+      });
+      assert.equal(store.getTask(task.id)?.status, "In Review");
+    });
+  });
 });
+
+function mockInReviewIssue(context: TestContext, pullRequestUrl: string): void {
+  const nativeFetch = globalThis.fetch;
+  context.mock.method(globalThis, "fetch", async (url, options) => {
+    if (String(url).startsWith("data:")) return nativeFetch(url, options);
+    const { query } = JSON.parse(String(options?.body)) as { query: string };
+    if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+      return Response.json({
+        data: {
+          issue0: { identifier: "ENG-62", state: { name: "In Review", type: "started" } },
+        },
+      });
+    }
+    return Response.json({
+      data: {
+        issue: {
+          id: "linear-62",
+          identifier: "ENG-62",
+          title: "Review me",
+          state: { name: "In Review", type: "started" },
+          attachments: { nodes: [{ url: pullRequestUrl }] },
+          relations: { nodes: [] },
+        },
+      },
+    });
+  });
+}

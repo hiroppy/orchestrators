@@ -14,6 +14,11 @@ import { processWatcherEvent } from "./process-event.ts";
 import { reconcileLinearStatuses } from "./reconcile-linear-statuses.ts";
 import { decideReviewRequeue } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
+import {
+  clearInactivePullRequestMonitorState,
+  runPullRequestMonitors,
+  type PullRequestMonitorState,
+} from "./pull-request-monitors.ts";
 import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
@@ -30,6 +35,7 @@ interface RunOnceOptions {
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
   persistedTerminalTaskIds?: ReadonlySet<string>;
+  pullRequestMonitorState?: PullRequestMonitorState;
 }
 
 export async function runOnce({
@@ -42,6 +48,7 @@ export async function runOnce({
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
   persistedTerminalTaskIds = new Set(),
+  pullRequestMonitorState = new Map(),
 }: RunOnceOptions) {
   let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   if (runPeriodicMaintenance) {
@@ -103,16 +110,32 @@ export async function runOnce({
 
   store.replaceSnapshots(current);
   await publishTaskActivities(slackClient, store, current);
+  clearInactivePullRequestMonitorState({
+    config,
+    store,
+    inReviewStatus: config.reviewComment?.inReviewStatus,
+    state: pullRequestMonitorState,
+  });
   if (runPeriodicMaintenance) {
+    const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,
       slackClient,
       slackChannelId,
       skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
-      findPullRequestByUrl,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,
+    });
+    await runPullRequestMonitors({
+      config,
+      store,
+      slackClient,
+      watcherChannelId: slackChannelId,
+      inReviewStatus: config.reviewComment?.inReviewStatus,
+      state: pullRequestMonitorState,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
     });
   }
   return {
@@ -120,6 +143,24 @@ export async function runOnce({
     current,
     pendingPersistedTerminalTaskIds,
     persistedTerminalReconciliationComplete: pendingPersistedTerminalTaskIds.size === 0,
+  };
+}
+
+export function cachePullRequestLookups(
+  findPullRequestByUrl: typeof findPullRequestByUrlDefault,
+): typeof findPullRequestByUrlDefault {
+  type Observation = ReturnType<typeof findPullRequestByUrlDefault>;
+  const observations = new Map<string, { basic?: Observation; enriched?: Observation }>();
+  return (url, options) => {
+    const entry = observations.get(url) ?? {};
+    const needsEnrichment = options?.includeLatestReviewComment === true;
+    const existing = needsEnrichment ? entry.enriched : (entry.enriched ?? entry.basic);
+    if (existing) return existing;
+    const observation = findPullRequestByUrl(url, options);
+    if (needsEnrichment) entry.enriched = observation;
+    else entry.basic = observation;
+    observations.set(url, entry);
+    return observation;
   };
 }
 

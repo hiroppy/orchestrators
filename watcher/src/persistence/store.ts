@@ -117,6 +117,10 @@ export class WatcherStore {
     this.taskStore.setTaskLinearStateType(taskId, stateType, now);
   }
 
+  setTaskPullRequest(taskId: string, pullRequest: Task["pullRequest"], now = new Date()): void {
+    this.taskStore.setTaskPullRequest(taskId, pullRequest, now);
+  }
+
   assignTask(taskId: string, slackUserId: string, now = new Date()): boolean {
     return assignTask(this.db, taskId, slackUserId, now);
   }

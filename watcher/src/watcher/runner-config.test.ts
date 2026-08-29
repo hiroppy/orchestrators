@@ -401,6 +401,39 @@ tracker:
     );
   });
 
+  it("resolves and validates pull request monitors", async () => {
+    const run = () => "changed";
+    const config = resolveWatcherConfig(
+      {
+        ...configWithService({
+          pullRequestMonitors: [{ id: " review-progress ", run }],
+        }),
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.services[0].pullRequestMonitors, [{ id: "review-progress", run }]);
+    for (const pullRequestMonitors of [
+      [{ id: "", run }],
+      [{ id: 42, run }],
+      [{ id: true, run }],
+      [
+        { id: "duplicate", run },
+        { id: "duplicate", run },
+      ],
+      [{ id: "broken" }],
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            { ...configWithService({ pullRequestMonitors: pullRequestMonitors as never }) },
+            { requireSlack: false },
+          ),
+        /instances\.service-a\.pullRequestMonitors/,
+      );
+    }
+  });
+
   it("resolves and validates service-specific Slack commands", () => {
     const run = () => "preview ready";
     const config = resolveWatcherConfig(
