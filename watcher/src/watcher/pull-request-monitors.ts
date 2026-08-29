@@ -40,7 +40,9 @@ export async function runPullRequestMonitors({
 
     const previousPullRequest = state.get(task.id);
     const pullRequest =
-      observedPullRequest.checks === undefined && previousPullRequest?.checks !== undefined
+      observedPullRequest.url === previousPullRequest?.url &&
+      observedPullRequest.checks === undefined &&
+      previousPullRequest.checks !== undefined
         ? { ...observedPullRequest, checks: previousPullRequest.checks }
         : observedPullRequest;
     state.set(task.id, pullRequest);

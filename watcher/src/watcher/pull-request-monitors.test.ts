@@ -81,6 +81,58 @@ describe("pull request monitors", () => {
       ]);
     });
   });
+
+  it("does not retain checks when the observed pull request changes", async () => {
+    await withStore(async (store) => {
+      const observed: PullRequest[] = [
+        pullRequest({ labels: ["review"], checkStatus: "COMPLETED" }),
+        {
+          url: "https://github.com/example/repository/pull/43",
+          labels: ["review"],
+        },
+      ];
+      const currentChecks: Array<PullRequest["checks"]> = [];
+      const service = {
+        name: "service-a",
+        url: "http://localhost:4101/api/v1/state",
+        linearTeam: "workspace-a-eng",
+        monitors: [
+          {
+            id: "checks",
+            run: ({ pullRequest: current }) => {
+              currentChecks.push(current.checks);
+            },
+          },
+        ],
+      };
+      const teams = linearTeams(["Todo", "In Review", "Done"]);
+      store.syncDefinitions([service], teams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Monitor the pull request",
+        state: "In Review",
+        resolvedState: "In Review",
+        pullRequest: observed[0],
+      });
+      store.setParentMessage(task.id, "C123", "100.001", "summary");
+
+      const options = {
+        config: runtimeConfig({ services: [service], linearTeams: teams }),
+        store,
+        slackClient: fakeSlackClient([]),
+        watcherChannelId: "CWATCHER",
+        state: new Map(),
+        findPullRequestByUrl: async () => observed.shift() ?? null,
+      };
+
+      await runPullRequestMonitors(options);
+      await runPullRequestMonitors(options);
+
+      assert.deepEqual(currentChecks, [undefined]);
+    });
+  });
 });
 
 function pullRequest({
