@@ -54,8 +54,12 @@ export async function runPullRequestMonitors({
 
     const previousPullRequest = state.get(task.id);
     const samePullRequest = observedPullRequest.url === previousPullRequest?.url;
+    const sameHead = observedPullRequest.headRefOid === previousPullRequest?.headRefOid;
     const pullRequest =
-      samePullRequest && observedPullRequest.checks === undefined && previousPullRequest.checks
+      samePullRequest &&
+      sameHead &&
+      observedPullRequest.checks === undefined &&
+      previousPullRequest.checks
         ? { ...observedPullRequest, checks: previousPullRequest.checks }
         : observedPullRequest;
     state.set(task.id, pullRequest);

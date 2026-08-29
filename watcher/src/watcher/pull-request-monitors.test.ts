@@ -143,6 +143,66 @@ describe("pull request monitors", () => {
     });
   });
 
+  it("does not retain checks when the head commit changes", async () => {
+    await withStore(async (store) => {
+      const observed: PullRequest[] = [
+        pullRequest({ labels: ["review"], checkStatus: "COMPLETED", headRefOid: "old" }),
+        {
+          url: "https://github.com/example/repository/pull/42",
+          headRefOid: "new",
+          labels: ["review"],
+        },
+        pullRequest({ labels: ["review"], checkStatus: "COMPLETED", headRefOid: "new" }),
+      ];
+      let completions = 0;
+      const service = {
+        name: "service-a",
+        url: "http://localhost:4101/api/v1/state",
+        linearTeam: "workspace-a-eng",
+        monitors: [
+          {
+            id: "checks",
+            run: ({ pullRequest: current, previousPullRequest: previous }) => {
+              const oldCheck = previous.checks?.find(({ name }) => name === "test");
+              const newCheck = current.checks?.find(({ name }) => name === "test");
+              if (oldCheck?.status !== "COMPLETED" && newCheck?.status === "COMPLETED") {
+                completions += 1;
+              }
+            },
+          },
+        ],
+      };
+      const teams = linearTeams(["In Review", "Done"]);
+      store.syncDefinitions([service], teams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Monitor the pull request",
+        state: "In Review",
+        resolvedState: "In Review",
+        pullRequest: observed[0],
+      });
+      store.setParentMessage(task.id, "C123", "100.001", "summary");
+
+      const options = {
+        config: runtimeConfig({ services: [service], linearTeams: teams }),
+        store,
+        slackClient: fakeSlackClient([]),
+        watcherChannelId: "CWATCHER",
+        inReviewStatus: "In Review",
+        state: new Map(),
+        findPullRequestByUrl: async () => observed.shift() ?? null,
+      };
+
+      await runPullRequestMonitors(options);
+      await runPullRequestMonitors(options);
+      await runPullRequestMonitors(options);
+
+      assert.equal(completions, 1);
+    });
+  });
+
   it("stops monitoring outside the configured review status and resets the baseline", async () => {
     await withStore(async (store) => {
       let fetches = 0;
@@ -245,12 +305,15 @@ describe("pull request monitors", () => {
 function pullRequest({
   labels,
   checkStatus,
+  headRefOid,
 }: {
   labels: string[];
   checkStatus: string;
+  headRefOid?: string;
 }): PullRequest {
   return {
     url: "https://github.com/example/repository/pull/42",
+    headRefOid,
     labels,
     checks: [
       {
