@@ -349,6 +349,32 @@ describe("findPullRequest", () => {
 });
 
 describe("findPullRequestByUrl", () => {
+  it("falls back to PR metadata when status checks are inaccessible", async () => {
+    const fields: string[] = [];
+    const result = await findPullRequestByUrl("https://github.com/example/service/pull/123", {
+      execFile: async (_command, args) => {
+        const requestedFields = String(args.at(-1));
+        fields.push(requestedFields);
+        if (requestedFields.includes("statusCheckRollup")) {
+          throw new Error("Resource not accessible by integration");
+        }
+        return {
+          stdout: JSON.stringify({
+            url: "https://github.com/example/service/pull/123",
+            number: 123,
+            labels: [],
+          }),
+        };
+      },
+    });
+
+    assert.equal(result?.url, "https://github.com/example/service/pull/123");
+    assert.equal(result?.checks, undefined);
+    assert.equal(fields.length, 2);
+    assert.ok(fields[0].includes("statusCheckRollup"));
+    assert.ok(!fields[1].includes("statusCheckRollup"));
+  });
+
   it("represents a PR with no inline comments", async () => {
     const url = "https://github.com/example/service/pull/123";
     const result = await findPullRequestByUrl(url, {

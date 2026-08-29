@@ -11,7 +11,8 @@ import type { WatcherEvent } from "../../domain/watcher-event.ts";
 
 const execFileDefault = promisify(execFileCallback);
 const GH_PR_FIELDS =
-  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups,statusCheckRollup";
+  "url,number,title,body,state,isDraft,reviewDecision,mergeable,headRefName,headRefOid,baseRefName,labels,reactionGroups";
+const GH_PR_FIELDS_WITH_CHECKS = `${GH_PR_FIELDS},statusCheckRollup`;
 
 interface FindPullRequestOptions {
   execFile?: typeof execFileDefault;
@@ -117,15 +118,8 @@ async function viewPullRequest(
   cwd?: string,
 ): Promise<PullRequest | null> {
   const execFile = options.execFile ?? execFileDefault;
-  const args = ["pr", "view", ...(selector ? [selector] : []), "--json", GH_PR_FIELDS];
-
   try {
-    const { stdout } = await execFile("gh", args, {
-      ...(cwd ? { cwd } : {}),
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
-    const parsed = JSON.parse(stdout) as GhPullRequest;
+    const parsed = await loadPullRequest(execFile, selector, cwd);
     if (!parsed.url) return null;
     const pullRequest = toPullRequest(parsed);
     if (!options.includeLatestReviewComment) return pullRequest;
@@ -137,6 +131,28 @@ async function viewPullRequest(
     return { ...pullRequest, latestReviewCommentAt };
   } catch {
     return null;
+  }
+}
+
+async function loadPullRequest(
+  execFile: typeof execFileDefault,
+  selector: string | undefined,
+  cwd: string | undefined,
+): Promise<GhPullRequest> {
+  const view = async (fields: string) => {
+    const args = ["pr", "view", ...(selector ? [selector] : []), "--json", fields];
+    const { stdout } = await execFile("gh", args, {
+      ...(cwd ? { cwd } : {}),
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return JSON.parse(stdout) as GhPullRequest;
+  };
+
+  try {
+    return await view(GH_PR_FIELDS_WITH_CHECKS);
+  } catch {
+    return view(GH_PR_FIELDS);
   }
 }
 
