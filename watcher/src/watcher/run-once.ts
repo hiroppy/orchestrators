@@ -117,13 +117,14 @@ export async function runOnce({
     state: pullRequestMonitorState,
   });
   if (runPeriodicMaintenance) {
+    const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,
       slackClient,
       slackChannelId,
       skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
-      findPullRequestByUrl,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,
     });
@@ -134,7 +135,7 @@ export async function runOnce({
       watcherChannelId: slackChannelId,
       inReviewStatus: config.reviewComment?.inReviewStatus,
       state: pullRequestMonitorState,
-      findPullRequestByUrl,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
     });
   }
   return {
@@ -142,6 +143,19 @@ export async function runOnce({
     current,
     pendingPersistedTerminalTaskIds,
     persistedTerminalReconciliationComplete: pendingPersistedTerminalTaskIds.size === 0,
+  };
+}
+
+function cachePullRequestLookups(
+  findPullRequestByUrl: typeof findPullRequestByUrlDefault,
+): typeof findPullRequestByUrlDefault {
+  const observations = new Map<string, ReturnType<typeof findPullRequestByUrlDefault>>();
+  return (url, options) => {
+    const existing = observations.get(url);
+    if (existing) return existing;
+    const observation = findPullRequestByUrl(url, options);
+    observations.set(url, observation);
+    return observation;
   };
 }
 

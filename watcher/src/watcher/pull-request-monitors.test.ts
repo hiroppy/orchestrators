@@ -300,6 +300,76 @@ describe("pull request monitors", () => {
       assert.equal(state.size, 0);
     });
   });
+
+  it("reuses a pull request fetched during periodic reconciliation", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: { identifier: "ENG-42", state: { name: "In Review", type: "started" } },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-42",
+              title: "Monitor the pull request",
+              state: { name: "In Review", type: "started" },
+              attachments: {
+                nodes: [{ url: "https://github.com/example/repository/pull/42" }],
+              },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const service = {
+        name: "service-a",
+        url: dataUrl({ running: [], retrying: [], blocked: [] }),
+        linearTeam: "workspace-a-eng",
+        monitors: [{ id: "checks", run: () => undefined }],
+      };
+      const teams = linearTeams(["In Progress", "In Review", "Done"]);
+      const config = runtimeConfig({
+        services: [service],
+        linearTeams: teams,
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions([service], teams);
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Monitor the pull request",
+        state: "In Review",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+        pullRequest: pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }),
+      });
+      let lookups = 0;
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "CWATCHER",
+        findPullRequestByUrl: async (url) => {
+          lookups += 1;
+          return { ...pullRequest({ labels: ["review"], checkStatus: "IN_PROGRESS" }), url };
+        },
+      });
+
+      assert.equal(lookups, 1);
+    });
+  });
 });
 
 function pullRequest({
