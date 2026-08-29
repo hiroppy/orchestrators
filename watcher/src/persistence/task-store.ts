@@ -217,7 +217,7 @@ export class TaskStore {
         pullRequestUrl: pullRequest?.url ?? null,
         pullRequestNumber: pullRequest?.number ?? null,
         pullRequestTitle: pullRequest?.title ?? null,
-        pullRequestLabels: pullRequest ? JSON.stringify(pullRequest.labels) : null,
+        pullRequestLabels: pullRequest ? JSON.stringify(pullRequest.labels ?? []) : null,
         updatedAt: now.toISOString(),
       })
       .where(eq(tasks.id, taskId))

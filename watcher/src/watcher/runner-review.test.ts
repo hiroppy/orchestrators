@@ -371,7 +371,7 @@ describe("watcher review requeue", () => {
         issueIdentifier: "ENG-62",
         state: "In Review",
         resolvedStateType: "started",
-        pullRequest: { url: "https://github.com/acme/example/pull/41" },
+        pullRequest: { url: "https://github.com/acme/example/pull/41", labels: ["old"] },
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
 
@@ -397,6 +397,7 @@ describe("watcher review requeue", () => {
       assert.deepEqual(store.getTask(task.id)?.pullRequest, {
         url: "https://github.com/acme/example/pull/42",
         number: 42,
+        labels: [],
       });
 
       await run();
