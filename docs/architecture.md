@@ -156,8 +156,9 @@ review-requeue path.
 - Tasks in the configured review status are queried during 30-second reconciliation, even if their
   Symphony snapshot has not changed.
 - When `watcher.pullRequestStatusSync` is enabled, tracked nonterminal tasks with a PR are queried
-  during maintenance. Successful closed/unmerged observations are persisted; failures have no
-  completion event and are retried by a later poll.
+  during maintenance. The stored PR must still match the current Linear attachment before a
+  closed/unmerged status update is applied. Successful observations are persisted; failures have
+  no completion event and are retried by a later poll.
 - Access uses `gh pr view` and `gh api`.
 - Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
   presence only, not counts or authors, and removes only its own stale reactions.

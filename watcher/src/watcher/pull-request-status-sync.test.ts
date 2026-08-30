@@ -24,6 +24,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
+        fetchLinearIssue: async () => assert.fail("must not fetch Linear"),
         findPullRequestByUrl: async () => {
           lookups += 1;
           return pullRequest("CLOSED");
@@ -42,6 +43,7 @@ describe("pull request status sync", () => {
       const options = {
         config,
         store,
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl),
         findPullRequestByUrl: async () => pullRequest("CLOSED"),
         updateLinearStatus: async (...args: unknown[]) => {
           updates.push(args);
@@ -69,6 +71,10 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
+        fetchLinearIssue: async (identifier) =>
+          linearIssue(
+            identifier === "ENG-42" ? pullRequestUrl : "https://github.com/acme/example/pull/43",
+          ),
         findPullRequestByUrl: async (url) => pullRequest(states.get(url) ?? "CLOSED", url),
         updateLinearStatus: async () => assert.fail("must not update Linear"),
       });
@@ -85,6 +91,10 @@ describe("pull request status sync", () => {
       const options = {
         config,
         store,
+        fetchLinearIssue: async (identifier: string | undefined) =>
+          linearIssue(
+            identifier === "ENG-42" ? pullRequestUrl : "https://github.com/acme/example/pull/43",
+          ),
         findPullRequestByUrl: async (url: string) => pullRequest("CLOSED", url),
         updateLinearStatus: async (identifier: string) => {
           attempts.set(identifier, (attempts.get(identifier) ?? 0) + 1);
@@ -102,6 +112,29 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("does not apply a stale pull request after its Linear attachment changes", async () => {
+    for (const currentUrl of [undefined, "https://github.com/acme/example/pull/99"]) {
+      await withStore(async (store) => {
+        const config = setup(store, { closed: "Canceled" });
+        let lookups = 0;
+
+        await syncPullRequestStatuses({
+          config,
+          store,
+          fetchLinearIssue: async () => linearIssue(currentUrl),
+          findPullRequestByUrl: async () => {
+            lookups += 1;
+            return pullRequest("CLOSED");
+          },
+          updateLinearStatus: async () => assert.fail("must not update Linear"),
+        });
+
+        assert.equal(lookups, 0);
+        assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 0);
+      });
+    }
+  });
+
   it("runs only during periodic maintenance", async () => {
     await withStore(async (store) => {
       const snapshot = {
@@ -117,6 +150,7 @@ describe("pull request status sync", () => {
         store,
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl),
         findPullRequestByUrl: async () => pullRequest("CLOSED"),
         updateLinearStatus: async () => {
           updates += 1;
@@ -158,4 +192,15 @@ function addTask(store: WatcherStore, identifier: string, url: string): void {
 
 function pullRequest(state: string, url = pullRequestUrl): PullRequest {
   return { url, state, headRefOid: "abc123" };
+}
+
+function linearIssue(url?: string) {
+  return {
+    identifier: "ENG-42",
+    title: "Task ENG-42",
+    state: "In Review",
+    stateType: "started",
+    url: "https://linear.app/acme/issue/ENG-42",
+    ...(url ? { pullRequest: { url } } : {}),
+  };
 }

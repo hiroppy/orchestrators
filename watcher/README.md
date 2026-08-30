@@ -75,7 +75,8 @@ export default defineConfig({
 The configured status must exist in every enabled Linear team. During periodic maintenance, the
 watcher checks tracked nonterminal tasks with a pull request and applies the configured status only
 for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGED`; merged transitions remain owned by
-Linear's GitHub workflow automation.
+Linear's GitHub workflow automation. Before updating the status, the watcher confirms that Linear
+still has the same pull request attached, so a removed or replaced pull request is not applied.
 
 Each successful closed-PR observation is recorded by pull request URL, state, and head commit so it
 is not applied again. GitHub lookup and Linear mutation failures are isolated per task and remain

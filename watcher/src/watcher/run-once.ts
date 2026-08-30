@@ -5,6 +5,7 @@ import {
   findPullRequest as findPullRequestDefault,
   findPullRequestByUrl as findPullRequestByUrlDefault,
 } from "../integrations/github/pull-requests.ts";
+import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { deliverPendingStatusTimelines } from "../slack/status-timeline.ts";
@@ -33,6 +34,7 @@ interface RunOnceOptions {
   slackChannelId: string;
   findPullRequest?: typeof findPullRequestDefault;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
+  fetchLinearIssue?: typeof fetchLinearIssueState;
   updateLinearStatus?: typeof updateLinearIssueStatus;
   runPeriodicMaintenance?: boolean;
   persistedTerminalTaskIds?: ReadonlySet<string>;
@@ -46,6 +48,7 @@ export async function runOnce({
   slackChannelId,
   findPullRequest = findPullRequestDefault,
   findPullRequestByUrl = findPullRequestByUrlDefault,
+  fetchLinearIssue = fetchLinearIssueState,
   updateLinearStatus = updateLinearIssueStatus,
   runPeriodicMaintenance = true,
   persistedTerminalTaskIds = new Set(),
@@ -122,6 +125,7 @@ export async function runOnce({
     await syncPullRequestStatuses({
       config,
       store,
+      fetchLinearIssue,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
     });
