@@ -14,6 +14,7 @@ export async function syncPullRequestStatuses({
   store,
   findPullRequestByUrl,
   fetchLinearIssue,
+  includedTaskIds = new Set(),
   publishLinearUpdate,
   updateLinearStatus,
 }: {
@@ -21,13 +22,14 @@ export async function syncPullRequestStatuses({
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   fetchLinearIssue: typeof fetchLinearIssueState;
+  includedTaskIds?: ReadonlySet<string>;
   publishLinearUpdate: (task: Task, pullRequest: Task["pullRequest"]) => Promise<void>;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
   if (!statusSync) return;
 
-  for (const task of store.getTasksForLinearSync()) {
+  for (const task of store.getTasksForLinearSync(includedTaskIds)) {
     if (task.issueIdentifier.startsWith("watcher:")) continue;
 
     try {

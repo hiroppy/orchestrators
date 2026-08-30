@@ -355,6 +355,43 @@ describe("pull request status sync", () => {
       assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
     });
   });
+
+  it("includes a terminal task with an incomplete Timeline delivery", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        issueTitle: "Tracked task",
+        resolvedState: "Canceled",
+        resolvedStateType: "canceled",
+        pullRequest: { url: "https://github.com/example/repository/pull/42" },
+      });
+      let pullRequestLookups = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url: string) => {
+          pullRequestLookups += 1;
+          return { url, state: "CLOSED" };
+        },
+        updateLinearStatus: async () => undefined,
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(pullRequestLookups, 0);
+
+      await syncPullRequestStatuses({
+        ...options,
+        includedTaskIds: new Set(["service-a:ENG-42"]),
+      });
+
+      assert.equal(pullRequestLookups, 1);
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
+    });
+  });
 });
 
 function syncDependencies(
