@@ -394,7 +394,7 @@ describe("pull request status sync", () => {
     });
   });
 
-  it("includes a terminal task with an incomplete Timeline delivery", async () => {
+  it("includes only terminal tasks with an incomplete pull request status sync", async () => {
     await withStore(async (store) => {
       const config = setupTask(store, "Canceled");
       store.upsertTaskFromEvent({
@@ -421,13 +421,32 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses(options);
       assert.equal(pullRequestLookups, 0);
 
-      await syncPullRequestStatuses({
-        ...options,
-        includedTaskIds: new Set(["service-a:ENG-42"]),
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "status_timeline",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
       });
+      await syncPullRequestStatuses(options);
+      assert.equal(pullRequestLookups, 0);
+
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_sync_pending",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+      });
+      await syncPullRequestStatuses(options);
 
       assert.equal(pullRequestLookups, 1);
       assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        [],
+      );
     });
   });
 });

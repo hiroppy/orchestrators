@@ -8,13 +8,14 @@ import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
+const PULL_REQUEST_STATUS_SYNC_PENDING_EVENT = "pull_request_status_sync_pending";
+const PULL_REQUEST_STATUS_SYNC_COMPLETED_EVENT = "pull_request_status_sync_completed";
 
 export async function syncPullRequestStatuses({
   config,
   store,
   findPullRequestByUrl,
   fetchLinearIssue,
-  includedTaskIds = new Set(),
   publishLinearUpdate,
   updateLinearStatus,
 }: {
@@ -22,14 +23,19 @@ export async function syncPullRequestStatuses({
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   fetchLinearIssue: typeof fetchLinearIssueState;
-  includedTaskIds?: ReadonlySet<string>;
   publishLinearUpdate: (task: Task, pullRequest: Task["pullRequest"]) => Promise<void>;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
   if (!statusSync) return;
+  const pendingTaskIds = new Set(
+    store.getTaskIdsWithIncompleteEvent(
+      PULL_REQUEST_STATUS_SYNC_PENDING_EVENT,
+      PULL_REQUEST_STATUS_SYNC_COMPLETED_EVENT,
+    ),
+  );
 
-  for (const task of store.getTasksForLinearSync(includedTaskIds)) {
+  for (const task of store.getTasksForLinearSync(pendingTaskIds)) {
     if (task.issueIdentifier.startsWith("watcher:")) continue;
 
     try {
@@ -65,7 +71,23 @@ export async function syncPullRequestStatuses({
         state: normalizeStatus(pullRequest.state),
         headRefOid: pullRequest.headRefOid ?? null,
       });
-      if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) continue;
+      if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {
+        if (pendingTaskIds.has(task.id)) {
+          store.addEvent(statusSyncCompletedEvent(task.id, task.status, eventKey));
+        }
+        continue;
+      }
+      if (!pendingTaskIds.has(task.id)) {
+        store.addEvent({
+          taskId: task.id,
+          type: PULL_REQUEST_STATUS_SYNC_PENDING_EVENT,
+          actor: "watcher",
+          fromStatus: task.status,
+          toStatus: targetStatus,
+          body: eventKey,
+        });
+        pendingTaskIds.add(task.id);
+      }
 
       if (normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)) {
         await updateLinearStatus(task.issueIdentifier, targetStatus, {
@@ -124,7 +146,25 @@ function recordStatusSync(
   toStatus: string,
   eventKey: string,
 ): void {
-  store.addEvent(statusSyncEvent(taskId, fromStatus, toStatus, eventKey));
+  store.addEvents([
+    statusSyncEvent(taskId, fromStatus, toStatus, eventKey),
+    statusSyncCompletedEvent(taskId, toStatus, eventKey),
+  ]);
+}
+
+function statusSyncCompletedEvent(
+  taskId: string,
+  status: string,
+  eventKey: string,
+): TaskEventInput {
+  return {
+    taskId,
+    type: PULL_REQUEST_STATUS_SYNC_COMPLETED_EVENT,
+    actor: "watcher",
+    fromStatus: status,
+    toStatus: status,
+    body: eventKey,
+  };
 }
 
 function statusSyncEvent(

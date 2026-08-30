@@ -54,11 +54,6 @@ export async function runOnce({
   pullRequestMonitorState = new Map(),
 }: RunOnceOptions) {
   let pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
-  const pendingStatusTimelineTaskIds = new Set(
-    runPeriodicMaintenance
-      ? store.getUndeliveredStatusTimelineEvents().map(({ taskId }) => taskId)
-      : [],
-  );
   if (runPeriodicMaintenance) {
     await deliverPendingStatusTimelines(slackClient, store);
     await deliverPendingStatusHooksSafely({
@@ -131,7 +126,6 @@ export async function runOnce({
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       fetchLinearIssue: fetchLinearIssueState,
-      includedTaskIds: pendingStatusTimelineTaskIds,
       publishLinearUpdate: async (task, pullRequest) => {
         const published = await reconcileSlackStatusTransition({
           config,
