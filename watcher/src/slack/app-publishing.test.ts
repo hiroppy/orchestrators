@@ -290,6 +290,12 @@ describe("Slack event publishing", () => {
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
+      assert.deepEqual(
+        store
+          .getLatestEventsByType("service-a:ENG-62", "status_timeline", 2)
+          .map(({ fromStatus, toStatus }) => `${fromStatus} -> ${toStatus}`),
+        ["In Progress -> In Review", "In Progress -> In Progress"],
+      );
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 

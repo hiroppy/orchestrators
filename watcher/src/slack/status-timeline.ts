@@ -68,9 +68,14 @@ export async function publishStatusTimeline(
     await reloadStatusTimeline(client, store, delivery.taskId);
     return;
   }
+  const storedEvent = recordStatusTimeline(store, delivery);
+  await deliverStatusTimelineEvent(client, store, storedEvent);
+}
+
+export function recordStatusTimeline(store: WatcherStore, delivery: StatusCardDelivery): TaskEvent {
   const { event } = delivery;
   const { source } = event;
-  const storedEvent = store.addEvent({
+  return store.addEvent({
     taskId: delivery.taskId,
     type: STATUS_TIMELINE_EVENT,
     actor: source.type === "manual" ? source.actor.id : "watcher",
@@ -83,7 +88,6 @@ export async function publishStatusTimeline(
     body: delivery.fallbackText,
     createdAt: new Date(event.occurredAt),
   });
-  await deliverStatusTimelineEvent(client, store, storedEvent);
 }
 
 export async function deliverPendingStatusTimelines(
@@ -99,7 +103,7 @@ export async function deliverPendingStatusTimelines(
   }
 }
 
-async function deliverStatusTimelineEvent(
+export async function deliverStatusTimelineEvent(
   client: SlackClient,
   store: WatcherStore,
   event: TaskEvent,
