@@ -62,6 +62,17 @@ describe("watcher configuration", () => {
       ).pullRequestStatusSync,
       { closed: "Cancelled" },
     );
+    assert.throws(
+      () =>
+        resolveWatcherConfig(
+          {
+            ...baseConfig(),
+            watcher: { pullRequestStatusSync: { closed: 42 as never } },
+          },
+          { requireSlack: false },
+        ),
+      /watcher\.pullRequestStatusSync\.closed must be a non-empty string/,
+    );
   });
 
   it("uses the service's explicit Linear team ID", () => {

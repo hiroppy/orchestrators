@@ -94,6 +94,51 @@ describe("pull request status sync", () => {
       assert.deepEqual(updates, ["ENG-43"]);
     });
   });
+
+  it("continues syncing other tasks when one pull request lookup fails", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-43",
+        issueTitle: "Second task",
+        resolvedState: "In Review",
+        pullRequest: { url: "https://github.com/example/repository/pull/43" },
+      });
+      const updates: string[] = [];
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        findPullRequestByUrl: async (url) => {
+          if (url.endsWith("/42")) throw new Error("GitHub unavailable");
+          return { url, state: "CLOSED" };
+        },
+        updateLinearStatus: async (issueIdentifier) => {
+          updates.push(issueIdentifier);
+        },
+      });
+
+      assert.deepEqual(updates, ["ENG-43"]);
+    });
+  });
+
+  it("persists the team's canonical status name", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      config.pullRequestStatusSync = { closed: "canceled" };
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        updateLinearStatus: async () => undefined,
+      });
+
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
+    });
+  });
 });
 
 function setupTask(store: WatcherStore, status = "In Review") {

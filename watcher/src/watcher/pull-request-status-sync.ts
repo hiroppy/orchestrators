@@ -25,24 +25,28 @@ export async function syncPullRequestStatuses({
   for (const task of store.getTasksForLinearSync()) {
     if (!task.pullRequest?.url || task.issueIdentifier.startsWith("watcher:")) continue;
 
-    const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
-    const targetStatus =
-      normalizeStatus(pullRequest?.state) === "closed" ? statusSync.closed : undefined;
-    if (!targetStatus || !pullRequest) continue;
-    const eventKey = JSON.stringify({
-      url: pullRequest.url,
-      state: normalizeStatus(pullRequest.state),
-      headRefOid: pullRequest.headRefOid ?? null,
-    });
-    if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) continue;
-
-    if (normalizeStatus(task.status) === normalizeStatus(targetStatus)) {
-      recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
-      continue;
-    }
-
-    const team = linearTeamForService(config, task.serviceName);
     try {
+      const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
+      if (normalizeStatus(pullRequest?.state) !== "closed" || !pullRequest) continue;
+
+      const team = linearTeamForService(config, task.serviceName);
+      const targetStatus = team?.statuses.find(
+        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
+      );
+      if (!targetStatus) continue;
+
+      const eventKey = JSON.stringify({
+        url: pullRequest.url,
+        state: normalizeStatus(pullRequest.state),
+        headRefOid: pullRequest.headRefOid ?? null,
+      });
+      if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) continue;
+
+      if (normalizeStatus(task.status) === normalizeStatus(targetStatus)) {
+        recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
+        continue;
+      }
+
       await updateLinearStatus(task.issueIdentifier, targetStatus, {
         apiKey: team?.apiKey,
         teamId: team?.teamId,
@@ -63,7 +67,7 @@ export async function syncPullRequestStatuses({
       });
     } catch (error) {
       console.error(
-        `Failed to sync ${task.issueIdentifier} from pull request state to ${targetStatus}:`,
+        `Failed to inspect or sync ${task.issueIdentifier} pull request status:`,
         error,
       );
     }

@@ -75,7 +75,7 @@ function resolvePullRequestStatusSync(
   config: PullRequestStatusSyncConfig | undefined,
 ): PullRequestStatusSyncConfig | undefined {
   if (!config) return undefined;
-  const closed = config.closed?.trim();
+  const closed = typeof config.closed === "string" ? config.closed.trim() : undefined;
   if (!closed) {
     throw new Error("watcher.pullRequestStatusSync.closed must be a non-empty string.");
   }
