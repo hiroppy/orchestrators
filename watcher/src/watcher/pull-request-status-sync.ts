@@ -12,6 +12,8 @@ const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
 const PULL_REQUEST_STATUS_SYNC_PENDING_EVENT = "pull_request_status_sync_pending";
 const PULL_REQUEST_STATUS_SYNC_COMPLETED_EVENT = "pull_request_status_sync_completed";
 const PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT = "pull_request_status_sync_reopened";
+const PULL_REQUEST_STATUS_SYNC_ATTACHMENT_CHANGED_EVENT =
+  "pull_request_status_sync_attachment_changed";
 
 export async function syncPullRequestStatuses({
   config,
@@ -86,6 +88,7 @@ export async function syncPullRequestStatuses({
           linearIssue.state ?? task.status,
           attachmentChangeKey,
         );
+        recordPullRequestAttachmentChange(store, task, attachmentChangeKey);
         await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
         if (closedLifecycleStatus) {
           store.addEvent(
@@ -155,6 +158,10 @@ export async function syncPullRequestStatuses({
         url: pullRequest.url,
         state: pullRequestState,
         reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
+        attachmentChangeEventId: store.getLatestEvent(
+          task.id,
+          PULL_REQUEST_STATUS_SYNC_ATTACHMENT_CHANGED_EVENT,
+        )?.id,
       });
       if (
         isTerminalLinearStateType(liveLinearStateType) &&
@@ -274,6 +281,23 @@ function recordPullRequestReopen(
       url: pullRequest.url,
       headRefOid: pullRequest.headRefOid ?? null,
     }),
+  });
+}
+
+function recordPullRequestAttachmentChange(
+  store: WatcherStore,
+  task: Task,
+  attachmentChangeKey: string,
+): void {
+  const latest = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_ATTACHMENT_CHANGED_EVENT);
+  if (latest?.body === attachmentChangeKey) return;
+  store.addEvent({
+    taskId: task.id,
+    type: PULL_REQUEST_STATUS_SYNC_ATTACHMENT_CHANGED_EVENT,
+    actor: "watcher",
+    fromStatus: task.status,
+    toStatus: task.status,
+    body: attachmentChangeKey,
   });
 }
 
