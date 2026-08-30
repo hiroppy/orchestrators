@@ -113,6 +113,12 @@ describe("pull request status sync", () => {
         config,
         store,
         ...syncDependencies(store),
+        publishLinearUpdate: async (_task, pullRequest) => {
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          const isClosed = pullRequestState === "CLOSED";
+          store.updateTaskStatus("service-a:ENG-42", isClosed ? "Canceled" : "In Review");
+          store.setTaskLinearStateType("service-a:ENG-42", isClosed ? "canceled" : "started");
+        },
         findPullRequestByUrl: async (url: string) => ({
           url,
           state: pullRequestState,
@@ -126,7 +132,8 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses(options);
       pullRequestState = "OPEN";
       await syncPullRequestStatuses(options);
-      store.updateTaskStatus("service-a:ENG-42", "In Review");
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "started");
       pullRequestState = "CLOSED";
       await syncPullRequestStatuses(options);
 
@@ -218,10 +225,17 @@ describe("pull request status sync", () => {
       const config = setupTask(store);
       let linearState = { state: "In Review", stateType: "started" };
       let updates = 0;
+      let publications = 0;
       const options = {
         config,
         store,
         ...syncDependencies(store),
+        publishLinearUpdate: async (_task, pullRequest) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", linearState.state);
+          store.setTaskLinearStateType("service-a:ENG-42", linearState.stateType);
+        },
         fetchLinearIssue: async () => ({
           identifier: "ENG-42",
           title: "Tracked task",
@@ -249,12 +263,48 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses(options);
 
       assert.equal(updates, 1);
+      assert.equal(publications, 1);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
       assert.deepEqual(
         store.getTaskIdsWithIncompleteEvent(
           "pull_request_status_sync_pending",
           "pull_request_status_sync_completed",
         ),
         [],
+      );
+    });
+  });
+
+  it("treats equivalent GitHub pull request URLs as the same attachment", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      let publications = 0;
+      let lookups = 0;
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(
+          store,
+          "https://github.com/example/repository/pull/42/?diff=split#discussion",
+          async () => {
+            publications += 1;
+          },
+        ),
+        findPullRequestByUrl: async (url) => {
+          lookups += 1;
+          return { url, state: "OPEN" };
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.equal(lookups, 1);
+      assert.equal(publications, 0);
+      assert.equal(
+        store.getTask("service-a:ENG-42")?.pullRequest?.url,
+        "https://github.com/example/repository/pull/42",
       );
     });
   });

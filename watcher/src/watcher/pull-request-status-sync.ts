@@ -37,7 +37,16 @@ export async function syncPullRequestStatuses({
     ),
   );
 
-  for (const task of store.getTasksForLinearSync(pendingTaskIds)) {
+  const tasks = store
+    .getTasksForLinearSync(pendingTaskIds, new Map(), true)
+    .filter(
+      (task) =>
+        !isTerminalLinearStateType(task.linearStateType) ||
+        pendingTaskIds.has(task.id) ||
+        hasSyncedCurrentPullRequest(store, task),
+    );
+
+  for (const task of tasks) {
     if (task.issueIdentifier.startsWith("watcher:")) continue;
 
     try {
@@ -47,8 +56,14 @@ export async function syncPullRequestStatuses({
         maxAttempts: 1,
       });
       if (!linearIssue) continue;
+      const liveLinearStateType = effectiveLinearStateTypeForService(
+        config,
+        task.serviceName,
+        linearIssue.state,
+        linearIssue.stateType,
+      );
       const pullRequestUrl = task.pullRequest?.url;
-      if (linearIssue.pullRequest?.url !== pullRequestUrl) {
+      if (!samePullRequest(linearIssue.pullRequest?.url, pullRequestUrl)) {
         await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
         completePendingStatusSync(
           store,
@@ -79,6 +94,13 @@ export async function syncPullRequestStatuses({
           );
           continue;
         }
+        if (
+          isTerminalLinearStateType(task.linearStateType) &&
+          !isTerminalLinearStateType(liveLinearStateType)
+        ) {
+          await publishLinearUpdate(task, pullRequest);
+          continue;
+        }
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
           await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
         }
@@ -89,16 +111,10 @@ export async function syncPullRequestStatuses({
       );
       if (!targetStatus) continue;
       if (
-        isTerminalLinearStateType(
-          effectiveLinearStateTypeForService(
-            config,
-            task.serviceName,
-            linearIssue.state,
-            linearIssue.stateType,
-          ),
-        ) &&
+        isTerminalLinearStateType(liveLinearStateType) &&
         normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)
       ) {
+        if (pendingTaskIds.has(task.id)) await publishLinearUpdate(task, pullRequest);
         completePendingStatusSync(
           store,
           task,
@@ -168,6 +184,18 @@ function completePendingStatusSync(
   pendingTaskIds.delete(task.id);
 }
 
+function hasSyncedCurrentPullRequest(store: WatcherStore, task: Task): boolean {
+  const pullRequestUrl = task.pullRequest?.url;
+  const eventBody = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT)?.body;
+  if (!pullRequestUrl || !eventBody) return false;
+  try {
+    const event = JSON.parse(eventBody) as { url?: unknown };
+    return typeof event.url === "string" && samePullRequest(event.url, pullRequestUrl);
+  } catch {
+    return false;
+  }
+}
+
 function recordPullRequestReopen(
   store: WatcherStore,
   task: Task,
@@ -207,12 +235,40 @@ function pullRequestMetadataChanged(
   current: Task["pullRequest"],
   observed: NonNullable<Task["pullRequest"]>,
 ): boolean {
+  if (!current) return true;
   return (
-    current?.url !== observed.url ||
+    !samePullRequest(current.url, observed.url) ||
     current.number !== observed.number ||
     current.title !== observed.title ||
     JSON.stringify(current.labels ?? []) !== JSON.stringify(observed.labels ?? [])
   );
+}
+
+function samePullRequest(left: string | undefined, right: string | undefined): boolean {
+  if (left === right) return true;
+  const leftIdentity = pullRequestIdentity(left);
+  return leftIdentity !== undefined && leftIdentity === pullRequestIdentity(right);
+}
+
+function pullRequestIdentity(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname.toLowerCase() !== "github.com" ||
+      url.port ||
+      url.username ||
+      url.password
+    ) {
+      return undefined;
+    }
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/);
+    if (!match) return undefined;
+    return `${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${match[3]}`;
+  } catch {
+    return undefined;
+  }
 }
 
 function recordStatusSync(
