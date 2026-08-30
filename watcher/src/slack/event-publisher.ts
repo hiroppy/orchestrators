@@ -9,7 +9,12 @@ import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistenc
 import { slackAssigneeIdFromMention } from "./assignee.ts";
 import type { SlackClient } from "./client-types.ts";
 import { initialTaskAssignees } from "./notifications.ts";
-import { publishStatusTimeline, reloadStatusTimeline } from "./status-timeline.ts";
+import {
+  deliverStatusTimelineEvent,
+  publishStatusTimeline,
+  recordStatusTimeline,
+  reloadStatusTimeline,
+} from "./status-timeline.ts";
 import { withTaskCardQueue } from "./task-card-queue.ts";
 import { resolveSlackAssigneeLabels } from "./users.ts";
 import {
@@ -33,6 +38,7 @@ export async function publishWatcherEvent(
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
     afterPublish?: (task: Task) => Promise<void>;
+    pullRequestOverride?: Task["pullRequest"] | null;
   } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
@@ -61,11 +67,22 @@ export async function publishWatcherEvent(
       }
     }
     let task = persistedTask;
+    const hasPullRequestOverride = options.pullRequestOverride !== undefined;
+    const observedPullRequest = hasPullRequestOverride
+      ? (options.pullRequestOverride ?? undefined)
+      : event.pullRequest;
+    if (hasPullRequestOverride) {
+      store.setTaskPullRequest(task.id, observedPullRequest);
+      task = store.getTask(task.id)!;
+    }
+    const publishedEvent = hasPullRequestOverride
+      ? { ...event, pullRequest: observedPullRequest }
+      : event;
     const pullRequestChanged =
-      event.pullRequest !== undefined &&
-      (event.pullRequest.url !== previousTask?.pullRequest?.url ||
-        event.pullRequest.number !== previousTask?.pullRequest?.number ||
-        event.pullRequest.title !== previousTask?.pullRequest?.title);
+      (hasPullRequestOverride || event.pullRequest !== undefined) &&
+      (observedPullRequest?.url !== previousTask?.pullRequest?.url ||
+        observedPullRequest?.number !== previousTask?.pullRequest?.number ||
+        observedPullRequest?.title !== previousTask?.pullRequest?.title);
     const statusChanged =
       previousTask !== undefined &&
       normalizeStatus(previousTask.status) !== normalizeStatus(task.status);
@@ -78,10 +95,36 @@ export async function publishWatcherEvent(
     const card = buildTaskCard(
       task,
       store.getSelectableStatuses(task.serviceName),
-      event,
+      publishedEvent,
       assigneeLabels,
     );
     const summary = JSON.stringify(card);
+    const statusEvent = { ...publishedEvent, pullRequest: undefined };
+    const threadContext = {
+      fromStatus: previousTask?.status,
+      toStatus: task.status,
+    };
+    const statusBody = buildThreadMessage(statusEvent, threadContext);
+    const needsTimelineAnchor =
+      store.getLatestEventsByType(task.id, "status_timeline", 1).length === 0;
+    const timelineDelivery = {
+      taskId: task.id,
+      event: {
+        fromStatus: previousTask?.status ?? task.status,
+        toStatus: task.status,
+        occurredAt: new Date().toISOString(),
+        source: {
+          type: "automatic" as const,
+          label: parentEventLabel(statusEvent),
+          error: statusEvent.error,
+        },
+      },
+      fallbackText: statusBody,
+    };
+    const pendingTimeline =
+      statusChanged && task.parentChannelId && task.parentMessageTs && !clearsActivity
+        ? recordStatusTimeline(store, timelineDelivery)
+        : undefined;
     const announceTerminalParent =
       Boolean(previousTask?.parentMessageTs) &&
       enteredTerminalLinearState(previousTask?.linearStateType, task.linearStateType);
@@ -125,31 +168,12 @@ export async function publishWatcherEvent(
       }
     }
 
-    const statusEvent = { ...event, pullRequest: undefined };
-    const threadContext = {
-      fromStatus: previousTask?.status,
-      toStatus: task.status,
-    };
-    const statusBody = buildThreadMessage(statusEvent, threadContext);
-    const needsTimelineAnchor =
-      store.getLatestEventsByType(task.id, "status_timeline", 1).length === 0;
     if (activityCleared) store.setTaskActivity(task.id, undefined);
     try {
-      if (statusChanged || needsTimelineAnchor) {
-        await publishStatusTimeline(client, store, {
-          taskId: task.id,
-          event: {
-            fromStatus: previousTask?.status ?? task.status,
-            toStatus: task.status,
-            occurredAt: new Date().toISOString(),
-            source: {
-              type: "automatic",
-              label: parentEventLabel(statusEvent),
-              error: statusEvent.error,
-            },
-          },
-          fallbackText: statusBody,
-        });
+      if (pendingTimeline) {
+        await deliverStatusTimelineEvent(client, store, pendingTimeline);
+      } else if (statusChanged || needsTimelineAnchor) {
+        await publishStatusTimeline(client, store, timelineDelivery);
       } else if (pullRequestChanged || activityCleared) {
         const reloaded = await reloadStatusTimeline(client, store, task.id);
         if (activityCleared && !reloaded) {
