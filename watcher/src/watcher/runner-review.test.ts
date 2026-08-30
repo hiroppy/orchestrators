@@ -376,17 +376,19 @@ describe("watcher review requeue", () => {
       store.setParentMessage(task.id, "C123", "1.000", "{}");
 
       let replacementLookups = 0;
+      const slackCalls: Array<Record<string, unknown>> = [];
       const replacementPullRequest: PullRequest = {
         url: "https://github.com/acme/example/pull/42",
         number: 42,
         title: "Replacement PR",
         labels: ["ready"],
+        reactions: ["ROCKET"],
       };
       const run = () =>
         runOnce({
           config,
           store,
-          slackClient: fakeSlackClient([]),
+          slackClient: fakeSlackClient(slackCalls),
           slackChannelId: "C123",
           findPullRequestByUrl: async (url) => {
             if (url.endsWith("/41")) return null;
@@ -411,6 +413,10 @@ describe("watcher review requeue", () => {
         labels: ["ready"],
       });
       assert.equal(store.getTask(task.id)?.status, "In Review");
+      assert.equal(
+        slackCalls.some((call) => call.method === "reactions.add" && call.name === "rocket"),
+        true,
+      );
     });
   });
 });

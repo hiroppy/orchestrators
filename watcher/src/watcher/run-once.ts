@@ -144,6 +144,7 @@ export async function runOnce({
             ),
         });
         if (!published) throw new Error(`Failed to publish ${task.issueIdentifier} status.`);
+        await syncPullRequestReactionsSafely(slackClient, store.getTask(task.id), pullRequest);
       },
       updateLinearStatus,
     });

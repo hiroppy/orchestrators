@@ -457,6 +457,7 @@ describe("pull request status sync", () => {
       assert.equal(updates, 1);
       assert.equal(publications, 1);
       assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
       assert.deepEqual(
         store.getTaskIdsWithIncompleteEvent(
           "pull_request_status_sync_pending",

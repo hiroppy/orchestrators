@@ -150,6 +150,11 @@ export async function syncPullRequestStatuses({
         continue;
       }
       if (!targetStatus) continue;
+      const eventKey = JSON.stringify({
+        url: pullRequest.url,
+        state: pullRequestState,
+        reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
+      });
       if (
         isTerminalLinearStateType(liveLinearStateType) &&
         normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)
@@ -172,15 +177,14 @@ export async function syncPullRequestStatuses({
           );
           await publishLinearUpdate(task, pullRequest);
         }
+        if (!store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {
+          store.addEvent(
+            statusSyncEvent(task.id, task.status, linearIssue.state ?? task.status, eventKey),
+          );
+        }
         completePendingStatusSync(store, task, pendingTaskIds, terminalStateKey);
         continue;
       }
-
-      const eventKey = JSON.stringify({
-        url: pullRequest.url,
-        state: pullRequestState,
-        reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
-      });
       if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {
         if (
           pendingTaskIds.has(task.id) ||
