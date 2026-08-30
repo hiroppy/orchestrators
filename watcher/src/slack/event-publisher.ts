@@ -38,6 +38,7 @@ export async function publishWatcherEvent(
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
     createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
     afterPublish?: (task: Task) => Promise<void>;
+    pullRequestOverride?: Task["pullRequest"] | null;
   } = {},
 ): Promise<void> {
   const taskId = taskIdFor(event.service, event.issueIdentifier);
@@ -66,11 +67,19 @@ export async function publishWatcherEvent(
       }
     }
     let task = persistedTask;
+    const hasPullRequestOverride = options.pullRequestOverride !== undefined;
+    const observedPullRequest = hasPullRequestOverride
+      ? (options.pullRequestOverride ?? undefined)
+      : event.pullRequest;
+    if (hasPullRequestOverride) {
+      store.setTaskPullRequest(task.id, observedPullRequest);
+      task = store.getTask(task.id)!;
+    }
     const pullRequestChanged =
-      event.pullRequest !== undefined &&
-      (event.pullRequest.url !== previousTask?.pullRequest?.url ||
-        event.pullRequest.number !== previousTask?.pullRequest?.number ||
-        event.pullRequest.title !== previousTask?.pullRequest?.title);
+      (hasPullRequestOverride || event.pullRequest !== undefined) &&
+      (observedPullRequest?.url !== previousTask?.pullRequest?.url ||
+        observedPullRequest?.number !== previousTask?.pullRequest?.number ||
+        observedPullRequest?.title !== previousTask?.pullRequest?.title);
     const statusChanged =
       previousTask !== undefined &&
       normalizeStatus(previousTask.status) !== normalizeStatus(task.status);

@@ -19,6 +19,7 @@ export async function reconcileSlackStatusTransition({
   slackChannelId,
   task,
   createStatusTransitionEvent,
+  pullRequestOverride,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
@@ -26,6 +27,7 @@ export async function reconcileSlackStatusTransition({
   slackChannelId: string;
   task: Task;
   createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
+  pullRequestOverride?: Task["pullRequest"] | null;
 }): Promise<boolean> {
   const reviewComment = config.reviewComment;
   const isInReview =
@@ -82,7 +84,7 @@ export async function reconcileSlackStatusTransition({
         linearIssue.relatedIssues,
       ),
     },
-    { createStatusTransitionEvent },
+    { createStatusTransitionEvent, pullRequestOverride },
   );
   return true;
 }

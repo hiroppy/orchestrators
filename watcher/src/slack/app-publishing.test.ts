@@ -306,6 +306,40 @@ describe("Slack event publishing", () => {
     });
   });
 
+  it("publishes an explicit pull request removal to the card and Timeline", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        pullRequest: { url: "https://github.com/example/repository/pull/62" },
+      });
+      calls.length = 0;
+
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+        },
+        { pullRequestOverride: null },
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.pullRequest, undefined);
+      assert.deepEqual(
+        calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
+        ["1.000", "2.000"],
+      );
+    });
+  });
+
   it("delivers a transition hook after Slack omits the new parent's channel and timestamp", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

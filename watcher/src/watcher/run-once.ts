@@ -133,6 +133,7 @@ export async function runOnce({
           slackClient,
           slackChannelId,
           task,
+          pullRequestOverride: pullRequest ?? null,
           createStatusTransitionEvent: (updatedTask, fromStatus) =>
             createPendingStatusHookEvent(
               serviceConfigFor(config, task.serviceName)?.statusHooks ?? [],
