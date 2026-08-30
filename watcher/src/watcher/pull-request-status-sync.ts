@@ -1,5 +1,6 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { PullRequest } from "../domain/github.ts";
+import { isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
@@ -31,6 +32,7 @@ export async function syncPullRequestStatuses({
     const targetStatus = pullRequest
       ? targetStatusForPullRequest(
           task.status,
+          task.linearStateType,
           task.pullRequest.headRefOid,
           pullRequest,
           statusSync?.closed,
@@ -75,12 +77,15 @@ export async function syncPullRequestStatuses({
 
 function targetStatusForPullRequest(
   taskStatus: string,
+  linearStateType: string | undefined,
   previousHeadRefOid: string | null | undefined,
   pullRequest: PullRequest,
   closedStatus: string | undefined,
   review: ResolvedWatcherRuntimeConfig["reviewComment"],
 ): string | undefined {
-  if (normalizeStatus(pullRequest.state) === "closed") return closedStatus;
+  if (normalizeStatus(pullRequest.state) === "closed") {
+    return isTerminalLinearStateType(linearStateType) ? undefined : closedStatus;
+  }
   if (!review) return undefined;
   const normalizedTaskStatus = normalizeStatus(taskStatus);
   const checksObserved = Boolean(pullRequest.checks?.length);

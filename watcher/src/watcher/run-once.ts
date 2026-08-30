@@ -119,12 +119,6 @@ export async function runOnce({
   });
   if (runPeriodicMaintenance) {
     const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
-    await syncPullRequestStatuses({
-      config,
-      store,
-      findPullRequestByUrl: findPeriodicPullRequestByUrl,
-      updateLinearStatus,
-    });
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,
@@ -134,6 +128,12 @@ export async function runOnce({
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,
+    });
+    await syncPullRequestStatuses({
+      config,
+      store,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
+      updateLinearStatus,
     });
     await runPullRequestMonitors({
       config,

@@ -13,6 +13,158 @@ import {
 } from "./runner.test-support.ts";
 
 describe("watcher Linear reconciliation and snapshots", () => {
+  it("discovers a PR attached while an In Progress task remains in Symphony", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: {
+                identifier: "ENG-62",
+                state: { name: "In Progress", type: "started" },
+              },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Wait for CI",
+              state: { name: "In Progress", type: "started" },
+              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({
+              running: [{ issue_identifier: "ENG-62", state: "In Progress" }],
+            }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+        defaultAssignees: [],
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Wait for CI",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const updates: string[] = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        findPullRequestByUrl: async (url) => ({
+          url,
+          state: "OPEN",
+          isDraft: false,
+          checks: [{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+        }),
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.equal(
+        store.getTask(task.id)?.pullRequest?.url,
+        "https://github.com/acme/example/pull/42",
+      );
+      assert.deepEqual(updates, ["In Review"]);
+    });
+  });
+
+  it("reconciles authoritative Linear state before syncing a stale PR", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: { identifier: "ENG-62", state: { name: "Done", type: "completed" } },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Already done",
+              state: { name: "Done", type: "completed" },
+              attachments: { nodes: [] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review", "Done", "Canceled"]),
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+        pullRequestStatusSync: { closed: "Canceled" },
+        defaultAssignees: [],
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Already done",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/acme/example/pull/old" },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const updates: string[] = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.equal(store.getTask(task.id)?.status, "Done");
+      assert.equal(store.getTask(task.id)?.pullRequest, undefined);
+      assert.deepEqual(updates, []);
+    });
+  });
+
   it("reconciles nonterminal tasks after they disappear from Symphony", async (context) => {
     await withStore(async (store) => {
       const emptySnapshot = { running: [], retrying: [], blocked: [] };

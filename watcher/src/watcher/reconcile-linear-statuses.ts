@@ -117,7 +117,12 @@ export async function reconcileLinearStatuses({
         task.linearStateType,
         effectiveStateType,
       );
-      if (sameStatus && !enteredTerminalState && !fetchReviewComments) {
+      if (
+        sameStatus &&
+        !enteredTerminalState &&
+        !fetchReviewComments &&
+        !shouldRefreshPullRequestForStatusSync(config, task.status)
+      ) {
         if (effectiveStateType) {
           store.setTaskLinearStateType(task.id, effectiveStateType);
           pendingPersistedTerminalTaskIds.delete(task.id);
@@ -155,7 +160,12 @@ export async function reconcileLinearStatuses({
     );
     const reviewComment = config.reviewComment;
     const fetchDetailedReviewComments = shouldFetchReviewComments(config, linearIssue.state);
-    if (detailedSameStatus && !detailedEnteredTerminalState && !fetchDetailedReviewComments) {
+    if (
+      detailedSameStatus &&
+      !detailedEnteredTerminalState &&
+      !fetchDetailedReviewComments &&
+      !shouldRefreshPullRequestForStatusSync(config, task.status)
+    ) {
       if (effectiveStateType) {
         store.setTaskLinearStateType(task.id, effectiveStateType);
       }
@@ -242,14 +252,24 @@ function isTaskEligibleForNormalLinearReconciliation(
   task: Task,
   skipTaskIds: ReadonlySet<string>,
 ): boolean {
+  const shouldRefreshPullRequest = shouldRefreshPullRequestForStatusSync(config, task.status);
   const hasCurrentLinearState =
     skipTaskIds.has(task.id) &&
     Boolean(task.linearStateType) &&
-    !shouldFetchReviewComments(config, task.status);
+    !shouldFetchReviewComments(config, task.status) &&
+    !shouldRefreshPullRequest;
   return !(
     hasCurrentLinearState ||
     task.issueIdentifier.startsWith("watcher:") ||
     !task.parentChannelId ||
     !task.parentMessageTs
   );
+}
+
+function shouldRefreshPullRequestForStatusSync(
+  config: ResolvedWatcherRuntimeConfig,
+  status: string,
+): boolean {
+  const review = config.reviewComment;
+  return Boolean(review && normalizeStatus(status) === normalizeStatus(review.inProgressStatus));
 }
