@@ -191,7 +191,11 @@ export async function reconcileLinearStatuses({
         includeLatestReviewComment: fetchDetailedReviewComments,
         symphonyGitHubLogins: reviewComment?.symphonyGitHubLogins,
       }).catch(() => null);
-      pullRequest = enrichedPullRequest ?? pullRequest;
+      pullRequest =
+        enrichedPullRequest ??
+        (task.pullRequest?.url === pullRequest.url
+          ? { ...task.pullRequest, ...pullRequest }
+          : pullRequest);
     }
     if (storedPullRequestChanged(task.pullRequest, pullRequest)) {
       store.setTaskPullRequest(task.id, pullRequest);

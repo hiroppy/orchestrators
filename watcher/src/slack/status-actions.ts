@@ -22,7 +22,7 @@ export type StatusTransitionEventFactory = (
   task: Task,
   fromStatus: string,
   toStatus: string,
-) => TaskEventInput | undefined;
+) => TaskEventInput | TaskEventInput[] | undefined;
 
 export function registerStatusAction(
   app: App,

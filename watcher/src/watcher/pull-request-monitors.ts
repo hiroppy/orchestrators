@@ -19,6 +19,7 @@ interface RunPullRequestMonitorsOptions {
   inReviewStatus?: string;
   state: PullRequestMonitorState;
   findPullRequestByUrl?: typeof findPullRequestByUrlDefault;
+  skipTaskIds?: ReadonlySet<string>;
 }
 
 type ClearPullRequestMonitorStateOptions = Pick<
@@ -43,8 +44,9 @@ export async function runPullRequestMonitors({
   inReviewStatus,
   state,
   findPullRequestByUrl = findPullRequestByUrlDefault,
+  skipTaskIds = new Set(),
 }: RunPullRequestMonitorsOptions): Promise<void> {
-  const tasks = monitoredTasks(config, store, inReviewStatus);
+  const tasks = monitoredTasks(config, store, inReviewStatus, skipTaskIds);
 
   for (const task of tasks) {
     const monitors = serviceConfigFor(config, task.serviceName)?.pullRequestMonitors ?? [];
@@ -96,12 +98,14 @@ function monitoredTasks(
   config: ResolvedWatcherRuntimeConfig,
   store: WatcherStore,
   inReviewStatus?: string,
+  skipTaskIds: ReadonlySet<string> = new Set(),
 ): Task[] {
   const normalizedInReviewStatus = normalizeStatus(inReviewStatus);
   if (!normalizedInReviewStatus) return [];
   return store.getTasksForLinearSync().filter((task) => {
     const monitors = serviceConfigFor(config, task.serviceName)?.pullRequestMonitors ?? [];
     return (
+      !skipTaskIds.has(task.id) &&
       normalizeStatus(task.status) === normalizedInReviewStatus &&
       monitors.length > 0 &&
       Boolean(task.pullRequest?.url)

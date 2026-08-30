@@ -151,6 +151,64 @@ describe("Slack status actions", () => {
     });
   });
 
+  it("records transition events atomically before timeline publication", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+        pullRequest: { url: "https://github.com/example/app/pull/42", headRefOid: "head-1" },
+      });
+      let updates = 0;
+      const errors: unknown[] = [];
+
+      await handleStatusAction(
+        {
+          ack: async () => {},
+          action: { selected_option: { value: "Rework" } },
+          body: {
+            user: { id: "U123" },
+            message: { metadata: { event_payload: { task_id: "service-a:ENG-62" } } },
+          },
+          client: {
+            ...client,
+            chat: {
+              ...client.chat,
+              update: async (args) => {
+                updates += 1;
+                if (updates === 2) throw new Error("Timeline update failed");
+                return client.chat.update(args);
+              },
+            },
+          },
+          logger: { error: (error) => errors.push(error) },
+        },
+        store,
+        async () => {},
+        undefined,
+        (task, fromStatus, toStatus) => [
+          {
+            taskId: task.id,
+            type: "review_requeue_baseline",
+            fromStatus,
+            toStatus,
+            body: task.pullRequest?.headRefOid,
+          },
+        ],
+      );
+
+      assert.equal(store.getTask("service-a:ENG-62")?.status, "Rework");
+      assert.equal(
+        store.getLatestEvent("service-a:ENG-62", "review_requeue_baseline")?.body,
+        "head-1",
+      );
+      assert.equal(errors.length, 1);
+    });
+  });
+
   it("reports a Linear status update failure in the task thread", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];

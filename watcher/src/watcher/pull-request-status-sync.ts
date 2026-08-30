@@ -27,10 +27,11 @@ export async function syncPullRequestStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
   skipTaskIds?: ReadonlySet<string>;
   previousTasks?: ReadonlyMap<string, Task>;
-}): Promise<void> {
+}): Promise<Set<string>> {
+  const transitionedTaskIds = new Set<string>();
   const statusSync = config.pullRequestStatusSync;
   const review = config.reviewComment;
-  if (!statusSync && !review) return;
+  if (!statusSync && !review) return transitionedTaskIds;
 
   for (const task of store.getTasksForLinearSync()) {
     if (
@@ -82,6 +83,7 @@ export async function syncPullRequestStatuses({
         teamId: team?.teamId,
       });
       recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
+      transitionedTaskIds.add(task.id);
     } catch (error) {
       console.error(
         `Failed to sync ${task.issueIdentifier} from pull request state to ${targetStatus}:`,
@@ -89,6 +91,7 @@ export async function syncPullRequestStatuses({
       );
     }
   }
+  return transitionedTaskIds;
 }
 
 export function createPullRequestStatusReconciledEvent(

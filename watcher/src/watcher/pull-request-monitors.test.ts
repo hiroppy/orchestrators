@@ -279,6 +279,93 @@ describe("pull request monitors", () => {
       assert.equal(lookups, 1);
     });
   });
+
+  it("skips review monitors after PR status sync leaves review", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: { identifier: "ENG-42", state: { name: "In Review", type: "started" } },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-42",
+              title: "Monitor the pull request",
+              state: { name: "In Review", type: "started" },
+              attachments: {
+                nodes: [{ url: "https://github.com/example/repository/pull/42" }],
+              },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      let monitorRuns = 0;
+      const service: ServiceDefinition = {
+        name: "service-a",
+        url: dataUrl({ running: [], retrying: [], blocked: [] }),
+        linearTeam: "workspace-a-eng",
+        pullRequestMonitors: [
+          {
+            id: "checks",
+            run: () => {
+              monitorRuns += 1;
+            },
+          },
+        ],
+      };
+      const teams = linearTeams(["In Progress", "In Review"]);
+      const config = runtimeConfig({
+        services: [service],
+        linearTeams: teams,
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions([service], teams);
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-42",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/example/repository/pull/42", headRefOid: "old" },
+      });
+      store.setParentMessage(task.id, "C123", "100.001", "summary");
+      const state = new Map([[task.id, task.pullRequest!]]);
+      const updates: string[] = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "CWATCHER",
+        pullRequestMonitorState: state,
+        findPullRequestByUrl: async (url) => ({
+          url,
+          state: "OPEN",
+          isDraft: false,
+          headRefOid: "new",
+          checks: [{ name: "test", status: "IN_PROGRESS", conclusion: null }],
+        }),
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.deepEqual(updates, ["In Progress"]);
+      assert.equal(monitorRuns, 0);
+      assert.equal(state.size, 0);
+    });
+  });
 });
 
 type PullRequestMonitor = NonNullable<ServiceDefinition["pullRequestMonitors"]>[number];

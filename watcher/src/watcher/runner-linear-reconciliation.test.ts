@@ -489,6 +489,76 @@ describe("watcher Linear reconciliation and snapshots", () => {
     });
   });
 
+  it("preserves the stored PR head when GitHub enrichment is unavailable", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: {
+                identifier: "ENG-62",
+                state: { name: "In Review", type: "started" },
+              },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Preserve PR metadata",
+              state: { name: "In Review", type: "started" },
+              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          headRefOid: "head-1",
+          labels: ["ready"],
+        },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        findPullRequestByUrl: async () => null,
+      });
+
+      assert.equal(store.getTask(task.id)?.pullRequest?.headRefOid, "head-1");
+      assert.deepEqual(store.getTask(task.id)?.pullRequest?.labels, ["ready"]);
+    });
+  });
+
   it("allows repaired CI after reconciling a PR status requeue", async (context) => {
     await withStore(async (store) => {
       const nativeFetch = globalThis.fetch;

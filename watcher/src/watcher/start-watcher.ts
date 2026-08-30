@@ -93,20 +93,16 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
     slackCommandsForService: (serviceName) =>
       serviceConfigFor(runtimeConfig, serviceName)?.slackCommands ?? [],
     createStatusTransitionEvent: (task, fromStatus, toStatus) =>
-      createPendingStatusHookEvent(
-        serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],
-        task,
-        fromStatus,
-        toStatus,
-      ),
-    onStatusTransition: async (task, fromStatus, toStatus, slackClient) => {
-      const baselineEvent = createReviewTransitionBaselineEvent(
-        runtimeConfig,
-        task,
-        fromStatus,
-        toStatus,
-      );
-      if (baselineEvent) store.addEvent(baselineEvent);
+      [
+        createPendingStatusHookEvent(
+          serviceConfigFor(runtimeConfig, task.serviceName)?.statusHooks ?? [],
+          task,
+          fromStatus,
+          toStatus,
+        ),
+        createReviewTransitionBaselineEvent(runtimeConfig, task, fromStatus, toStatus),
+      ].filter((event) => event !== undefined),
+    onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,

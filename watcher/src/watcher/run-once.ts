@@ -133,7 +133,7 @@ export async function runOnce({
       persistedTerminalTaskIds,
     });
     pendingPersistedTerminalTaskIds = reconciliation.pendingPersistedTerminalTaskIds;
-    await syncPullRequestStatuses({
+    const pullRequestStatusTransitions = await syncPullRequestStatuses({
       config,
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
@@ -149,6 +149,7 @@ export async function runOnce({
       inReviewStatus: config.reviewComment?.inReviewStatus,
       state: pullRequestMonitorState,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
+      skipTaskIds: pullRequestStatusTransitions,
     });
   }
   return {
