@@ -6,12 +6,14 @@ import {
   findPullRequestByUrl as findPullRequestByUrlDefault,
 } from "../integrations/github/pull-requests.ts";
 import { updateLinearIssueStatus } from "../integrations/linear/status.ts";
+import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { deliverPendingStatusTimelines } from "../slack/status-timeline.ts";
 import { diffSnapshots, normalizeSnapshot } from "./diff.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import { processWatcherEvent } from "./process-event.ts";
 import { reconcileLinearStatuses } from "./reconcile-linear-statuses.ts";
+import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
 import { decideReviewRequeue } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import {
@@ -123,6 +125,17 @@ export async function runOnce({
       config,
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
+      fetchLinearIssue: fetchLinearIssueState,
+      publishStatusTransition: async (task) => {
+        const published = await reconcileSlackStatusTransition({
+          config,
+          store,
+          slackClient,
+          slackChannelId,
+          task,
+        });
+        if (!published) throw new Error(`Failed to publish ${task.issueIdentifier} status.`);
+      },
       updateLinearStatus,
     });
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({

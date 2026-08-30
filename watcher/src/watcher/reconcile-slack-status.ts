@@ -24,7 +24,7 @@ export async function reconcileSlackStatusTransition({
   slackClient: SlackClient;
   slackChannelId: string;
   task: Task;
-}): Promise<void> {
+}): Promise<boolean> {
   const reviewComment = config.reviewComment;
   const isInReview =
     reviewComment && normalizeStatus(task.status) === normalizeStatus(reviewComment.inReviewStatus);
@@ -43,7 +43,7 @@ export async function reconcileSlackStatusTransition({
     includeCreator: false,
     maxAttempts: 1,
   });
-  if (!linearIssue?.state || !linearIssue.stateType) return;
+  if (!linearIssue?.state || !linearIssue.stateType) return false;
 
   if (reviewComment && isInReview) {
     await checkReviewReadyNotificationSafely({
@@ -76,4 +76,5 @@ export async function reconcileSlackStatusTransition({
       linearIssue.relatedIssues,
     ),
   });
+  return true;
 }
