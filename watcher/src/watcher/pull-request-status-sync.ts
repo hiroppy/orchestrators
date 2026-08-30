@@ -65,12 +65,17 @@ export async function syncPullRequestStatuses({
         linearIssue.state,
         linearIssue.stateType,
       );
+      const pendingSync = pendingTaskIds.has(task.id)
+        ? store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_PENDING_EVENT)
+        : undefined;
+      const closedLifecycleStatus =
+        pendingSync &&
+        targetStatus &&
+        normalizeStatus(linearIssue.state) === normalizeStatus(targetStatus)
+          ? targetStatus
+          : undefined;
       const pullRequestUrl = task.pullRequest?.url;
       if (!samePullRequest(linearIssue.pullRequest?.url, pullRequestUrl)) {
-        const continuesClosedLifecycle =
-          pendingTaskIds.has(task.id) &&
-          targetStatus !== undefined &&
-          normalizeStatus(linearIssue.state) === normalizeStatus(targetStatus);
         const attachmentChangeKey = JSON.stringify({
           pullRequestUrl: linearIssue.pullRequest?.url ?? null,
         });
@@ -82,8 +87,15 @@ export async function syncPullRequestStatuses({
           attachmentChangeKey,
         );
         await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
-        if (continuesClosedLifecycle) {
-          store.addEvent(statusSyncEvent(task.id, task.status, targetStatus, attachmentChangeKey));
+        if (closedLifecycleStatus) {
+          store.addEvent(
+            statusSyncEvent(
+              task.id,
+              task.status,
+              closedLifecycleStatus,
+              pendingSync?.body ?? attachmentChangeKey,
+            ),
+          );
         }
         completePendingStatusSync(store, task, pendingTaskIds, attachmentChangeKey);
         continue;
@@ -93,20 +105,26 @@ export async function syncPullRequestStatuses({
       const pullRequest = await findPullRequestByUrl(pullRequestUrl);
       if (!pullRequest) continue;
       const pullRequestState = normalizeStatus(pullRequest.state);
+      const pullRequestObservationKey = JSON.stringify({
+        url: pullRequest.url,
+        state: pullRequestState,
+        headRefOid: pullRequest.headRefOid ?? null,
+      });
       if (pullRequestState !== "closed") {
         if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
         if (pendingTaskIds.has(task.id)) {
           await publishLinearUpdate(task, pullRequest);
-          completePendingStatusSync(
-            store,
-            task,
-            pendingTaskIds,
-            JSON.stringify({
-              url: pullRequest.url,
-              state: pullRequestState,
-              headRefOid: pullRequest.headRefOid ?? null,
-            }),
-          );
+          if (closedLifecycleStatus) {
+            store.addEvent(
+              statusSyncEvent(
+                task.id,
+                task.status,
+                closedLifecycleStatus,
+                pendingSync?.body ?? pullRequestObservationKey,
+              ),
+            );
+          }
+          completePendingStatusSync(store, task, pendingTaskIds, pullRequestObservationKey);
           continue;
         }
         if (
@@ -118,11 +136,7 @@ export async function syncPullRequestStatuses({
           continue;
         }
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
-          const metadataChangeKey = JSON.stringify({
-            url: pullRequest.url,
-            state: pullRequestState,
-            headRefOid: pullRequest.headRefOid ?? null,
-          });
+          const metadataChangeKey = pullRequestObservationKey;
           ensurePendingStatusSync(
             store,
             task,

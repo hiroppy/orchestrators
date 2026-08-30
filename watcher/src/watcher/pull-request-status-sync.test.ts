@@ -336,6 +336,54 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("retains lifecycle tracking when a reopen abandons a completed close mutation", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      let linearState = { state: "In Review", stateType: "started" };
+      let pullRequestState = "CLOSED";
+      let publications = 0;
+      let updates = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          ...linearState,
+          url: null,
+          pullRequest: { url: "https://github.com/example/repository/pull/42" },
+        }),
+        findPullRequestByUrl: async (url: string) => ({ url, state: pullRequestState }),
+        publishLinearUpdate: async (_task: { id: string }, pullRequest: { url: string }) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", linearState.state);
+          store.setTaskLinearStateType("service-a:ENG-42", linearState.stateType);
+          if (publications === 1) throw new Error("Slack unavailable");
+        },
+        updateLinearStatus: async () => {
+          updates += 1;
+          linearState = { state: "Canceled", stateType: "canceled" };
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      pullRequestState = "OPEN";
+      await syncPullRequestStatuses(options);
+
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
+
+      linearState = { state: "In Review", stateType: "started" };
+      await syncPullRequestStatuses(options);
+      pullRequestState = "CLOSED";
+      await syncPullRequestStatuses(options);
+
+      assert.equal(updates, 2);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
+    });
+  });
+
   it("continues syncing other tasks when one Linear update fails", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
