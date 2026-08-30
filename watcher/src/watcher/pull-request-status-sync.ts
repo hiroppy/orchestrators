@@ -111,7 +111,6 @@ export async function syncPullRequestStatuses({
         headRefOid: pullRequest.headRefOid ?? null,
       });
       if (pullRequestState !== "closed") {
-        if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
         if (pendingTaskIds.has(task.id)) {
           await publishLinearUpdate(task, pullRequest);
           if (closedLifecycleStatus) {
@@ -124,9 +123,11 @@ export async function syncPullRequestStatuses({
               ),
             );
           }
+          if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
           completePendingStatusSync(store, task, pendingTaskIds, pullRequestObservationKey);
           continue;
         }
+        if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
         if (
           isTerminalLinearStateType(task.linearStateType) &&
           (normalizeStatus(task.status) !== normalizeStatus(linearIssue.state) ||

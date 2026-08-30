@@ -375,7 +375,6 @@ describe("pull request status sync", () => {
       assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
 
       linearState = { state: "In Review", stateType: "started" };
-      await syncPullRequestStatuses(options);
       pullRequestState = "CLOSED";
       await syncPullRequestStatuses(options);
 
