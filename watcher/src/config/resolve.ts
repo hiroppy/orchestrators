@@ -23,6 +23,8 @@ const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
+const DEFAULT_IN_REVIEW_STATUS = "In Review";
+const DEFAULT_IN_PROGRESS_STATUS = "In Progress";
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
 const BUILT_IN_SLACK_COMMANDS = new Set(["assign", "help", "status", "take-pr", "unassign"]);
@@ -171,14 +173,10 @@ function resolveStatusHooks(
   });
 }
 
-function resolveReviewCommentConfig(
-  config: ReviewCommentConfig | undefined,
-): ReviewCommentConfig | undefined {
-  if (!config) return undefined;
-
-  const inReviewStatus = config.inReviewStatus?.trim();
-  const inProgressStatus = config.inProgressStatus?.trim();
-  const reviewReadyDelayMs = config.reviewReadyDelayMs ?? DEFAULT_REVIEW_READY_DELAY_MS;
+function resolveReviewCommentConfig(config: ReviewCommentConfig | undefined): ReviewCommentConfig {
+  const inReviewStatus = config?.inReviewStatus?.trim() ?? DEFAULT_IN_REVIEW_STATUS;
+  const inProgressStatus = config?.inProgressStatus?.trim() ?? DEFAULT_IN_PROGRESS_STATUS;
+  const reviewReadyDelayMs = config?.reviewReadyDelayMs ?? DEFAULT_REVIEW_READY_DELAY_MS;
   if (!inReviewStatus) {
     throw new Error("watcher.reviewComment.inReviewStatus must be a non-empty string.");
   }
@@ -195,7 +193,7 @@ function resolveReviewCommentConfig(
     );
   }
 
-  const symphonyGitHubLogins = config.symphonyGitHubLogins?.map((login) => login.trim());
+  const symphonyGitHubLogins = config?.symphonyGitHubLogins?.map((login) => login.trim());
   if (symphonyGitHubLogins?.some((login) => !login)) {
     throw new Error(
       "watcher.reviewComment.symphonyGitHubLogins must contain only non-empty strings.",

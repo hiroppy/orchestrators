@@ -45,6 +45,14 @@ describe("requireSlackBotUserId", () => {
 });
 
 describe("watcher configuration", () => {
+  it("enables CI-to-review handoff by default", () => {
+    assert.deepEqual(resolveWatcherConfig(baseConfig(), { requireSlack: false }).reviewComment, {
+      inReviewStatus: "In Review",
+      inProgressStatus: "In Progress",
+      reviewReadyDelayMs: 10 * 60 * 1_000,
+    });
+  });
+
   it("disables pull request status sync by default and accepts a closed-status target", () => {
     assert.equal(
       resolveWatcherConfig(baseConfig(), { requireSlack: false }).pullRequestStatusSync,
@@ -229,7 +237,13 @@ tracker:
       })),
     };
 
-    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done", "Canceled"]);
+    await resolveLinearWorkflowStatuses(withOverrides, async () => [
+      "Todo",
+      "In Progress",
+      "In Review",
+      "Done",
+      "Canceled",
+    ]);
 
     for (const [group, activeStates, terminalStates] of [
       ["active_states", ["Todo", "Ready for realease"], ["Done"]],
@@ -245,7 +259,7 @@ tracker:
               terminalStates,
             })),
           },
-          async () => ["Todo", "Done", "Canceled"],
+          async () => ["Todo", "In Progress", "In Review", "Done", "Canceled"],
         ),
         new RegExp(`${group} references unknown Linear status "Ready for realease" for service-a`),
       );
@@ -359,6 +373,12 @@ tracker:
         ...configWithService({
           statusHooks: [{ id: " app-distribution ", status: " In Review ", run }],
         }),
+        watcher: {
+          reviewComment: {
+            inReviewStatus: "Done",
+            inProgressStatus: "In Progress",
+          },
+        },
       },
       { requireSlack: false },
     );

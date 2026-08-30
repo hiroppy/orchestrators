@@ -4,8 +4,8 @@ export default defineConfig({
   watcher: {
     // Optionally cancel a Linear issue when its pull request closes without merging.
     // pullRequestStatusSync: { closed: "Canceled" },
-    // Moves CI-green pull requests to review and requeues them for new inline review comments.
-    // Remove this block to disable CI-to-review transitions and comment-based requeueing.
+    // These are the defaults. Keep or override them when the Linear workflow uses other names.
+    // The watcher owns CI-to-review transitions and requeues new inline review comments.
     reviewComment: {
       inReviewStatus: "In Review",
       inProgressStatus: "In Progress",

@@ -24,10 +24,10 @@ The `customize` profile is maintained in
 [`../overlays/customize/workflow.patch`](../overlays/customize/workflow.patch),
 while `symphony_template/` remains identical to upstream.
 
-The watcher example configuration uses `In Review`, matching the default
-`customize` profile. The `official` profile uses Symphony's upstream
-`Human Review` status. When using it, set
-`watcher.reviewComment.inReviewStatus` to `Human Review`.
+The watcher defaults to `In Review`, matching the default `customize` profile,
+and owns its CI-to-review handoff even when `watcher.reviewComment` is omitted.
+The `official` profile uses Symphony's upstream `Human Review` status. When
+using it, set `watcher.reviewComment.inReviewStatus` to `Human Review`.
 
 ## Per-instance configuration
 

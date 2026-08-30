@@ -109,8 +109,9 @@ For pull requests that stay ready at the same revision for `reviewReadyDelayMs`,
 mentions the task's assignees. The delay is in milliseconds and defaults to 10 minutes when omitted;
 set it to `0` to notify on the first check after the revision has been observed. Changing the revision
 or moving the issue out of review resets the timer, but each pull request SHA is notified only once.
-Remove `reviewComment` to disable automatic CI-to-review transitions, requeueing, and review-ready
-notifications.
+When `reviewComment` is omitted, these behaviors remain enabled with `In Progress`, `In Review`,
+and a 10-minute review-ready delay. Override the block when the Linear workflow uses other status
+names; the watcher owns the CI-to-review handoff used by the `customize` Symphony workflow.
 
 The configured status names must exist in every enabled instance's Linear workflow.
 
