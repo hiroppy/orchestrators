@@ -31,6 +31,10 @@ export interface ReviewCommentConfig {
   symphonyGitHubLogins?: string[];
 }
 
+export interface PullRequestStatusSyncConfig {
+  closed: string;
+}
+
 export interface PullRequestContext {
   url: string;
   number?: number | null;
@@ -156,6 +160,7 @@ export interface WatcherSettings {
     maxAttempts?: number;
     delayMs?: number;
   };
+  pullRequestStatusSync?: PullRequestStatusSyncConfig;
   reviewComment?: ReviewCommentConfig;
 }
 

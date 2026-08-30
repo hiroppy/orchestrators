@@ -91,6 +91,10 @@ feedback, and completion:
    reviewers again. You can also change Linear status directly from the Slack
    card whenever manual intervention is needed.
 
+Optionally, the watcher can move the Linear issue to a configured status when
+its pull request closes without merging. Merged pull requests remain under
+Linear's GitHub workflow automation.
+
 See [Architecture](docs/architecture.md#review-requeue-lifecycle) for
 polling, comment handling, persistence, and recovery details.
 

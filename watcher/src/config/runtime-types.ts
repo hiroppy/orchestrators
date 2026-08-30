@@ -1,4 +1,9 @@
-import type { LinearTeamConfig, ReviewCommentConfig, StatusHookConfig } from "orchestrator-config";
+import type {
+  LinearTeamConfig,
+  PullRequestStatusSyncConfig,
+  ReviewCommentConfig,
+  StatusHookConfig,
+} from "orchestrator-config";
 import type { ResolvedLinearTeamConfig, ServiceDefinition } from "../domain/service.ts";
 
 export interface ResolvedSlackConfig {
@@ -12,6 +17,7 @@ export interface WatcherRuntimeConfig {
   linearTeams: Record<string, LinearTeamConfig>;
   pollIntervalMs: number;
   endedTaskRetry: { maxAttempts: number; delayMs: number };
+  pullRequestStatusSync?: PullRequestStatusSyncConfig;
   reviewComment?: ReviewCommentConfig;
   defaultAssignees: string[];
   slack?: ResolvedSlackConfig;
