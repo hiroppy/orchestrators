@@ -309,6 +309,72 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("tracks a replacement pull request across terminal reactivation and close", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      const replacementUrl = "https://github.com/example/repository/pull/43";
+      let linearState = { state: "Canceled", stateType: "canceled" };
+      let pullRequestState = "OPEN";
+      let lookups = 0;
+      let updates = 0;
+      store.setTaskLinearStateType("service-a:ENG-42", "canceled");
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_synced",
+        actor: "watcher",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+        body: JSON.stringify({
+          url: "https://github.com/example/repository/pull/42",
+          state: "closed",
+          headRefOid: null,
+        }),
+      });
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          ...linearState,
+          url: null,
+          pullRequest: { url: replacementUrl },
+        }),
+        findPullRequestByUrl: async (url: string) => {
+          lookups += 1;
+          return { url, state: pullRequestState };
+        },
+        publishLinearUpdate: async (
+          _task: { id: string },
+          pullRequest: { url: string } | undefined,
+        ) => {
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", linearState.state);
+          store.setTaskLinearStateType("service-a:ENG-42", linearState.stateType);
+        },
+        updateLinearStatus: async () => {
+          updates += 1;
+          linearState = { state: "Canceled", stateType: "canceled" };
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(store.getTask("service-a:ENG-42")?.pullRequest?.url, replacementUrl);
+
+      linearState = { state: "In Review", stateType: "started" };
+      await syncPullRequestStatuses(options);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "In Review");
+
+      pullRequestState = "CLOSED";
+      await syncPullRequestStatuses(options);
+
+      assert.equal(lookups, 2);
+      assert.equal(updates, 1);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
+    });
+  });
+
   it("continues syncing other tasks when one pull request lookup fails", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);

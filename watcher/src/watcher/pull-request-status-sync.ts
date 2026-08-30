@@ -43,7 +43,7 @@ export async function syncPullRequestStatuses({
       (task) =>
         !isTerminalLinearStateType(task.linearStateType) ||
         pendingTaskIds.has(task.id) ||
-        hasSyncedCurrentPullRequest(store, task),
+        Boolean(store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT)),
     );
 
   for (const task of tasks) {
@@ -182,18 +182,6 @@ function completePendingStatusSync(
   const status = store.getTask(task.id)?.status ?? task.status;
   store.addEvent(statusSyncCompletedEvent(task.id, status, body));
   pendingTaskIds.delete(task.id);
-}
-
-function hasSyncedCurrentPullRequest(store: WatcherStore, task: Task): boolean {
-  const pullRequestUrl = task.pullRequest?.url;
-  const eventBody = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT)?.body;
-  if (!pullRequestUrl || !eventBody) return false;
-  try {
-    const event = JSON.parse(eventBody) as { url?: unknown };
-    return typeof event.url === "string" && samePullRequest(event.url, pullRequestUrl);
-  } catch {
-    return false;
-  }
 }
 
 function recordPullRequestReopen(
