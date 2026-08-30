@@ -20,6 +20,7 @@ import {
   type PullRequestMonitorState,
 } from "./pull-request-monitors.ts";
 import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
+import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { deliverPendingStatusHooksSafely } from "./status-hooks.ts";
@@ -118,6 +119,12 @@ export async function runOnce({
   });
   if (runPeriodicMaintenance) {
     const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
+    await syncPullRequestStatuses({
+      config,
+      store,
+      findPullRequestByUrl: findPeriodicPullRequestByUrl,
+      updateLinearStatus,
+    });
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
       config,
       store,

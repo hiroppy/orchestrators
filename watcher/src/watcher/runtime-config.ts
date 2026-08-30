@@ -102,6 +102,18 @@ export function nonterminalRelatedIssuesForService(
 }
 
 function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
+  for (const [field, expected] of Object.entries(config.pullRequestStatusSync ?? {})) {
+    const normalizedExpected = normalizeStatus(expected);
+    for (const [teamName, team] of Object.entries(config.linearTeams)) {
+      if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected)) {
+        continue;
+      }
+      throw new Error(
+        `watcher.pullRequestStatusSync.${field} references unknown Linear status "${expected}" for ${teamName}.`,
+      );
+    }
+  }
+
   if (config.reviewComment) {
     for (const [label, expected] of [
       ["watcher.reviewComment.inReviewStatus", config.reviewComment.inReviewStatus],

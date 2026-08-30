@@ -2,6 +2,8 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
+    // Optionally cancel a Linear issue when its pull request closes without merging.
+    // pullRequestStatusSync: { closed: "Canceled" },
     // Requeues a Linear issue when a new inline review comment appears on its GitHub PR.
     // Remove this block to disable comment-based requeueing.
     reviewComment: {

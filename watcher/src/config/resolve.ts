@@ -4,6 +4,7 @@ import {
   type LinearTeamConfig,
   type MonitorConfig,
   type OrchestratorConfig,
+  type PullRequestStatusSyncConfig,
   type ReviewCommentConfig,
   type SlackConfig,
   type SlackCommandConfig,
@@ -57,15 +58,28 @@ export function resolveWatcherConfig(
 
   validateEndedTaskRetry(endedTaskRetry);
   const reviewComment = resolveReviewCommentConfig(config.watcher?.reviewComment);
+  const pullRequestStatusSync = resolvePullRequestStatusSync(config.watcher?.pullRequestStatusSync);
   return {
     services,
     linearTeams: referencedLinearTeams(config.linearTeams, instances),
     pollIntervalMs: POLL_INTERVAL_MS,
     endedTaskRetry,
     reviewComment,
+    pullRequestStatusSync,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolvePullRequestStatusSync(
+  config: PullRequestStatusSyncConfig | undefined,
+): PullRequestStatusSyncConfig | undefined {
+  if (!config) return undefined;
+  const closed = config.closed?.trim();
+  if (!closed) {
+    throw new Error("watcher.pullRequestStatusSync.closed must be a non-empty string.");
+  }
+  return { closed };
 }
 
 function resolvePullRequestMonitors(

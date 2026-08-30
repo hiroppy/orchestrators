@@ -375,22 +375,24 @@ describe("watcher review requeue", () => {
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
 
-      const observations: Array<PullRequest | null> = [
-        null,
-        {
-          url: "https://github.com/acme/example/pull/42",
-          number: 42,
-          title: "Replacement PR",
-          labels: ["ready"],
-        },
-      ];
+      let replacementLookups = 0;
+      const replacementPullRequest: PullRequest = {
+        url: "https://github.com/acme/example/pull/42",
+        number: 42,
+        title: "Replacement PR",
+        labels: ["ready"],
+      };
       const run = () =>
         runOnce({
           config,
           store,
           slackClient: fakeSlackClient([]),
           slackChannelId: "C123",
-          findPullRequestByUrl: async () => observations.shift() ?? null,
+          findPullRequestByUrl: async (url) => {
+            if (url.endsWith("/41")) return null;
+            replacementLookups += 1;
+            return replacementLookups === 1 ? null : replacementPullRequest;
+          },
         });
 
       await run();

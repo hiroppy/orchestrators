@@ -157,6 +157,11 @@ export interface WatcherSettings {
     delayMs?: number;
   };
   reviewComment?: ReviewCommentConfig;
+  pullRequestStatusSync?: PullRequestStatusSyncConfig;
+}
+
+export interface PullRequestStatusSyncConfig {
+  closed: string;
 }
 
 export interface OrchestratorConfig {
