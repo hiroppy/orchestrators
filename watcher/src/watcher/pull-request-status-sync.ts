@@ -84,8 +84,11 @@ export async function syncPullRequestStatuses({
         }
         continue;
       }
+      const targetStatus = team?.statuses.find(
+        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
+      );
+      if (!targetStatus) continue;
       if (
-        !pendingTaskIds.has(task.id) &&
         isTerminalLinearStateType(
           effectiveLinearStateTypeForService(
             config,
@@ -93,15 +96,17 @@ export async function syncPullRequestStatuses({
             linearIssue.state,
             linearIssue.stateType,
           ),
-        )
+        ) &&
+        normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)
       ) {
+        completePendingStatusSync(
+          store,
+          task,
+          pendingTaskIds,
+          JSON.stringify({ state: linearIssue.state, stateType: linearIssue.stateType }),
+        );
         continue;
       }
-
-      const targetStatus = team?.statuses.find(
-        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
-      );
-      if (!targetStatus) continue;
 
       const eventKey = JSON.stringify({
         url: pullRequest.url,

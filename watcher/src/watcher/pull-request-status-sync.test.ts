@@ -213,6 +213,52 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("abandons a failed mutation when Linear moves to another terminal status", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      let linearState = { state: "In Review", stateType: "started" };
+      let updates = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          ...linearState,
+          url: null,
+          pullRequest: { url: "https://github.com/example/repository/pull/42" },
+        }),
+        findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED" }),
+        updateLinearStatus: async () => {
+          updates += 1;
+          throw new Error("Linear unavailable");
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        ["service-a:ENG-42"],
+      );
+
+      linearState = { state: "Done", stateType: "completed" };
+      await syncPullRequestStatuses(options);
+
+      assert.equal(updates, 1);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        [],
+      );
+    });
+  });
+
   it("continues syncing other tasks when one pull request lookup fails", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
