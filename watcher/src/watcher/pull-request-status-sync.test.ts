@@ -430,7 +430,7 @@ describe("pull request status sync", () => {
         store,
         ...syncDependencies(
           store,
-          "https://github.com/example/repository/pull/42/files?diff=split#discussion",
+          "https://github.com/example/repository/pull/0042/files?diff=split#discussion",
           async () => {
             publications += 1;
           },

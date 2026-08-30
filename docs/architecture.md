@@ -121,6 +121,14 @@ Effective terminal state is determined in this order:
 Terminal tasks are excluded from later reconciliation. At startup, persisted terminal tasks are
 reconciled once so that removing an override can restore Linear's current state type.
 
+When `watcher.pullRequestStatusSync` is enabled, periodic maintenance separately inspects linked
+pull requests. An unmerged `CLOSED` observation moves the issue to the configured status; `MERGED`
+observations are left to Linear's GitHub automation. Pending and completed lifecycle events make a
+failed Linear or Slack publication retryable and keep previously synchronized terminal tasks
+eligible long enough to observe a reopen, replacement, or later Linear state change. The deployment
+model remains a single watcher process, so this event log provides polling idempotency rather than
+distributed coordination.
+
 ## Snapshot processing
 
 Each watcher cycle processes observations in this order:
@@ -143,12 +151,12 @@ review-requeue path.
 
 ## Polling and API calls
 
-| Trigger              |                   Typical interval | External work                                                         |
-| -------------------- | ---------------------------------: | --------------------------------------------------------------------- |
-| Symphony observation |                          3 seconds | Read each enabled instance's local observability API                  |
-| Snapshot change      | Event-driven after a 3-second poll | Read Linear; query the task's PR when needed                          |
-| Periodic maintenance |                         30 seconds | Reconcile nonterminal tasks; query PR comments for tasks under review |
-| Slack interaction    |                       Event-driven | Update Linear when needed, then update the Slack task card            |
+| Trigger              |                   Typical interval | External work                                                 |
+| -------------------- | ---------------------------------: | ------------------------------------------------------------- |
+| Symphony observation |                          3 seconds | Read each enabled instance's local observability API          |
+| Snapshot change      | Event-driven after a 3-second poll | Read Linear; query the task's PR when needed                  |
+| Periodic maintenance |                         30 seconds | Reconcile tasks; query PR status and comments when configured |
+| Slack interaction    |                       Event-driven | Update Linear when needed, then update the Slack task card    |
 
 ### GitHub access
 

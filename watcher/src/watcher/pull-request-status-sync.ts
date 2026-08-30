@@ -305,9 +305,11 @@ function pullRequestIdentity(value: string | undefined): string | undefined {
     ) {
       return undefined;
     }
-    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/.*)?$/);
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/);
     if (!match) return undefined;
-    return `${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${match[3]}`;
+    const number = Number(match[3]);
+    if (!Number.isSafeInteger(number) || number < 1) return undefined;
+    return `${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${number}`;
   } catch {
     return undefined;
   }
