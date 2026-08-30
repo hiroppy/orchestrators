@@ -430,7 +430,7 @@ describe("pull request status sync", () => {
         store,
         ...syncDependencies(
           store,
-          "https://github.com/example/repository/pull/42/?diff=split#discussion",
+          "https://github.com/example/repository/pull/42/files?diff=split#discussion",
           async () => {
             publications += 1;
           },
@@ -715,6 +715,58 @@ describe("pull request status sync", () => {
         ),
         [],
       );
+    });
+  });
+
+  it("retains lifecycle tracking when a replacement abandons a completed close mutation", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      const originalUrl = "https://github.com/example/repository/pull/42";
+      const replacementUrl = "https://github.com/example/repository/pull/43";
+      let linearState = { state: "In Review", stateType: "started" };
+      let linearPullRequestUrl = originalUrl;
+      let pullRequestState = "CLOSED";
+      let publications = 0;
+      let updates = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          ...linearState,
+          url: null,
+          pullRequest: { url: linearPullRequestUrl },
+        }),
+        findPullRequestByUrl: async (url: string) => ({ url, state: pullRequestState }),
+        publishLinearUpdate: async (_task: { id: string }, pullRequest: { url: string }) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", linearState.state);
+          store.setTaskLinearStateType("service-a:ENG-42", linearState.stateType);
+          if (publications === 1) throw new Error("Slack unavailable");
+        },
+        updateLinearStatus: async () => {
+          updates += 1;
+          linearState = { state: "Canceled", stateType: "canceled" };
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      linearPullRequestUrl = replacementUrl;
+      await syncPullRequestStatuses(options);
+
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
+
+      linearState = { state: "In Review", stateType: "started" };
+      pullRequestState = "OPEN";
+      await syncPullRequestStatuses(options);
+      pullRequestState = "CLOSED";
+      await syncPullRequestStatuses(options);
+
+      assert.equal(updates, 2);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
     });
   });
 

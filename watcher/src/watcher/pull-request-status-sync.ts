@@ -51,6 +51,9 @@ export async function syncPullRequestStatuses({
 
     try {
       const team = linearTeamForService(config, task.serviceName);
+      const targetStatus = team?.statuses.find(
+        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
+      );
       const linearIssue = await fetchLinearIssue(task.issueIdentifier, {
         apiKey: team?.apiKey,
         maxAttempts: 1,
@@ -64,6 +67,10 @@ export async function syncPullRequestStatuses({
       );
       const pullRequestUrl = task.pullRequest?.url;
       if (!samePullRequest(linearIssue.pullRequest?.url, pullRequestUrl)) {
+        const continuesClosedLifecycle =
+          pendingTaskIds.has(task.id) &&
+          targetStatus !== undefined &&
+          normalizeStatus(linearIssue.state) === normalizeStatus(targetStatus);
         const attachmentChangeKey = JSON.stringify({
           pullRequestUrl: linearIssue.pullRequest?.url ?? null,
         });
@@ -75,6 +82,9 @@ export async function syncPullRequestStatuses({
           attachmentChangeKey,
         );
         await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
+        if (continuesClosedLifecycle) {
+          store.addEvent(statusSyncEvent(task.id, task.status, targetStatus, attachmentChangeKey));
+        }
         completePendingStatusSync(store, task, pendingTaskIds, attachmentChangeKey);
         continue;
       }
@@ -125,9 +135,6 @@ export async function syncPullRequestStatuses({
         }
         continue;
       }
-      const targetStatus = team?.statuses.find(
-        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
-      );
       if (!targetStatus) continue;
       if (
         isTerminalLinearStateType(liveLinearStateType) &&
@@ -298,7 +305,7 @@ function pullRequestIdentity(value: string | undefined): string | undefined {
     ) {
       return undefined;
     }
-    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/);
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/.*)?$/);
     if (!match) return undefined;
     return `${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${match[3]}`;
   } catch {
