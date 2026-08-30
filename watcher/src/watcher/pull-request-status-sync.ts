@@ -64,13 +64,18 @@ export async function syncPullRequestStatuses({
       );
       const pullRequestUrl = task.pullRequest?.url;
       if (!samePullRequest(linearIssue.pullRequest?.url, pullRequestUrl)) {
-        await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
-        completePendingStatusSync(
+        const attachmentChangeKey = JSON.stringify({
+          pullRequestUrl: linearIssue.pullRequest?.url ?? null,
+        });
+        ensurePendingStatusSync(
           store,
           task,
           pendingTaskIds,
-          JSON.stringify({ pullRequestUrl: linearIssue.pullRequest?.url ?? null }),
+          linearIssue.state ?? task.status,
+          attachmentChangeKey,
         );
+        await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
+        completePendingStatusSync(store, task, pendingTaskIds, attachmentChangeKey);
         continue;
       }
       if (!pullRequestUrl) continue;
@@ -102,7 +107,20 @@ export async function syncPullRequestStatuses({
           continue;
         }
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
+          const metadataChangeKey = JSON.stringify({
+            url: pullRequest.url,
+            state: pullRequestState,
+            headRefOid: pullRequest.headRefOid ?? null,
+          });
+          ensurePendingStatusSync(
+            store,
+            task,
+            pendingTaskIds,
+            linearIssue.state ?? task.status,
+            metadataChangeKey,
+          );
           await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
+          completePendingStatusSync(store, task, pendingTaskIds, metadataChangeKey);
         }
         continue;
       }
@@ -114,19 +132,25 @@ export async function syncPullRequestStatuses({
         isTerminalLinearStateType(liveLinearStateType) &&
         normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)
       ) {
-        if (
+        const terminalStateKey = JSON.stringify({
+          state: linearIssue.state,
+          stateType: linearIssue.stateType,
+        });
+        const shouldPublish =
           pendingTaskIds.has(task.id) ||
           normalizeStatus(task.status) !== normalizeStatus(linearIssue.state) ||
-          normalizeStatus(task.linearStateType) !== normalizeStatus(liveLinearStateType)
-        ) {
+          normalizeStatus(task.linearStateType) !== normalizeStatus(liveLinearStateType);
+        if (shouldPublish) {
+          ensurePendingStatusSync(
+            store,
+            task,
+            pendingTaskIds,
+            linearIssue.state ?? task.status,
+            terminalStateKey,
+          );
           await publishLinearUpdate(task, pullRequest);
         }
-        completePendingStatusSync(
-          store,
-          task,
-          pendingTaskIds,
-          JSON.stringify({ state: linearIssue.state, stateType: linearIssue.stateType }),
-        );
+        completePendingStatusSync(store, task, pendingTaskIds, terminalStateKey);
         continue;
       }
 
@@ -137,22 +161,19 @@ export async function syncPullRequestStatuses({
         reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
       });
       if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {
+        if (
+          pendingTaskIds.has(task.id) ||
+          normalizeStatus(task.status) !== normalizeStatus(linearIssue.state) ||
+          normalizeStatus(task.linearStateType) !== normalizeStatus(liveLinearStateType)
+        ) {
+          await publishLinearUpdate(task, pullRequest);
+        }
         if (pendingTaskIds.has(task.id)) {
           store.addEvent(statusSyncCompletedEvent(task.id, task.status, eventKey));
         }
         continue;
       }
-      if (!pendingTaskIds.has(task.id)) {
-        store.addEvent({
-          taskId: task.id,
-          type: PULL_REQUEST_STATUS_SYNC_PENDING_EVENT,
-          actor: "watcher",
-          fromStatus: task.status,
-          toStatus: targetStatus,
-          body: eventKey,
-        });
-        pendingTaskIds.add(task.id);
-      }
+      ensurePendingStatusSync(store, task, pendingTaskIds, targetStatus, eventKey);
 
       if (normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)) {
         await updateLinearStatus(task.issueIdentifier, targetStatus, {
@@ -176,6 +197,25 @@ export async function syncPullRequestStatuses({
       );
     }
   }
+}
+
+function ensurePendingStatusSync(
+  store: WatcherStore,
+  task: Task,
+  pendingTaskIds: Set<string>,
+  toStatus: string,
+  body: string,
+): void {
+  if (pendingTaskIds.has(task.id)) return;
+  store.addEvent({
+    taskId: task.id,
+    type: PULL_REQUEST_STATUS_SYNC_PENDING_EVENT,
+    actor: "watcher",
+    fromStatus: task.status,
+    toStatus,
+    body,
+  });
+  pendingTaskIds.add(task.id);
 }
 
 function completePendingStatusSync(

@@ -52,8 +52,8 @@ describe("pull request status sync", () => {
   it("does not replace a live terminal Linear status for a newly closed pull request", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
-
-      await syncPullRequestStatuses({
+      let publications = 0;
+      const options: Parameters<typeof syncPullRequestStatuses>[0] = {
         config,
         store,
         ...syncDependencies(store),
@@ -67,15 +67,21 @@ describe("pull request status sync", () => {
         }),
         findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
         publishLinearUpdate: async (_task, pullRequest) => {
+          publications += 1;
           store.setTaskPullRequest("service-a:ENG-42", pullRequest);
           store.updateTaskStatus("service-a:ENG-42", "Done");
           store.setTaskLinearStateType("service-a:ENG-42", "completed");
+          if (publications === 1) throw new Error("Slack unavailable");
         },
         updateLinearStatus: async () => {
           throw new Error("Linear status should not be updated");
         },
-      });
+      };
 
+      await syncPullRequestStatuses(options);
+      await syncPullRequestStatuses(options);
+
+      assert.equal(publications, 2);
       assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
       assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "completed");
       assert.deepEqual(
@@ -155,6 +161,46 @@ describe("pull request status sync", () => {
       assert.equal(publications, 1);
       assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
       assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "completed");
+    });
+  });
+
+  it("publishes a live reactivation without repeating a completed close mutation", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      let publications = 0;
+      store.setTaskLinearStateType("service-a:ENG-42", "canceled");
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_synced",
+        actor: "watcher",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+        body: JSON.stringify({
+          url: "https://github.com/example/repository/pull/42",
+          state: "closed",
+          headRefOid: null,
+        }),
+      });
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        publishLinearUpdate: async (_task, pullRequest) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", "In Review");
+          store.setTaskLinearStateType("service-a:ENG-42", "started");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.equal(publications, 1);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "started");
     });
   });
 
@@ -581,20 +627,17 @@ describe("pull request status sync", () => {
       const config = setupTask(store);
       const replacementUrl = "https://github.com/example/repository/pull/43";
       let publications = 0;
-      store.addEvent({
-        taskId: "service-a:ENG-42",
-        type: "pull_request_status_sync_pending",
-        actor: "watcher",
-        fromStatus: "In Review",
-        toStatus: "Canceled",
-      });
       const options = {
         config,
         store,
         ...syncDependencies(store, replacementUrl, async (_task, pullRequest) => {
           publications += 1;
           store.setTaskPullRequest("service-a:ENG-42", pullRequest);
-          if (publications === 1) throw new Error("Slack unavailable");
+          if (publications === 1) {
+            store.updateTaskStatus("service-a:ENG-42", "Canceled");
+            store.setTaskLinearStateType("service-a:ENG-42", "canceled");
+            throw new Error("Slack unavailable");
+          }
         }),
         findPullRequestByUrl: async () => {
           throw new Error("replacement pull request should not be inspected");
