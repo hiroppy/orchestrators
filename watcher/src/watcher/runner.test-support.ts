@@ -45,6 +45,7 @@ export function runtimeConfig<T extends object>(config: T) {
 export function fakeSlackClient(
   calls: Array<Record<string, unknown>>,
   options: {
+    currentReactions?: string[];
     rejectPostMessage?: (args: Record<string, unknown>) => boolean;
     rejectUpdate?: (args: Record<string, unknown>) => boolean;
   } = {},
@@ -87,7 +88,10 @@ export function fakeSlackClient(
       },
       async get(args: Record<string, unknown>) {
         calls.push({ method: "reactions.get", ...args });
-        return { ok: true, message: { reactions: [] } };
+        return {
+          ok: true,
+          message: { reactions: options.currentReactions?.map((name) => ({ name })) ?? [] },
+        };
       },
       async remove(args: Record<string, unknown>) {
         calls.push({ method: "reactions.remove", ...args });

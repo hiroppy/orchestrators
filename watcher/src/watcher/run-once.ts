@@ -144,7 +144,13 @@ export async function runOnce({
             ),
         });
         if (!published) throw new Error(`Failed to publish ${task.issueIdentifier} status.`);
-        await syncPullRequestReactionsSafely(slackClient, store.getTask(task.id), pullRequest);
+        const reactionPullRequest =
+          pullRequest ?? (task.pullRequest ? { ...task.pullRequest, reactions: [] } : undefined);
+        await syncPullRequestReactionsSafely(
+          slackClient,
+          store.getTask(task.id),
+          reactionPullRequest,
+        );
       },
       updateLinearStatus,
     });

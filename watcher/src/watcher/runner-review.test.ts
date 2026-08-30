@@ -363,6 +363,7 @@ describe("watcher review requeue", () => {
       };
       mockInReviewIssue(context, "https://github.com/acme/example/pull/42");
       const config = reviewConfig(dataUrl(snapshot));
+      config.pullRequestStatusSync = { closed: "In Progress" };
       store.syncDefinitions(config.services, config.linearTeams);
       store.replaceSnapshots({ "service-a": snapshot });
       const task = store.upsertTaskFromEvent({
@@ -419,9 +420,47 @@ describe("watcher review requeue", () => {
       );
     });
   });
+
+  it("clears mirrored reactions when Linear removes the pull request", async (context) => {
+    await withStore(async (store) => {
+      const snapshot = {
+        running: [{ issue_identifier: "ENG-62", state: "In Review" }],
+        retrying: [],
+        blocked: [],
+      };
+      mockInReviewIssue(context);
+      const config = reviewConfig(dataUrl(snapshot));
+      config.pullRequestStatusSync = { closed: "In Progress" };
+      store.syncDefinitions(config.services, config.linearTeams);
+      store.replaceSnapshots({ "service-a": snapshot });
+      const task = store.upsertTaskFromEvent({
+        type: "updated",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Review",
+        resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/acme/example/pull/42" },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const slackCalls: Array<Record<string, unknown>> = [];
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient(slackCalls, { currentReactions: ["rocket"] }),
+        slackChannelId: "C123",
+      });
+
+      assert.equal(store.getTask(task.id)?.pullRequest, undefined);
+      assert.equal(
+        slackCalls.some((call) => call.method === "reactions.remove" && call.name === "rocket"),
+        true,
+      );
+    });
+  });
 });
 
-function mockInReviewIssue(context: TestContext, pullRequestUrl: string): void {
+function mockInReviewIssue(context: TestContext, pullRequestUrl?: string): void {
   const nativeFetch = globalThis.fetch;
   context.mock.method(globalThis, "fetch", async (url, options) => {
     if (String(url).startsWith("data:")) return nativeFetch(url, options);
@@ -440,7 +479,7 @@ function mockInReviewIssue(context: TestContext, pullRequestUrl: string): void {
           identifier: "ENG-62",
           title: "Review me",
           state: { name: "In Review", type: "started" },
-          attachments: { nodes: [{ url: pullRequestUrl }] },
+          attachments: { nodes: pullRequestUrl ? [{ url: pullRequestUrl }] : [] },
           relations: { nodes: [] },
         },
       },
