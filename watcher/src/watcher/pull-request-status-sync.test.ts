@@ -169,6 +169,30 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("preserves the stored pull request when Linear is unavailable", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(),
+        fetchLinearIssue: async () => null,
+        findPullRequestByUrl: async () => {
+          throw new Error("pull request should not be inspected");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.equal(
+        store.getTask("service-a:ENG-42")?.pullRequest?.url,
+        "https://github.com/example/repository/pull/42",
+      );
+    });
+  });
+
   it("retries Slack publication without repeating the Linear mutation", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);

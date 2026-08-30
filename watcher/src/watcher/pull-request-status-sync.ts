@@ -37,8 +37,9 @@ export async function syncPullRequestStatuses({
         apiKey: team?.apiKey,
         maxAttempts: 1,
       });
-      if (linearIssue?.pullRequest?.url !== task.pullRequest.url) {
-        store.setTaskPullRequest(task.id, linearIssue?.pullRequest);
+      if (!linearIssue) continue;
+      if (linearIssue.pullRequest?.url !== task.pullRequest.url) {
+        store.setTaskPullRequest(task.id, linearIssue.pullRequest);
         continue;
       }
 
