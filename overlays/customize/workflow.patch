@@ -33,7 +33,8 @@ index c87d048..1b2ea79 100644
  - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
 @@ -102,15 +117,16 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
  - `commit`: produce clean, logical commits during implementation.
- - `push`: keep remote branch current and publish updates.
+-- `push`: keep remote branch current and publish updates.
++- `push`: publish completed implementation or rework; do not push intermediate work that is not ready for CI review.
  - `pull`: keep branch updated with latest `origin/main` before handoff.
 +- `$simplify`: after implementation is complete, invoke this skill on the code changed for the current ticket before final validation and handoff; preserve behavior.
  - `land`: when ticket reaches `Merging`, explicitly open and follow `.codex/skills/land/SKILL.md`, which includes the `land` loop.
@@ -96,25 +97,25 @@ index c87d048..1b2ea79 100644
      - Add a short `### Confusions` section at the bottom when any part of task execution was unclear/confusing, with concise bullets.
      - Do not post any additional completion summary comment.
 -11. Before moving to `Human Review`, poll PR feedback and checks:
-+11. Before moving to `In Review`, poll PR feedback and checks:
++11. Before handing the issue to the watcher for `In Review`, poll PR feedback and checks:
      - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
      - Run the full PR feedback sweep protocol.
      - Confirm PR checks are passing (green) after the latest changes.
-+    - Use the PR number identified by the feedback-sweep protocol in every command: record its head commit SHA with `gh pr view <PR-number> --json headRefOid`, then wait with `gh pr checks <PR-number> --watch`. A non-zero exit or unavailable/incomplete response is not success.
-+    - Use `gh pr checks <PR-number> --json bucket` to classify results. Only `pass` and `skipping` are acceptable terminal buckets; `pending`, `fail`, and `cancel` block the transition. Fix blocking checks when in scope and otherwise report the blocker.
-+    - Immediately before the status transition, fetch the same PR again with `gh pr view <PR-number> --json headRefOid` and `gh pr checks <PR-number> --json bucket`. If the SHA changed or any bucket is not `pass` or `skipping`, restart the check-address-verify loop and remain in `In Progress`.
++    - Use the PR number identified by the feedback-sweep protocol in every command: record its head commit SHA with `gh pr view <PR-number> --json headRefOid`, then wait with `gh pr checks <PR-number> --watch`. A non-zero exit, an empty check list, or an unavailable/incomplete response is not success.
++    - Use `gh pr checks <PR-number> --json bucket` to classify results. Fix `pending`, `fail`, and `cancel` checks while the issue remains `In Progress`; only `pass` and `skipping` are acceptable terminal buckets.
++    - Immediately before handoff, fetch the same PR again with `gh pr view <PR-number> --json headRefOid` and `gh pr checks <PR-number> --json bucket`. If the SHA changed, no checks are registered, or any bucket is not `pass` or `skipping`, restart the check-address-verify loop and remain in `In Progress`.
      - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
      - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
      - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
 -12. Only then move issue to `Human Review`.
 -    - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `Human Review` with the blocker brief and explicit unblock actions.
-+12. Only then move issue to `In Review`.
++12. Do not update Linear to `In Review` directly. Leave it `In Progress`; the watcher verifies the non-draft PR and its checks, then performs the transition. Poll until Linear reports `In Review`, fixing CI failures in `In Progress` as needed.
 +    - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `In Review` with the blocker brief and explicit unblock actions.
  13. For `Todo` tickets that already had a PR attached at kickoff:
      - Ensure all existing PR feedback was reviewed and resolved, including inline review comments (code changes or explicit, justified pushback response).
      - Ensure branch was pushed with any required updates.
 -    - Then move to `Human Review`.
-+    - Then move to `In Review`.
++    - Then leave the issue `In Progress` and wait for the watcher to move it to `In Review` after CI succeeds.
  
 -## Step 3: Human Review and merge handling
 +## Step 3: In Review and merge handling

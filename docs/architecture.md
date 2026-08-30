@@ -155,6 +155,11 @@ review-requeue path.
 - GitHub is queried during event enrichment when PR data is needed.
 - Tasks in the configured review status are queried during 30-second reconciliation, even if their
   Symphony snapshot has not changed.
+- Tasks in the configured progress status are moved to review only when the pull request is open,
+  is not a draft, has at least one registered check, and every check has completed successfully,
+  neutrally, or as skipped. Missing, pending, or failed checks keep the task in progress.
+- A new PR head, draft conversion, or non-passing observed check moves a task under review back to
+  progress. Inaccessible check data leaves the current Linear state unchanged.
 - Access uses `gh pr view` and `gh api`.
 - Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
   presence only, not counts or authors, and removes only its own stale reactions.
@@ -208,7 +213,9 @@ sequenceDiagram
   participant G as GitHub PR
   participant DB as Watcher database
 
-  S->>L: Move issue to In Review
+  S->>G: Push completed implementation and wait for CI
+  W->>G: Verify non-draft PR checks
+  W->>L: Move issue to In Review after all checks pass
   Note over S: Issue leaves Symphony's active work set
   W->>L: Periodically read stored nonterminal issue
   L-->>W: In Review and linked PR URL

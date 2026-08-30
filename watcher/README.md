@@ -58,8 +58,8 @@ The root `config.ts` is gitignored. Use environment variables for credentials as
 
 ### Review requeue
 
-Enable `watcher.reviewComment` to send a pull request back to Symphony when it has a merge conflict
-or a new eligible inline review comment:
+Enable `watcher.reviewComment` to move a completed pull request into review after CI passes and to
+send it back to Symphony when it has a merge conflict or a new eligible inline review comment:
 
 ```ts
 export default defineConfig({
@@ -77,11 +77,19 @@ export default defineConfig({
 
 Set `symphonyGitHubLogins` to every GitHub account Symphony uses to reply to reviews. Comments from
 those accounts and the pull request author are ignored, as are resolved or outdated review threads.
+While an issue has `inProgressStatus`, the watcher moves it to `inReviewStatus` only when its pull
+request is open, is not a draft, has at least one registered check, and every check has completed
+with a successful, neutral, or skipped conclusion. Missing, pending, canceled, or failed checks keep
+the issue in progress so Symphony can repair CI.
+If a reviewed pull request receives a new head commit, becomes a draft, or reports a pending or
+unsuccessful check, the watcher moves it back to `inProgressStatus`. An unavailable check response
+does not change Linear state.
 For pull requests that stay ready at the same revision for `reviewReadyDelayMs`, the watcher also
 mentions the task's assignees. The delay is in milliseconds and defaults to 10 minutes when omitted;
 set it to `0` to notify on the first check after the revision has been observed. Changing the revision
 or moving the issue out of review resets the timer, but each pull request SHA is notified only once.
-Remove `reviewComment` to disable both automatic requeueing and review-ready notifications.
+Remove `reviewComment` to disable automatic CI-to-review transitions, requeueing, and review-ready
+notifications.
 
 The configured status names must exist in every enabled instance's Linear workflow.
 
