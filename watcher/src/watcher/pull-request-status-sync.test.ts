@@ -208,6 +208,44 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("retries publishing enriched metadata for an open pull request", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      let publications = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url: string) => ({
+          url,
+          state: "OPEN",
+          title: "Enriched pull request",
+          labels: ["ready"],
+        }),
+        publishLinearUpdate: async (
+          task: { id: string },
+          pullRequest: { url: string; title?: string; labels?: string[] } | undefined,
+        ) => {
+          publications += 1;
+          store.setTaskPullRequest(task.id, pullRequest);
+          if (publications === 1) throw new Error("Slack unavailable");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(store.getTask("service-a:ENG-42")?.pullRequest?.title, undefined);
+
+      await syncPullRequestStatuses(options);
+
+      assert.equal(publications, 2);
+      assert.equal(store.getTask("service-a:ENG-42")?.pullRequest?.title, "Enriched pull request");
+      assert.deepEqual(store.getTask("service-a:ENG-42")?.pullRequest?.labels, ["ready"]);
+    });
+  });
+
   it("retries publishing a replacement pull request attachment", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);

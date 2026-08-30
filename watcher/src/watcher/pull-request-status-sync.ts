@@ -41,18 +41,19 @@ export async function syncPullRequestStatuses({
       if (!linearIssue) continue;
       const pullRequestUrl = task.pullRequest?.url;
       if (linearIssue.pullRequest?.url !== pullRequestUrl) {
-        try {
-          await publishLinearUpdate(task, linearIssue.pullRequest);
-        } catch (error) {
-          store.setTaskPullRequest(task.id, task.pullRequest);
-          throw error;
-        }
+        await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
         continue;
       }
       if (!pullRequestUrl) continue;
 
       const pullRequest = await findPullRequestByUrl(pullRequestUrl);
-      if (normalizeStatus(pullRequest?.state) !== "closed" || !pullRequest) continue;
+      if (!pullRequest) continue;
+      if (normalizeStatus(pullRequest.state) !== "closed") {
+        if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
+          await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
+        }
+        continue;
+      }
 
       const targetStatus = team?.statuses.find(
         (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
@@ -88,6 +89,32 @@ export async function syncPullRequestStatuses({
       );
     }
   }
+}
+
+async function publishPullRequestChange(
+  store: WatcherStore,
+  task: Task,
+  pullRequest: Task["pullRequest"],
+  publishLinearUpdate: (task: Task, pullRequest: Task["pullRequest"]) => Promise<void>,
+): Promise<void> {
+  try {
+    await publishLinearUpdate(task, pullRequest);
+  } catch (error) {
+    store.setTaskPullRequest(task.id, task.pullRequest);
+    throw error;
+  }
+}
+
+function pullRequestMetadataChanged(
+  current: Task["pullRequest"],
+  observed: NonNullable<Task["pullRequest"]>,
+): boolean {
+  return (
+    current?.url !== observed.url ||
+    current.number !== observed.number ||
+    current.title !== observed.title ||
+    JSON.stringify(current.labels ?? []) !== JSON.stringify(observed.labels ?? [])
+  );
 }
 
 function recordStatusSync(
