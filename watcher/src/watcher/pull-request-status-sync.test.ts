@@ -49,6 +49,39 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("does not replace a live terminal Linear status for a newly closed pull request", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          state: "Done",
+          stateType: "completed",
+          url: null,
+          pullRequest: { url: "https://github.com/example/repository/pull/42" },
+        }),
+        findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "In Review");
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        [],
+      );
+    });
+  });
+
   it("does not reapply Canceled after recording the close", async () => {
     await withStore(async (store) => {
       const config = setupTask(store, "Canceled");

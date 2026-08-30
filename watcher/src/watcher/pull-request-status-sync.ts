@@ -1,11 +1,12 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
+import { isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { Task } from "../domain/task.ts";
 import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
-import { linearTeamForService } from "./runtime-config.ts";
+import { effectiveLinearStateTypeForService, linearTeamForService } from "./runtime-config.ts";
 
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
 const PULL_REQUEST_STATUS_SYNC_PENDING_EVENT = "pull_request_status_sync_pending";
@@ -81,6 +82,19 @@ export async function syncPullRequestStatuses({
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
           await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
         }
+        continue;
+      }
+      if (
+        !pendingTaskIds.has(task.id) &&
+        isTerminalLinearStateType(
+          effectiveLinearStateTypeForService(
+            config,
+            task.serviceName,
+            linearIssue.state,
+            linearIssue.stateType,
+          ),
+        )
+      ) {
         continue;
       }
 
