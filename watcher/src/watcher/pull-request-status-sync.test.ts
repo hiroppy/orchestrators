@@ -105,6 +105,37 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("completes an abandoned pending close sync when the pull request reopens", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_sync_pending",
+        actor: "watcher",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+      });
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url) => ({ url, state: "OPEN" }),
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        [],
+      );
+    });
+  });
+
   it("continues syncing other tasks when one Linear update fails", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
