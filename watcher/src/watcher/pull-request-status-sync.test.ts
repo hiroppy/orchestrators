@@ -10,11 +10,14 @@ describe("pull request status sync", () => {
     await withStore(async (store) => {
       const config = setupTask(store);
       const updates: Array<{ issueIdentifier: string; status: string }> = [];
+      const publishedStatuses: string[] = [];
 
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store, undefined, async (task) => {
+          publishedStatuses.push(task.status);
+        }),
         findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
         updateLinearStatus: async (issueIdentifier, status) => {
           updates.push({ issueIdentifier, status });
@@ -22,11 +25,8 @@ describe("pull request status sync", () => {
       });
 
       assert.deepEqual(updates, [{ issueIdentifier: "ENG-42", status: "Canceled" }]);
+      assert.deepEqual(publishedStatuses, ["In Review"]);
       assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
-      assert.equal(
-        store.getLatestEventsByType("service-a:ENG-42", "status_hook_pending", 1).length,
-        1,
-      );
     });
   });
 
@@ -38,7 +38,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         findPullRequestByUrl: async (url) => ({ url, state: "MERGED" }),
         updateLinearStatus: async (_issueIdentifier, status) => {
           updates.push(status);
@@ -56,7 +56,7 @@ describe("pull request status sync", () => {
       const options = {
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED" }),
         updateLinearStatus: async (_issueIdentifier: string, status: string) => {
           updates.push(status);
@@ -67,7 +67,7 @@ describe("pull request status sync", () => {
       store.updateTaskStatus("service-a:ENG-42", "In Progress");
       await syncPullRequestStatuses(options);
 
-      assert.deepEqual(updates, []);
+      assert.deepEqual(updates, ["Canceled"]);
     });
   });
 
@@ -87,7 +87,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
         updateLinearStatus: async (issueIdentifier) => {
           if (issueIdentifier === "ENG-42") throw new Error("Linear unavailable");
@@ -115,7 +115,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         findPullRequestByUrl: async (url) => {
           if (url.endsWith("/42")) throw new Error("GitHub unavailable");
           return { url, state: "CLOSED" };
@@ -137,7 +137,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
         updateLinearStatus: async () => undefined,
       });
@@ -154,7 +154,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies("https://github.com/example/repository/pull/43"),
+        ...syncDependencies(store, "https://github.com/example/repository/pull/43"),
         findPullRequestByUrl: async () => {
           throw new Error("stale pull request should not be inspected");
         },
@@ -176,7 +176,7 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(),
+        ...syncDependencies(store),
         fetchLinearIssue: async () => null,
         findPullRequestByUrl: async () => {
           throw new Error("pull request should not be inspected");
@@ -198,16 +198,26 @@ describe("pull request status sync", () => {
       const config = setupTask(store);
       const updates: string[] = [];
       let publications = 0;
+      let linearStatus = "In Review";
       const options = {
         config,
         store,
-        ...syncDependencies(undefined, async () => {
+        ...syncDependencies(store, undefined, async () => {
           publications += 1;
           if (publications === 1) throw new Error("Slack unavailable");
+        }),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          state: linearStatus,
+          stateType: "started",
+          url: null,
+          pullRequest: { url: "https://github.com/example/repository/pull/42" },
         }),
         findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED" }),
         updateLinearStatus: async (_issueIdentifier: string, status: string) => {
           updates.push(status);
+          linearStatus = status;
         },
       };
 
@@ -221,8 +231,9 @@ describe("pull request status sync", () => {
 });
 
 function syncDependencies(
+  store: WatcherStore,
   pullRequestUrl?: string,
-  publishStatusTransition: () => Promise<void> = async () => undefined,
+  publish: (task: { id: string; status: string }) => Promise<void> = async () => undefined,
 ) {
   return {
     fetchLinearIssue: async (issueIdentifier?: string) => {
@@ -240,7 +251,10 @@ function syncDependencies(
         },
       };
     },
-    publishStatusTransition,
+    publishStatusTransition: async (task: { id: string }) => {
+      await publish(store.getTask(task.id)!);
+      store.updateTaskStatus(task.id, "Canceled");
+    },
   };
 }
 

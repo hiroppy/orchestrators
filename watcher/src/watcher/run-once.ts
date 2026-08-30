@@ -25,7 +25,7 @@ import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
 import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
-import { deliverPendingStatusHooksSafely } from "./status-hooks.ts";
+import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { publishTaskActivities } from "./task-activity.ts";
 
 interface RunOnceOptions {
@@ -126,13 +126,21 @@ export async function runOnce({
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       fetchLinearIssue: fetchLinearIssueState,
-      publishStatusTransition: async (task) => {
+      publishStatusTransition: async (task, pullRequest) => {
         const published = await reconcileSlackStatusTransition({
           config,
           store,
           slackClient,
           slackChannelId,
           task,
+          createStatusTransitionEvent: (updatedTask, fromStatus) =>
+            createPendingStatusHookEvent(
+              serviceConfigFor(config, task.serviceName)?.statusHooks ?? [],
+              updatedTask,
+              fromStatus,
+              updatedTask.status,
+              pullRequest,
+            ),
         });
         if (!published) throw new Error(`Failed to publish ${task.issueIdentifier} status.`);
       },

@@ -5,8 +5,7 @@ import type { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { Task } from "../domain/task.ts";
 import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
-import { linearTeamForService, serviceConfigFor } from "./runtime-config.ts";
-import { createPendingStatusHookEvent } from "./status-hooks.ts";
+import { linearTeamForService } from "./runtime-config.ts";
 
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
 
@@ -22,7 +21,10 @@ export async function syncPullRequestStatuses({
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   fetchLinearIssue: typeof fetchLinearIssueState;
-  publishStatusTransition: (task: Task) => Promise<void>;
+  publishStatusTransition: (
+    task: Task,
+    pullRequest: NonNullable<Task["pullRequest"]>,
+  ) => Promise<void>;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
@@ -58,28 +60,14 @@ export async function syncPullRequestStatuses({
       });
       if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) continue;
 
-      let updatedTask = task;
-      if (normalizeStatus(task.status) !== normalizeStatus(targetStatus)) {
+      if (normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)) {
         await updateLinearStatus(task.issueIdentifier, targetStatus, {
           apiKey: team?.apiKey,
           teamId: team?.teamId,
         });
-        const hooks = serviceConfigFor(config, task.serviceName)?.statusHooks ?? [];
-        updatedTask = store.updateTaskStatusAtomically(
-          task.id,
-          targetStatus,
-          (persistedTask, fromStatus) =>
-            createPendingStatusHookEvent(
-              hooks,
-              persistedTask,
-              fromStatus,
-              targetStatus,
-              pullRequest,
-            ),
-        ).task;
       }
 
-      await publishStatusTransition(updatedTask);
+      await publishStatusTransition(task, pullRequest);
       recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
     } catch (error) {
       console.error(
