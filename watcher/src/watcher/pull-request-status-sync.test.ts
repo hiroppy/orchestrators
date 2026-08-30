@@ -292,6 +292,36 @@ describe("pull request status sync", () => {
       assert.equal(publications, 2);
     });
   });
+
+  it("retries until publication persists the target status", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      const updates: string[] = [];
+      let publications = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        publishLinearUpdate: async (task: { id: string }) => {
+          publications += 1;
+          if (publications === 2) store.updateTaskStatus(task.id, "Canceled");
+        },
+        findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED" }),
+        updateLinearStatus: async (_issueIdentifier: string, status: string) => {
+          updates.push(status);
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 0);
+
+      await syncPullRequestStatuses(options);
+
+      assert.deepEqual(updates, ["Canceled", "Canceled"]);
+      assert.equal(publications, 2);
+      assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 1);
+    });
+  });
 });
 
 function syncDependencies(

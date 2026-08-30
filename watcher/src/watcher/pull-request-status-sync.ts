@@ -70,6 +70,12 @@ export async function syncPullRequestStatuses({
       }
 
       await publishLinearUpdate(task, pullRequest);
+      const publishedStatus = store.getTask(task.id)?.status;
+      if (normalizeStatus(publishedStatus) !== normalizeStatus(targetStatus)) {
+        throw new Error(
+          `Published ${task.issueIdentifier} as ${publishedStatus ?? "an unknown status"} instead of ${targetStatus}.`,
+        );
+      }
       recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
     } catch (error) {
       console.error(
