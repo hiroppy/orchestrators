@@ -10,6 +10,7 @@ import { linearTeamForService } from "./runtime-config.ts";
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
 const PULL_REQUEST_STATUS_SYNC_PENDING_EVENT = "pull_request_status_sync_pending";
 const PULL_REQUEST_STATUS_SYNC_COMPLETED_EVENT = "pull_request_status_sync_completed";
+const PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT = "pull_request_status_sync_reopened";
 
 export async function syncPullRequestStatuses({
   config,
@@ -48,13 +49,21 @@ export async function syncPullRequestStatuses({
       const pullRequestUrl = task.pullRequest?.url;
       if (linearIssue.pullRequest?.url !== pullRequestUrl) {
         await publishPullRequestChange(store, task, linearIssue.pullRequest, publishLinearUpdate);
+        completePendingStatusSync(
+          store,
+          task,
+          pendingTaskIds,
+          JSON.stringify({ pullRequestUrl: linearIssue.pullRequest?.url ?? null }),
+        );
         continue;
       }
       if (!pullRequestUrl) continue;
 
       const pullRequest = await findPullRequestByUrl(pullRequestUrl);
       if (!pullRequest) continue;
-      if (normalizeStatus(pullRequest.state) !== "closed") {
+      const pullRequestState = normalizeStatus(pullRequest.state);
+      if (pullRequestState !== "closed") {
+        if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
           await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
         }
@@ -68,8 +77,9 @@ export async function syncPullRequestStatuses({
 
       const eventKey = JSON.stringify({
         url: pullRequest.url,
-        state: normalizeStatus(pullRequest.state),
+        state: pullRequestState,
         headRefOid: pullRequest.headRefOid ?? null,
+        reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
       });
       if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {
         if (pendingTaskIds.has(task.id)) {
@@ -111,6 +121,39 @@ export async function syncPullRequestStatuses({
       );
     }
   }
+}
+
+function completePendingStatusSync(
+  store: WatcherStore,
+  task: Task,
+  pendingTaskIds: Set<string>,
+  body: string,
+): void {
+  if (!pendingTaskIds.has(task.id)) return;
+  const status = store.getTask(task.id)?.status ?? task.status;
+  store.addEvent(statusSyncCompletedEvent(task.id, status, body));
+  pendingTaskIds.delete(task.id);
+}
+
+function recordPullRequestReopen(
+  store: WatcherStore,
+  task: Task,
+  pullRequest: NonNullable<Task["pullRequest"]>,
+): void {
+  const synced = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT);
+  const reopened = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT);
+  if (!synced || (reopened && reopened.id > synced.id)) return;
+  store.addEvent({
+    taskId: task.id,
+    type: PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT,
+    actor: "watcher",
+    fromStatus: task.status,
+    toStatus: task.status,
+    body: JSON.stringify({
+      url: pullRequest.url,
+      headRefOid: pullRequest.headRefOid ?? null,
+    }),
+  });
 }
 
 async function publishPullRequestChange(

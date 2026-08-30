@@ -71,6 +71,40 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("reapplies Canceled after the same pull request reopens and closes again", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      const updates: string[] = [];
+      let pullRequestState = "CLOSED";
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url: string) => ({
+          url,
+          state: pullRequestState,
+          headRefOid: "same-head",
+        }),
+        updateLinearStatus: async (_issueIdentifier: string, status: string) => {
+          updates.push(status);
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      pullRequestState = "OPEN";
+      await syncPullRequestStatuses(options);
+      store.updateTaskStatus("service-a:ENG-42", "In Review");
+      pullRequestState = "CLOSED";
+      await syncPullRequestStatuses(options);
+
+      assert.deepEqual(updates, ["Canceled", "Canceled"]);
+      assert.equal(
+        store.getLatestEventsByType("service-a:ENG-42", "pull_request_status_synced", 10).length,
+        2,
+      );
+    });
+  });
+
   it("continues syncing other tasks when one Linear update fails", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
@@ -251,6 +285,13 @@ describe("pull request status sync", () => {
       const config = setupTask(store);
       const replacementUrl = "https://github.com/example/repository/pull/43";
       let publications = 0;
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_sync_pending",
+        actor: "watcher",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+      });
       const options = {
         config,
         store,
@@ -272,11 +313,25 @@ describe("pull request status sync", () => {
         store.getTask("service-a:ENG-42")?.pullRequest?.url,
         "https://github.com/example/repository/pull/42",
       );
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        ["service-a:ENG-42"],
+      );
 
       await syncPullRequestStatuses(options);
 
       assert.equal(publications, 2);
       assert.equal(store.getTask("service-a:ENG-42")?.pullRequest?.url, replacementUrl);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        [],
+      );
     });
   });
 
