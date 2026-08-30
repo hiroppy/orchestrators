@@ -9,8 +9,8 @@ import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 import { REVIEW_REQUEUE_BASELINE_EVENT } from "./review-comments.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 
-export const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
-export const PULL_REQUEST_STATUS_RECONCILED_EVENT = "pull_request_status_reconciled";
+const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
+const PULL_REQUEST_STATUS_RECONCILED_EVENT = "pull_request_status_reconciled";
 const PASSING_CHECK_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
 export async function syncPullRequestStatuses({
