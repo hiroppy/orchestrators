@@ -150,11 +150,16 @@ describe("pull request status sync", () => {
     await withStore(async (store) => {
       const config = setupTask(store);
       const updates: string[] = [];
+      const publications: Array<string | undefined> = [];
 
       await syncPullRequestStatuses({
         config,
         store,
-        ...syncDependencies(store, "https://github.com/example/repository/pull/43"),
+        ...syncDependencies(
+          store,
+          "https://github.com/example/repository/pull/43",
+          async (_task, pullRequest) => publications.push(pullRequest?.url),
+        ),
         findPullRequestByUrl: async () => {
           throw new Error("stale pull request should not be inspected");
         },
@@ -162,10 +167,69 @@ describe("pull request status sync", () => {
       });
 
       assert.deepEqual(updates, []);
+      assert.deepEqual(publications, ["https://github.com/example/repository/pull/43"]);
       assert.equal(
         store.getTask("service-a:ENG-42")?.pullRequest?.url,
         "https://github.com/example/repository/pull/43",
       );
+    });
+  });
+
+  it("retries publishing a replacement pull request attachment", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      const replacementUrl = "https://github.com/example/repository/pull/43";
+      let publications = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store, replacementUrl, async (_task, pullRequest) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          if (publications === 1) throw new Error("Slack unavailable");
+        }),
+        findPullRequestByUrl: async () => {
+          throw new Error("replacement pull request should not be inspected");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(
+        store.getTask("service-a:ENG-42")?.pullRequest?.url,
+        "https://github.com/example/repository/pull/42",
+      );
+
+      await syncPullRequestStatuses(options);
+
+      assert.equal(publications, 2);
+      assert.equal(store.getTask("service-a:ENG-42")?.pullRequest?.url, replacementUrl);
+    });
+  });
+
+  it("publishes a removed pull request attachment", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      const publications: Array<string | undefined> = [];
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(store, null, async (_task, pullRequest) => {
+          publications.push(pullRequest?.url);
+        }),
+        findPullRequestByUrl: async () => {
+          throw new Error("removed pull request should not be inspected");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.deepEqual(publications, [undefined]);
+      assert.equal(store.getTask("service-a:ENG-42")?.pullRequest, undefined);
     });
   });
 
@@ -232,8 +296,11 @@ describe("pull request status sync", () => {
 
 function syncDependencies(
   store: WatcherStore,
-  pullRequestUrl?: string,
-  publish: (task: { id: string; status: string }) => Promise<void> = async () => undefined,
+  pullRequestUrl?: string | null,
+  publish: (
+    task: { id: string; status: string },
+    pullRequest: { url: string } | undefined,
+  ) => Promise<void> = async () => undefined,
 ) {
   return {
     fetchLinearIssue: async (issueIdentifier?: string) => {
@@ -244,16 +311,25 @@ function syncDependencies(
         state: "In Review",
         stateType: "started",
         url: null,
-        pullRequest: {
-          url:
-            pullRequestUrl ??
-            `https://github.com/example/repository/pull/${identifier.split("-").at(-1)}`,
-        },
+        pullRequest:
+          pullRequestUrl === null
+            ? undefined
+            : {
+                url:
+                  pullRequestUrl ??
+                  `https://github.com/example/repository/pull/${identifier.split("-").at(-1)}`,
+              },
       };
     },
-    publishStatusTransition: async (task: { id: string }) => {
-      await publish(store.getTask(task.id)!);
-      store.updateTaskStatus(task.id, "Canceled");
+    publishLinearUpdate: async (
+      task: { id: string; pullRequest?: { url: string } },
+      pullRequest,
+    ) => {
+      await publish(store.getTask(task.id)!, pullRequest);
+      store.setTaskPullRequest(task.id, pullRequest);
+      if (pullRequest?.url === task.pullRequest?.url) {
+        store.updateTaskStatus(task.id, "Canceled");
+      }
     },
   };
 }

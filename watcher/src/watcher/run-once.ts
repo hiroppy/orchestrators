@@ -126,7 +126,7 @@ export async function runOnce({
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       fetchLinearIssue: fetchLinearIssueState,
-      publishStatusTransition: async (task, pullRequest) => {
+      publishLinearUpdate: async (task, pullRequest) => {
         const published = await reconcileSlackStatusTransition({
           config,
           store,

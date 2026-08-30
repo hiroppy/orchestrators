@@ -14,17 +14,14 @@ export async function syncPullRequestStatuses({
   store,
   findPullRequestByUrl,
   fetchLinearIssue,
-  publishStatusTransition,
+  publishLinearUpdate,
   updateLinearStatus,
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   fetchLinearIssue: typeof fetchLinearIssueState;
-  publishStatusTransition: (
-    task: Task,
-    pullRequest: NonNullable<Task["pullRequest"]>,
-  ) => Promise<void>;
+  publishLinearUpdate: (task: Task, pullRequest: Task["pullRequest"]) => Promise<void>;
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
@@ -41,7 +38,12 @@ export async function syncPullRequestStatuses({
       });
       if (!linearIssue) continue;
       if (linearIssue.pullRequest?.url !== task.pullRequest.url) {
-        store.setTaskPullRequest(task.id, linearIssue.pullRequest);
+        try {
+          await publishLinearUpdate(task, linearIssue.pullRequest);
+        } catch (error) {
+          store.setTaskPullRequest(task.id, task.pullRequest);
+          throw error;
+        }
         continue;
       }
 
@@ -67,7 +69,7 @@ export async function syncPullRequestStatuses({
         });
       }
 
-      await publishStatusTransition(task, pullRequest);
+      await publishLinearUpdate(task, pullRequest);
       recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
     } catch (error) {
       console.error(
