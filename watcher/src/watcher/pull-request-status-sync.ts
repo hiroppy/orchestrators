@@ -64,16 +64,20 @@ export async function syncPullRequestStatuses({
       const pullRequestState = normalizeStatus(pullRequest.state);
       if (pullRequestState !== "closed") {
         if (pullRequestState === "open") recordPullRequestReopen(store, task, pullRequest);
-        completePendingStatusSync(
-          store,
-          task,
-          pendingTaskIds,
-          JSON.stringify({
-            url: pullRequest.url,
-            state: pullRequestState,
-            headRefOid: pullRequest.headRefOid ?? null,
-          }),
-        );
+        if (pendingTaskIds.has(task.id)) {
+          await publishLinearUpdate(task, pullRequest);
+          completePendingStatusSync(
+            store,
+            task,
+            pendingTaskIds,
+            JSON.stringify({
+              url: pullRequest.url,
+              state: pullRequestState,
+              headRefOid: pullRequest.headRefOid ?? null,
+            }),
+          );
+          continue;
+        }
         if (pullRequestMetadataChanged(task.pullRequest, pullRequest)) {
           await publishPullRequestChange(store, task, pullRequest, publishLinearUpdate);
         }

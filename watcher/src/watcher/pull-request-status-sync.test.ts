@@ -108,6 +108,7 @@ describe("pull request status sync", () => {
   it("completes an abandoned pending close sync when the pull request reopens", async () => {
     await withStore(async (store) => {
       const config = setupTask(store, "Canceled");
+      let publications = 0;
       store.addEvent({
         taskId: "service-a:ENG-42",
         type: "pull_request_status_sync_pending",
@@ -116,16 +117,31 @@ describe("pull request status sync", () => {
         toStatus: "Canceled",
       });
 
-      await syncPullRequestStatuses({
+      const options = {
         config,
         store,
-        ...syncDependencies(store),
+        ...syncDependencies(store, undefined, async () => {
+          publications += 1;
+          if (publications === 1) throw new Error("Slack unavailable");
+        }),
         findPullRequestByUrl: async (url) => ({ url, state: "OPEN" }),
         updateLinearStatus: async () => {
           throw new Error("Linear status should not be updated");
         },
-      });
+      };
 
+      await syncPullRequestStatuses(options);
+      assert.deepEqual(
+        store.getTaskIdsWithIncompleteEvent(
+          "pull_request_status_sync_pending",
+          "pull_request_status_sync_completed",
+        ),
+        ["service-a:ENG-42"],
+      );
+
+      await syncPullRequestStatuses(options);
+
+      assert.equal(publications, 2);
       assert.deepEqual(
         store.getTaskIdsWithIncompleteEvent(
           "pull_request_status_sync_pending",
