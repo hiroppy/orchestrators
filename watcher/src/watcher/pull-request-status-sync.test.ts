@@ -66,12 +66,18 @@ describe("pull request status sync", () => {
           pullRequest: { url: "https://github.com/example/repository/pull/42" },
         }),
         findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        publishLinearUpdate: async (_task, pullRequest) => {
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", "Done");
+          store.setTaskLinearStateType("service-a:ENG-42", "completed");
+        },
         updateLinearStatus: async () => {
           throw new Error("Linear status should not be updated");
         },
       });
 
-      assert.equal(store.getTask("service-a:ENG-42")?.status, "In Review");
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
+      assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "completed");
       assert.deepEqual(
         store.getTaskIdsWithIncompleteEvent(
           "pull_request_status_sync_pending",
@@ -101,6 +107,54 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses(options);
 
       assert.deepEqual(updates, ["Canceled"]);
+    });
+  });
+
+  it("publishes a later terminal Linear status after completing the close sync", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "Canceled");
+      let publications = 0;
+      store.setTaskLinearStateType("service-a:ENG-42", "canceled");
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "pull_request_status_synced",
+        actor: "watcher",
+        fromStatus: "In Review",
+        toStatus: "Canceled",
+        body: JSON.stringify({
+          url: "https://github.com/example/repository/pull/42",
+          state: "closed",
+          headRefOid: null,
+        }),
+      });
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        ...syncDependencies(store),
+        fetchLinearIssue: async () => ({
+          identifier: "ENG-42",
+          title: "Tracked task",
+          state: "Done",
+          stateType: "completed",
+          url: null,
+          pullRequest: { url: "https://github.com/example/repository/pull/42" },
+        }),
+        findPullRequestByUrl: async (url) => ({ url, state: "CLOSED" }),
+        publishLinearUpdate: async (_task, pullRequest) => {
+          publications += 1;
+          store.setTaskPullRequest("service-a:ENG-42", pullRequest);
+          store.updateTaskStatus("service-a:ENG-42", "Done");
+          store.setTaskLinearStateType("service-a:ENG-42", "completed");
+        },
+        updateLinearStatus: async () => {
+          throw new Error("Linear status should not be updated");
+        },
+      });
+
+      assert.equal(publications, 1);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Done");
+      assert.equal(store.getTask("service-a:ENG-42")?.linearStateType, "completed");
     });
   });
 

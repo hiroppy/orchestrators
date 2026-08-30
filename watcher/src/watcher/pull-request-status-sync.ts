@@ -114,7 +114,13 @@ export async function syncPullRequestStatuses({
         isTerminalLinearStateType(liveLinearStateType) &&
         normalizeStatus(linearIssue.state) !== normalizeStatus(targetStatus)
       ) {
-        if (pendingTaskIds.has(task.id)) await publishLinearUpdate(task, pullRequest);
+        if (
+          pendingTaskIds.has(task.id) ||
+          normalizeStatus(task.status) !== normalizeStatus(linearIssue.state) ||
+          normalizeStatus(task.linearStateType) !== normalizeStatus(liveLinearStateType)
+        ) {
+          await publishLinearUpdate(task, pullRequest);
+        }
         completePendingStatusSync(
           store,
           task,
