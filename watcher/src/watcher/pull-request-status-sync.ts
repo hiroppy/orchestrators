@@ -101,7 +101,8 @@ export async function syncPullRequestStatuses({
         }
         if (
           isTerminalLinearStateType(task.linearStateType) &&
-          !isTerminalLinearStateType(liveLinearStateType)
+          (normalizeStatus(task.status) !== normalizeStatus(linearIssue.state) ||
+            normalizeStatus(task.linearStateType) !== normalizeStatus(liveLinearStateType))
         ) {
           await publishLinearUpdate(task, pullRequest);
           continue;
