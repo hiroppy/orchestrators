@@ -75,6 +75,9 @@ export async function publishWatcherEvent(
       store.setTaskPullRequest(task.id, observedPullRequest);
       task = store.getTask(task.id)!;
     }
+    const publishedEvent = hasPullRequestOverride
+      ? { ...event, pullRequest: observedPullRequest }
+      : event;
     const pullRequestChanged =
       (hasPullRequestOverride || event.pullRequest !== undefined) &&
       (observedPullRequest?.url !== previousTask?.pullRequest?.url ||
@@ -92,11 +95,11 @@ export async function publishWatcherEvent(
     const card = buildTaskCard(
       task,
       store.getSelectableStatuses(task.serviceName),
-      event,
+      publishedEvent,
       assigneeLabels,
     );
     const summary = JSON.stringify(card);
-    const statusEvent = { ...event, pullRequest: undefined };
+    const statusEvent = { ...publishedEvent, pullRequest: undefined };
     const threadContext = {
       fromStatus: previousTask?.status,
       toStatus: task.status,

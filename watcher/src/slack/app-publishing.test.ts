@@ -340,6 +340,49 @@ describe("Slack event publishing", () => {
     });
   });
 
+  it("renders an enriched pull request override in the parent card", async () => {
+    await withStore(async (store) => {
+      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
+      const client = fakeClient(calls);
+      const pullRequestUrl = "https://github.com/example/repository/pull/62";
+      await publishWatcherEvent(client, store, "C123", {
+        type: "started",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        state: "In Progress",
+        pullRequest: { url: pullRequestUrl },
+      });
+      calls.length = 0;
+
+      await publishWatcherEvent(
+        client,
+        store,
+        "C123",
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          state: "In Progress",
+          pullRequest: { url: pullRequestUrl },
+        },
+        {
+          pullRequestOverride: {
+            url: pullRequestUrl,
+            title: "Preserve enriched pull request title",
+          },
+        },
+      );
+
+      const parentUpdate = calls.find(
+        ({ method, args }) => method === "update" && args.ts === "1.000",
+      );
+      assert.match(
+        JSON.stringify(parentUpdate?.args.blocks),
+        /Preserve enriched pull request title/,
+      );
+    });
+  });
+
   it("delivers a transition hook after Slack omits the new parent's channel and timestamp", async () => {
     await withStore(async (store) => {
       const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
