@@ -165,7 +165,6 @@ export async function syncPullRequestStatuses({
       const eventKey = JSON.stringify({
         url: pullRequest.url,
         state: pullRequestState,
-        headRefOid: pullRequest.headRefOid ?? null,
         reopenEventId: store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNC_REOPENED_EVENT)?.id,
       });
       if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) {

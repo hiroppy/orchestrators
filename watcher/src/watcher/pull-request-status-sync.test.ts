@@ -98,11 +98,12 @@ describe("pull request status sync", () => {
     await withStore(async (store) => {
       const config = setupTask(store, "Canceled");
       const updates: string[] = [];
+      let headRefOid = "first-head";
       const options = {
         config,
         store,
         ...syncDependencies(store),
-        findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED" }),
+        findPullRequestByUrl: async (url: string) => ({ url, state: "CLOSED", headRefOid }),
         updateLinearStatus: async (_issueIdentifier: string, status: string) => {
           updates.push(status);
         },
@@ -110,6 +111,7 @@ describe("pull request status sync", () => {
 
       await syncPullRequestStatuses(options);
       store.updateTaskStatus("service-a:ENG-42", "In Progress");
+      headRefOid = "later-head";
       await syncPullRequestStatuses(options);
 
       assert.deepEqual(updates, ["Canceled"]);
@@ -130,7 +132,6 @@ describe("pull request status sync", () => {
         body: JSON.stringify({
           url: "https://github.com/example/repository/pull/42",
           state: "closed",
-          headRefOid: null,
         }),
       });
 
@@ -178,7 +179,6 @@ describe("pull request status sync", () => {
         body: JSON.stringify({
           url: "https://github.com/example/repository/pull/42",
           state: "closed",
-          headRefOid: null,
         }),
       });
 
@@ -471,7 +471,6 @@ describe("pull request status sync", () => {
         body: JSON.stringify({
           url: "https://github.com/example/repository/pull/42",
           state: "closed",
-          headRefOid: null,
         }),
       });
       const options = {
