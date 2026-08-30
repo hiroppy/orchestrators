@@ -21,6 +21,11 @@ describe("pull request status sync", () => {
       });
 
       assert.deepEqual(updates, [{ issueIdentifier: "ENG-42", status: "Canceled" }]);
+      assert.equal(store.getTask("service-a:ENG-42")?.status, "Canceled");
+      assert.equal(
+        store.getLatestEventsByType("service-a:ENG-42", "status_hook_pending", 1).length,
+        1,
+      );
     });
   });
 
@@ -97,6 +102,7 @@ function setupTask(store: WatcherStore, status = "In Review") {
     name: "service-a",
     url: "data:application/json,{}",
     linearTeam: "workspace-a-eng",
+    statusHooks: [{ id: "notify-canceled", status: "Canceled", run: () => undefined }],
   };
   store.syncDefinitions([service], teams);
   store.upsertTaskFromEvent({
