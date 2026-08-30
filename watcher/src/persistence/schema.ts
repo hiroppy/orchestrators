@@ -63,6 +63,7 @@ export const tasks = sqliteTable(
     pullRequestNumber: integer("pull_request_number"),
     pullRequestTitle: text("pull_request_title"),
     pullRequestLabels: text("pull_request_labels"),
+    pullRequestHeadRefOid: text("pull_request_head_ref_oid"),
     parentChannelId: text("parent_channel_id"),
     parentMessageTs: text("parent_message_ts"),
     lastRenderedSummary: text("last_rendered_summary"),

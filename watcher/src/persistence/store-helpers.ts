@@ -122,6 +122,7 @@ export function taskFromRow(
           ...(row.pullRequestLabels === null
             ? {}
             : { labels: JSON.parse(row.pullRequestLabels) as string[] }),
+          ...(row.pullRequestHeadRefOid === null ? {} : { headRefOid: row.pullRequestHeadRefOid }),
         }
       : undefined,
     parentChannelId: row.parentChannelId,

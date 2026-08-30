@@ -5,6 +5,7 @@ import type { PullRequest } from "../domain/github.ts";
 import { decideReviewRequeue, parseReviewRequeuePendingPayload } from "./review-comments.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
 import { runOnce } from "./run-once.ts";
+import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 import {
   dataUrl,
   fakeSlackClient,
@@ -190,6 +191,10 @@ describe("watcher review requeue", () => {
           service: "service-a",
           issueIdentifier: "ENG-62",
           resolvedState: "In Review",
+          pullRequest: {
+            url: "https://github.com/acme/example/pull/42",
+            headRefOid: "head-1",
+          },
         },
         decision: {
           shouldRequeue: true,
@@ -207,6 +212,25 @@ describe("watcher review requeue", () => {
         store.getLatestEvent("service-a:ENG-62", "review_comment_handled")?.body,
         "2026-08-15T00:00:00.000Z",
       );
+      assert.equal(
+        store.getLatestEvent("service-a:ENG-62", "review_requeue_baseline")?.body,
+        "head-1",
+      );
+      await syncPullRequestStatuses({
+        config,
+        store,
+        findPullRequestByUrl: async (url) => ({
+          url,
+          state: "OPEN",
+          isDraft: false,
+          headRefOid: "head-1",
+          checks: [{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+        }),
+        updateLinearStatus: async (_identifier, status) => {
+          updates.push(status);
+        },
+      });
+      assert.deepEqual(updates, ["In Progress"]);
     });
   });
 

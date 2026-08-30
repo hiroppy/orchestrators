@@ -127,9 +127,9 @@ describe("pull request status sync", () => {
 
   it("allows repaired CI on the same head to return to In Review", async () => {
     await withStore(async (store) => {
-      const config = setupTask(store);
+      const config = setupTask(store, "In Progress");
       const updates: string[] = [];
-      let conclusion = "FAILURE";
+      let conclusion = "SUCCESS";
       const options = {
         config,
         store,
@@ -146,11 +146,47 @@ describe("pull request status sync", () => {
       };
 
       await syncPullRequestStatuses(options);
+      store.updateTaskStatus("service-a:ENG-42", "In Review");
+      conclusion = "FAILURE";
+      await syncPullRequestStatuses(options);
       store.updateTaskStatus("service-a:ENG-42", "In Progress");
       conclusion = "SUCCESS";
       await syncPullRequestStatuses(options);
 
-      assert.deepEqual(updates, ["In Progress", "In Review"]);
+      assert.deepEqual(updates, ["In Review", "In Progress", "In Review"]);
+    });
+  });
+
+  it("waits for a new head after a review requeue", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store, "In Progress");
+      const updates: string[] = [];
+      store.addEvent({
+        taskId: "service-a:ENG-42",
+        type: "review_requeue_baseline",
+        body: "head-1",
+      });
+      let headRefOid = "head-1";
+      const options = {
+        config,
+        store,
+        findPullRequestByUrl: async (url: string) => ({
+          url,
+          state: "OPEN",
+          isDraft: false,
+          headRefOid,
+          checks: [{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+        }),
+        updateLinearStatus: async (_issueIdentifier: string, status: string) => {
+          updates.push(status);
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      headRefOid = "head-2";
+      await syncPullRequestStatuses(options);
+
+      assert.deepEqual(updates, ["In Review"]);
     });
   });
 

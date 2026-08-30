@@ -5,6 +5,7 @@ import { normalizeStatus } from "../domain/status.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";
+import { REVIEW_REQUEUE_BASELINE_EVENT } from "./review-comments.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
@@ -34,6 +35,7 @@ export async function syncPullRequestStatuses({
           task.status,
           task.linearStateType,
           task.pullRequest.headRefOid,
+          store.getLatestEvent(task.id, REVIEW_REQUEUE_BASELINE_EVENT)?.body,
           pullRequest,
           statusSync?.closed,
           review,
@@ -52,7 +54,8 @@ export async function syncPullRequestStatuses({
           conclusion: normalizeStatus(conclusion ?? ""),
         })) ?? null,
     });
-    if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, eventKey)) continue;
+    if (store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT)?.body === eventKey)
+      continue;
 
     if (normalizeStatus(task.status) === normalizeStatus(targetStatus)) {
       recordStatusSync(store, task.id, task.status, targetStatus, eventKey);
@@ -79,6 +82,7 @@ function targetStatusForPullRequest(
   taskStatus: string,
   linearStateType: string | undefined,
   previousHeadRefOid: string | null | undefined,
+  reviewRequeueHeadRefOid: string | undefined,
   pullRequest: PullRequest,
   closedStatus: string | undefined,
   review: ResolvedWatcherRuntimeConfig["reviewComment"],
@@ -104,6 +108,7 @@ function targetStatusForPullRequest(
     normalizedTaskStatus === normalizeStatus(review.inProgressStatus) &&
     normalizeStatus(pullRequest.state) === "open" &&
     pullRequest.isDraft === false &&
+    (reviewRequeueHeadRefOid === undefined || pullRequest.headRefOid !== reviewRequeueHeadRefOid) &&
     checksPassed(pullRequest.checks)
   ) {
     return review.inReviewStatus;

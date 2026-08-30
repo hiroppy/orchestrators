@@ -8,6 +8,7 @@ import { buildReviewRequeueMessage } from "../slack/views.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import {
   REVIEW_COMMENT_HANDLED_EVENT,
+  REVIEW_REQUEUE_BASELINE_EVENT,
   REVIEW_REQUEUE_EVENT,
   REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,
   type ReviewRequeueDecision,
@@ -90,6 +91,18 @@ export async function requeueReviewTask({
           toStatus: updatedTask.status,
           body: message,
         },
+        ...(event.pullRequest?.headRefOid
+          ? [
+              {
+                taskId: task.id,
+                type: REVIEW_REQUEUE_BASELINE_EVENT,
+                actor: "watcher",
+                fromStatus,
+                toStatus: updatedTask.status,
+                body: event.pullRequest.headRefOid,
+              },
+            ]
+          : []),
         {
           taskId: task.id,
           type: REVIEW_REQUEUE_NOTIFICATION_PENDING_EVENT,

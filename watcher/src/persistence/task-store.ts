@@ -129,6 +129,7 @@ export class TaskStore {
         pullRequestNumber: event.pullRequest?.number,
         pullRequestTitle: event.pullRequest?.title,
         pullRequestLabels,
+        pullRequestHeadRefOid: event.pullRequest?.headRefOid,
         lastEventAt: event.lastEventAt ?? timestamp,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -144,6 +145,7 @@ export class TaskStore {
           pullRequestNumber: event.pullRequest?.number ?? existing?.pullRequest?.number,
           pullRequestTitle: event.pullRequest?.title ?? existing?.pullRequest?.title,
           pullRequestLabels,
+          pullRequestHeadRefOid: event.pullRequest?.headRefOid ?? existing?.pullRequest?.headRefOid,
           lastEventAt: event.lastEventAt ?? timestamp,
           updatedAt: timestamp,
         },
@@ -218,6 +220,7 @@ export class TaskStore {
         pullRequestNumber: pullRequest?.number ?? null,
         pullRequestTitle: pullRequest?.title ?? null,
         pullRequestLabels: pullRequest ? JSON.stringify(pullRequest.labels ?? []) : null,
+        pullRequestHeadRefOid: pullRequest?.headRefOid ?? null,
         updatedAt: now.toISOString(),
       })
       .where(eq(tasks.id, taskId))

@@ -83,7 +83,9 @@ with a successful, neutral, or skipped conclusion. Missing, pending, canceled, o
 the issue in progress so Symphony can repair CI.
 If a reviewed pull request receives a new head commit, becomes a draft, or reports a pending or
 unsuccessful check, the watcher moves it back to `inProgressStatus`. An unavailable check response
-does not change Linear state.
+does not change Linear state. Review-comment and merge-conflict requeues require a new PR head
+before passing CI can return the issue to review, preventing the unchanged green revision from
+immediately undoing the requeue.
 For pull requests that stay ready at the same revision for `reviewReadyDelayMs`, the watcher also
 mentions the task's assignees. The delay is in milliseconds and defaults to 10 minutes when omitted;
 set it to `0` to notify on the first check after the revision has been observed. Changing the revision

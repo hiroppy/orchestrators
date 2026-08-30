@@ -160,6 +160,9 @@ review-requeue path.
   neutrally, or as skipped. Missing, pending, or failed checks keep the task in progress.
 - A new PR head, draft conversion, or non-passing observed check moves a task under review back to
   progress. Inaccessible check data leaves the current Linear state unchanged.
+- The watcher persists the last observed PR head SHA. Review-comment and merge-conflict requeues
+  record that SHA as a boundary, so the same already-green revision cannot immediately undo the
+  requeue; a completed rework push with a new head is required before returning to review.
 - Access uses `gh pr view` and `gh api`.
 - Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
   presence only, not counts or authors, and removes only its own stale reactions.

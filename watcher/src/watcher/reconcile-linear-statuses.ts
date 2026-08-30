@@ -243,6 +243,7 @@ function storedPullRequestChanged(
     previous?.url !== current?.url ||
     previous?.number !== current?.number ||
     previous?.title !== current?.title ||
+    previous?.headRefOid !== current?.headRefOid ||
     JSON.stringify(previous?.labels) !== JSON.stringify(current?.labels)
   );
 }

@@ -79,6 +79,7 @@ describe("watcher Linear reconciliation and snapshots", () => {
           url,
           state: "OPEN",
           isDraft: false,
+          headRefOid: "head-1",
           checks: [{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
         }),
         updateLinearStatus: async (_issueIdentifier, status) => {
@@ -90,6 +91,7 @@ describe("watcher Linear reconciliation and snapshots", () => {
         store.getTask(task.id)?.pullRequest?.url,
         "https://github.com/acme/example/pull/42",
       );
+      assert.equal(store.getTask(task.id)?.pullRequest?.headRefOid, "head-1");
       assert.deepEqual(updates, ["In Review"]);
     });
   });
