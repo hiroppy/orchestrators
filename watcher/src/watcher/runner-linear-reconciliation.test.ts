@@ -130,10 +130,6 @@ describe("watcher Linear reconciliation and snapshots", () => {
           },
         ],
         linearTeams: linearTeams(["In Progress", "In Review", "Done", "Canceled"]),
-        reviewComment: {
-          inReviewStatus: "In Review",
-          inProgressStatus: "In Progress",
-        },
         pullRequestStatusSync: { closed: "Canceled" },
         defaultAssignees: [],
       });
@@ -507,7 +503,8 @@ describe("watcher Linear reconciliation and snapshots", () => {
             linearTeam: "workspace-a-eng",
           },
         ],
-        linearTeams: linearTeams(["In Review", "Done"]),
+        linearTeams: linearTeams(["In Review", "Done", "Canceled"]),
+        pullRequestStatusSync: { closed: "Canceled" },
       });
       store.syncDefinitions(config.services, config.linearTeams);
       const task = store.upsertTaskFromEvent({
@@ -516,6 +513,7 @@ describe("watcher Linear reconciliation and snapshots", () => {
         issueIdentifier: "ENG-62",
         resolvedState: "In Review",
         resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/acme/example/pull/42" },
       });
       store.setParentMessage(task.id, "C123", "1.000", "{}");
       const secondTask = store.upsertTaskFromEvent({
@@ -526,15 +524,26 @@ describe("watcher Linear reconciliation and snapshots", () => {
         resolvedStateType: "started",
       });
       store.setParentMessage(secondTask.id, "C123", "2.000", "{}");
+      const updates: string[] = [];
+      let pullRequestLookups = 0;
 
       await runOnce({
         config,
         store,
         slackClient: fakeSlackClient([]),
         slackChannelId: "C123",
+        findPullRequestByUrl: async (url) => {
+          pullRequestLookups += 1;
+          return { url, state: "CLOSED" };
+        },
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
       });
 
       assert.equal(linearFetches, 1);
+      assert.equal(pullRequestLookups, 0);
+      assert.deepEqual(updates, []);
       assert.equal(store.getTask(task.id)?.status, "In Review");
       assert.equal(store.getTask(secondTask.id)?.status, "In Review");
     });

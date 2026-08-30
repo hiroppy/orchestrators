@@ -16,18 +16,26 @@ export async function syncPullRequestStatuses({
   store,
   findPullRequestByUrl,
   updateLinearStatus,
+  skipTaskIds = new Set(),
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
+  skipTaskIds?: ReadonlySet<string>;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
   const review = config.reviewComment;
   if (!statusSync && !review) return;
 
   for (const task of store.getTasksForLinearSync()) {
-    if (!task.pullRequest?.url || task.issueIdentifier.startsWith("watcher:")) continue;
+    if (
+      skipTaskIds.has(task.id) ||
+      !task.pullRequest?.url ||
+      task.issueIdentifier.startsWith("watcher:")
+    ) {
+      continue;
+    }
 
     const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
     const targetStatus = pullRequest

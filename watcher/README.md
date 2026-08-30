@@ -56,6 +56,25 @@ Usernames work with or without `@`. Use `me` to assign or unassign yourself.
 The root `config.ts` is gitignored. Use environment variables for credentials as shown in
 [`../config.example.ts`](../config.example.ts).
 
+### Closed pull request sync
+
+Set `watcher.pullRequestStatusSync.closed` to move a tracked Linear issue when its attached pull
+request closes without merging:
+
+```ts
+export default defineConfig({
+  watcher: {
+    pullRequestStatusSync: { closed: "Canceled" },
+  },
+  // linearTeams, instances, and Slack configuration...
+});
+```
+
+The watcher refreshes the authoritative Linear state and attachment before applying this rule. It
+does not change merged pull requests or overwrite terminal Linear states. The configured status must
+exist in every enabled instance's Linear workflow. This option works independently of
+`reviewComment`.
+
 ### Review requeue
 
 Enable `watcher.reviewComment` to move a completed pull request into review after CI passes and to

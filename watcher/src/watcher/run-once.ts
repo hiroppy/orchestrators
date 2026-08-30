@@ -119,7 +119,7 @@ export async function runOnce({
   });
   if (runPeriodicMaintenance) {
     const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
-    pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
+    const reconciliation = await reconcileLinearStatuses({
       config,
       store,
       slackClient,
@@ -129,11 +129,13 @@ export async function runOnce({
       updateLinearStatus,
       persistedTerminalTaskIds,
     });
+    pendingPersistedTerminalTaskIds = reconciliation.pendingPersistedTerminalTaskIds;
     await syncPullRequestStatuses({
       config,
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
+      skipTaskIds: reconciliation.deferredTaskIds,
     });
     await runPullRequestMonitors({
       config,

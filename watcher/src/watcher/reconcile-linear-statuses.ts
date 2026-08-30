@@ -39,7 +39,10 @@ export async function reconcileLinearStatuses({
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
   persistedTerminalTaskIds: ReadonlySet<string>;
-}): Promise<Set<string>> {
+}): Promise<{
+  pendingPersistedTerminalTaskIds: Set<string>;
+  deferredTaskIds: Set<string>;
+}> {
   const pendingPersistedTerminalTaskIds = new Set(persistedTerminalTaskIds);
   const activeStatusesByService = new Map(
     config.services.map(({ name, activeStates }) => [name, activeStates ?? []]),
@@ -232,7 +235,15 @@ export async function reconcileLinearStatuses({
       pendingPersistedTerminalTaskIds.delete(task.id);
     }
   }
-  return pendingPersistedTerminalTaskIds;
+  const deferredTaskIds = new Set(
+    tasks
+      .filter((task) => {
+        const teamName = linearTeamByService.get(task.serviceName);
+        return teamName ? rateLimitedTeams.has(teamName) : false;
+      })
+      .map((task) => task.id),
+  );
+  return { pendingPersistedTerminalTaskIds, deferredTaskIds };
 }
 
 function storedPullRequestChanged(
@@ -272,5 +283,8 @@ function shouldRefreshPullRequestForStatusSync(
   status: string,
 ): boolean {
   const review = config.reviewComment;
-  return Boolean(review && normalizeStatus(status) === normalizeStatus(review.inProgressStatus));
+  return Boolean(
+    config.pullRequestStatusSync ||
+    (review && normalizeStatus(status) === normalizeStatus(review.inProgressStatus)),
+  );
 }
