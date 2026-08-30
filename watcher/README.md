@@ -77,6 +77,7 @@ watcher checks tracked nonterminal tasks with a pull request and applies the con
 for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGED`; merged transitions remain owned by
 Linear's GitHub workflow automation. Before updating the status, the watcher confirms that Linear
 still has the same pull request attached, so a removed or replaced pull request is not applied.
+Issues that have already reached an effective terminal Linear state are also left unchanged.
 
 Each successful closed-PR observation is recorded by pull request URL, state, and head commit so it
 is not applied again. GitHub lookup and Linear mutation failures are isolated per task and remain

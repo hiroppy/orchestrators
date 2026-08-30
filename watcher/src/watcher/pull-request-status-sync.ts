@@ -1,10 +1,11 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
+import { isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import { fetchLinearIssueState } from "../integrations/linear/issues.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { linearTeamForService } from "./runtime-config.ts";
+import { effectiveLinearStateTypeForService, linearTeamForService } from "./runtime-config.ts";
 
 const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
 
@@ -38,7 +39,20 @@ export async function syncPullRequestStatuses({
         apiKey: team.apiKey,
         maxAttempts: 1,
       });
-      if (linearIssue?.pullRequest?.url !== task.pullRequest.url) continue;
+      if (!linearIssue) continue;
+
+      const liveStateType = effectiveLinearStateTypeForService(
+        config,
+        task.serviceName,
+        linearIssue.state,
+        linearIssue.stateType,
+      );
+      if (isTerminalLinearStateType(liveStateType)) continue;
+
+      const storedPullRequestIdentity = pullRequestIdentity(task.pullRequest.url);
+      const currentPullRequestIdentity = pullRequestIdentity(linearIssue.pullRequest?.url);
+      if (!storedPullRequestIdentity || currentPullRequestIdentity !== storedPullRequestIdentity)
+        continue;
 
       const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
       if (!pullRequest || normalizeStatus(pullRequest.state) !== "closed") continue;
@@ -68,5 +82,29 @@ export async function syncPullRequestStatuses({
         error,
       );
     }
+  }
+}
+
+function pullRequestIdentity(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/i);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname.toLowerCase() !== "github.com" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      !match
+    ) {
+      return undefined;
+    }
+    const [, owner, repository, pullRequestNumber] = match;
+    const number = Number(pullRequestNumber);
+    if (!Number.isSafeInteger(number) || number < 1) return undefined;
+    return `${owner!.toLowerCase()}/${repository!.toLowerCase()}#${number}`;
+  } catch {
+    return undefined;
   }
 }

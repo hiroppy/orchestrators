@@ -135,6 +135,46 @@ describe("pull request status sync", () => {
     }
   });
 
+  it("preserves an issue that is already terminal in Linear", async () => {
+    await withStore(async (store) => {
+      const config = setup(store, { closed: "Canceled" });
+      let lookups = 0;
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl, "Done", "completed"),
+        findPullRequestByUrl: async () => {
+          lookups += 1;
+          return pullRequest("CLOSED");
+        },
+        updateLinearStatus: async () => assert.fail("must not update Linear"),
+      });
+
+      assert.equal(lookups, 0);
+    });
+  });
+
+  it("matches equivalent GitHub pull request URL variants", async () => {
+    await withStore(async (store) => {
+      const config = setup(store, { closed: "Canceled" });
+      let updates = 0;
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        fetchLinearIssue: async () =>
+          linearIssue("https://GitHub.com/ACME/EXAMPLE/pull/00042/?diff=split#review"),
+        findPullRequestByUrl: async () => pullRequest("CLOSED"),
+        updateLinearStatus: async () => {
+          updates += 1;
+        },
+      });
+
+      assert.equal(updates, 1);
+    });
+  });
+
   it("runs only during periodic maintenance", async () => {
     await withStore(async (store) => {
       const snapshot = {
@@ -194,12 +234,12 @@ function pullRequest(state: string, url = pullRequestUrl): PullRequest {
   return { url, state, headRefOid: "abc123" };
 }
 
-function linearIssue(url?: string) {
+function linearIssue(url?: string, state = "In Review", stateType = "started") {
   return {
     identifier: "ENG-42",
     title: "Task ENG-42",
-    state: "In Review",
-    stateType: "started",
+    state,
+    stateType,
     url: "https://linear.app/acme/issue/ENG-42",
     ...(url ? { pullRequest: { url } } : {}),
   };
