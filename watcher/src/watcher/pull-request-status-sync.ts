@@ -2,6 +2,7 @@ import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { PullRequest } from "../domain/github.ts";
 import { isTerminalLinearStateType } from "../domain/linear.ts";
 import { normalizeStatus } from "../domain/status.ts";
+import type { Task } from "../domain/task.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
 import type { WatcherStore } from "../persistence/store.ts";
@@ -17,12 +18,14 @@ export async function syncPullRequestStatuses({
   findPullRequestByUrl,
   updateLinearStatus,
   skipTaskIds = new Set(),
+  previousTasks = new Map(),
 }: {
   config: ResolvedWatcherRuntimeConfig;
   store: WatcherStore;
   findPullRequestByUrl: typeof findPullRequestByUrlDefault;
   updateLinearStatus: typeof updateLinearIssueStatus;
   skipTaskIds?: ReadonlySet<string>;
+  previousTasks?: ReadonlyMap<string, Task>;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
   const review = config.reviewComment;
@@ -38,11 +41,12 @@ export async function syncPullRequestStatuses({
     }
 
     const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
+    const previousTask = previousTasks.get(task.id) ?? task;
     const targetStatus = pullRequest
       ? targetStatusForPullRequest(
           task.status,
           task.linearStateType,
-          task.pullRequest.headRefOid,
+          previousTask.pullRequest?.headRefOid,
           store.getLatestEvent(task.id, REVIEW_REQUEUE_BASELINE_EVENT)?.body,
           pullRequest,
           statusSync?.closed,

@@ -93,10 +93,13 @@ export class WatcherStore {
 
   upsertTaskFromEventAtomically(
     event: WatcherEvent,
-    createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
+    createEvents: (
+      task: Task,
+      previousTask: Task | undefined,
+    ) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; previousTask: Task | undefined } {
-    return this.taskStore.upsertTaskFromEventAtomically(event, createEvent, now);
+    return this.taskStore.upsertTaskFromEventAtomically(event, createEvents, now);
   }
 
   setParentMessage(

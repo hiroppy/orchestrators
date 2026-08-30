@@ -119,6 +119,9 @@ export async function runOnce({
   });
   if (runPeriodicMaintenance) {
     const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
+    const tasksBeforeReconciliation = new Map(
+      store.getTasksForLinearSync().map((task) => [task.id, task]),
+    );
     const reconciliation = await reconcileLinearStatuses({
       config,
       store,
@@ -136,6 +139,7 @@ export async function runOnce({
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
       skipTaskIds: reconciliation.deferredTaskIds,
+      previousTasks: tasksBeforeReconciliation,
     });
     await runPullRequestMonitors({
       config,

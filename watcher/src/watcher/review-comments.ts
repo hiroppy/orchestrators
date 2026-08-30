@@ -1,7 +1,8 @@
 import type { ResolvedWatcherRuntimeConfig } from "../config/runtime.ts";
 import type { WatcherEvent } from "../domain/watcher-event.ts";
+import type { Task } from "../domain/task.ts";
 import { normalizeStatus } from "../domain/status.ts";
-import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
+import { taskIdFor, type TaskEventInput, type WatcherStore } from "../persistence/store.ts";
 
 export const REVIEW_REQUEUE_EVENT = "review_requeued";
 export const REVIEW_REQUEUE_BASELINE_EVENT = "review_requeue_baseline";
@@ -19,6 +20,32 @@ export interface ReviewRequeuePayload {
   message: string;
   event: WatcherEvent;
   sourceLabel?: string;
+}
+
+export function createReviewTransitionBaselineEvent(
+  config: ResolvedWatcherRuntimeConfig,
+  task: Task,
+  fromStatus: string,
+  toStatus: string,
+): TaskEventInput | undefined {
+  const review = config.reviewComment;
+  const headRefOid = task.pullRequest?.headRefOid;
+  if (
+    !review ||
+    !headRefOid ||
+    normalizeStatus(fromStatus) !== normalizeStatus(review.inReviewStatus) ||
+    normalizeStatus(toStatus) !== normalizeStatus(review.inProgressStatus)
+  ) {
+    return undefined;
+  }
+  return {
+    taskId: task.id,
+    type: REVIEW_REQUEUE_BASELINE_EVENT,
+    actor: "watcher",
+    fromStatus,
+    toStatus,
+    body: headRefOid,
+  };
 }
 
 export function decideReviewRequeue(

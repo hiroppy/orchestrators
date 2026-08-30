@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { WatcherStore } from "../persistence/store.ts";
 import { linearTeams, runtimeConfig, withStore } from "./runner.test-support.ts";
+import { createReviewTransitionBaselineEvent } from "./review-comments.ts";
 import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 
 describe("pull request status sync", () => {
@@ -161,11 +162,19 @@ describe("pull request status sync", () => {
     await withStore(async (store) => {
       const config = setupTask(store, "In Progress");
       const updates: string[] = [];
-      store.addEvent({
-        taskId: "service-a:ENG-42",
-        type: "review_requeue_baseline",
-        body: "head-1",
+      store.setTaskPullRequest("service-a:ENG-42", {
+        url: "https://github.com/example/repository/pull/42",
+        headRefOid: "head-1",
       });
+      const task = store.getTask("service-a:ENG-42")!;
+      const baseline = createReviewTransitionBaselineEvent(
+        config,
+        task,
+        "In Review",
+        "In Progress",
+      );
+      assert.ok(baseline);
+      store.addEvent(baseline);
       let headRefOid = "head-1";
       const options = {
         config,
@@ -187,6 +196,40 @@ describe("pull request status sync", () => {
       await syncPullRequestStatuses(options);
 
       assert.deepEqual(updates, ["In Review"]);
+    });
+  });
+
+  it("compares a newly reconciled head with the pre-reconciliation task", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      store.setTaskPullRequest("service-a:ENG-42", {
+        url: "https://github.com/example/repository/pull/42",
+        headRefOid: "head-1",
+      });
+      const previousTask = store.getTask("service-a:ENG-42")!;
+      store.setTaskPullRequest("service-a:ENG-42", {
+        url: previousTask.pullRequest!.url,
+        headRefOid: "head-2",
+      });
+      const updates: string[] = [];
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        previousTasks: new Map([[previousTask.id, previousTask]]),
+        findPullRequestByUrl: async (url) => ({
+          url,
+          state: "OPEN",
+          isDraft: false,
+          headRefOid: "head-2",
+          checks: [],
+        }),
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.deepEqual(updates, ["In Progress"]);
     });
   });
 

@@ -81,9 +81,10 @@ feedback, and completion:
    Orchestrators copies the text and supported attachments into Symphony's
    active Linear workpad, then reacts to the Slack reply after the copy
    succeeds.
-3. When Symphony opens or updates a pull request and moves the Linear issue to
-   review, Orchestrators keeps tracking the task even after it leaves
-   Symphony's active work set.
+3. When Symphony opens or updates a pull request, it leaves the Linear issue in
+   progress while CI runs. After the non-draft pull request has registered checks
+   and they all pass, Orchestrators moves the issue to review and keeps tracking
+   it after it leaves Symphony's active work set.
 4. If the pull request gets an eligible inline review comment or GitHub reports
    a merge conflict, Orchestrators automatically moves the Linear issue back to
    In Progress so Symphony can pick it up again.

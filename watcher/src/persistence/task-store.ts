@@ -157,14 +157,21 @@ export class TaskStore {
 
   upsertTaskFromEventAtomically(
     event: WatcherEvent,
-    createEvent: (task: Task, previousTask: Task | undefined) => TaskEventInput | undefined,
+    createEvents: (
+      task: Task,
+      previousTask: Task | undefined,
+    ) => TaskEventInput | TaskEventInput[] | undefined,
     now = new Date(),
   ): { task: Task; previousTask: Task | undefined } {
     return this.db.transaction((tx) => {
       const previousTask = this.getTask(taskIdFor(event.service, event.issueIdentifier), tx);
       const task = this.upsertTaskFromEvent(event, now, tx);
-      const transitionEvent = createEvent(task, previousTask);
-      if (transitionEvent) addTaskEvent(tx, transitionEvent);
+      const events = createEvents(task, previousTask);
+      if (events) {
+        for (const taskEvent of Array.isArray(events) ? events : [events]) {
+          addTaskEvent(tx, taskEvent);
+        }
+      }
       return { task, previousTask };
     });
   }

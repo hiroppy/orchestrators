@@ -19,6 +19,7 @@ import {
   resolveSymphonyWorkflowSettings,
 } from "./runtime-config.ts";
 import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
+import { createReviewTransitionBaselineEvent } from "./review-comments.ts";
 import { runWatcherPollingLoop } from "./polling-loop.ts";
 import type { PullRequestMonitorState } from "./pull-request-monitors.ts";
 import { runOnce } from "./run-once.ts";
@@ -98,7 +99,14 @@ export async function startWatcher(config: OrchestratorConfig): Promise<void> {
         fromStatus,
         toStatus,
       ),
-    onStatusTransition: async (task, _fromStatus, _toStatus, slackClient) => {
+    onStatusTransition: async (task, fromStatus, toStatus, slackClient) => {
+      const baselineEvent = createReviewTransitionBaselineEvent(
+        runtimeConfig,
+        task,
+        fromStatus,
+        toStatus,
+      );
+      if (baselineEvent) store.addEvent(baselineEvent);
       await reconcileSlackStatusTransition({
         config: runtimeConfig,
         store,

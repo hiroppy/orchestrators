@@ -31,7 +31,10 @@ export async function publishWatcherEvent(
   options: {
     defaultAssignees?: string[];
     onStatusTransition?: (task: Task, fromStatus: string) => Promise<void>;
-    createStatusTransitionEvent?: (task: Task, fromStatus: string) => TaskEventInput | undefined;
+    createStatusTransitionEvent?: (
+      task: Task,
+      fromStatus: string,
+    ) => TaskEventInput | TaskEventInput[] | undefined;
     afterPublish?: (task: Task) => Promise<void>;
   } = {},
 ): Promise<void> {

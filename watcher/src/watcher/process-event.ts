@@ -7,7 +7,10 @@ import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { publishWatcherEvent } from "../slack/event-publisher.ts";
 import { checkReviewReadyNotificationSafely } from "./review-ready.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
-import type { ReviewRequeueDecision } from "./review-comments.ts";
+import {
+  createReviewTransitionBaselineEvent,
+  type ReviewRequeueDecision,
+} from "./review-comments.ts";
 import { nonterminalRelatedIssuesForService, serviceConfigFor } from "./runtime-config.ts";
 import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 
@@ -36,8 +39,15 @@ export async function processWatcherEvent({
   };
   await publishWatcherEvent(slackClient, store, slackChannelId, publishEvent, {
     defaultAssignees: config.defaultAssignees ?? [],
-    createStatusTransitionEvent: (task, fromStatus) =>
-      createPendingStatusHookEvent(hooks, task, fromStatus, task.status, event.pullRequest),
+    createStatusTransitionEvent: (task, fromStatus) => {
+      const taskWithPullRequest = event.pullRequest
+        ? { ...task, pullRequest: event.pullRequest }
+        : task;
+      return [
+        createPendingStatusHookEvent(hooks, task, fromStatus, task.status, event.pullRequest),
+        createReviewTransitionBaselineEvent(config, taskWithPullRequest, fromStatus, task.status),
+      ].filter((entry) => entry !== undefined);
+    },
     afterPublish: async (task) => {
       await deliverPendingStatusHooksSafely({
         hooks,
