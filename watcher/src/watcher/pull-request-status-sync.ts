@@ -28,7 +28,7 @@ export async function syncPullRequestStatuses({
   if (!statusSync) return;
 
   for (const task of store.getTasksForLinearSync()) {
-    if (!task.pullRequest?.url || task.issueIdentifier.startsWith("watcher:")) continue;
+    if (task.issueIdentifier.startsWith("watcher:")) continue;
 
     try {
       const team = linearTeamForService(config, task.serviceName);
@@ -37,7 +37,8 @@ export async function syncPullRequestStatuses({
         maxAttempts: 1,
       });
       if (!linearIssue) continue;
-      if (linearIssue.pullRequest?.url !== task.pullRequest.url) {
+      const pullRequestUrl = task.pullRequest?.url;
+      if (linearIssue.pullRequest?.url !== pullRequestUrl) {
         try {
           await publishLinearUpdate(task, linearIssue.pullRequest);
         } catch (error) {
@@ -46,8 +47,9 @@ export async function syncPullRequestStatuses({
         }
         continue;
       }
+      if (!pullRequestUrl) continue;
 
-      const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
+      const pullRequest = await findPullRequestByUrl(pullRequestUrl);
       if (normalizeStatus(pullRequest?.state) !== "closed" || !pullRequest) continue;
 
       const targetStatus = team?.statuses.find(

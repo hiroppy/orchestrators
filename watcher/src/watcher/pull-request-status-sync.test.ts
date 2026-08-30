@@ -175,6 +175,39 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("discovers an uncached pull request before syncing its closed state", async () => {
+    await withStore(async (store) => {
+      const config = setupTask(store);
+      store.setTaskPullRequest("service-a:ENG-42", undefined);
+      const updates: string[] = [];
+      let pullRequestLookups = 0;
+      const options = {
+        config,
+        store,
+        ...syncDependencies(store),
+        findPullRequestByUrl: async (url: string) => {
+          pullRequestLookups += 1;
+          return { url, state: "CLOSED" };
+        },
+        updateLinearStatus: async (_issueIdentifier: string, status: string) => {
+          updates.push(status);
+        },
+      };
+
+      await syncPullRequestStatuses(options);
+      assert.equal(
+        store.getTask("service-a:ENG-42")?.pullRequest?.url,
+        "https://github.com/example/repository/pull/42",
+      );
+      assert.equal(pullRequestLookups, 0);
+
+      await syncPullRequestStatuses(options);
+
+      assert.deepEqual(updates, ["Canceled"]);
+      assert.equal(pullRequestLookups, 1);
+    });
+  });
+
   it("retries publishing a replacement pull request attachment", async () => {
     await withStore(async (store) => {
       const config = setupTask(store);
