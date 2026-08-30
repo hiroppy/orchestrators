@@ -12,6 +12,7 @@ export type {
   OrchestratorConfigInput,
   PullRequestContext,
   PullRequestCheckContext,
+  PullRequestStatusSyncConfig,
   ReviewCommentConfig,
   SlackConfig,
   StatusHookConfig,

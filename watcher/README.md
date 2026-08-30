@@ -56,6 +56,31 @@ Usernames work with or without `@`. Use `me` to assign or unassign yourself.
 The root `config.ts` is gitignored. Use environment variables for credentials as shown in
 [`../config.example.ts`](../config.example.ts).
 
+### Closed pull requests
+
+Enable `watcher.pullRequestStatusSync` to move a linked Linear issue when GitHub reports that its
+pull request was closed without merging:
+
+```ts
+export default defineConfig({
+  watcher: {
+    pullRequestStatusSync: {
+      closed: "Canceled",
+    },
+  },
+  // linearTeams, instances, and Slack configuration...
+});
+```
+
+The configured status must exist in every enabled Linear team. During periodic maintenance, the
+watcher checks tracked nonterminal tasks with a pull request and applies the configured status only
+for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGED`; merged transitions remain owned by
+Linear's GitHub workflow automation.
+
+Each successful closed-PR observation is recorded by pull request URL, state, and head commit so it
+is not applied again. GitHub lookup and Linear mutation failures are isolated per task and remain
+eligible for the next maintenance poll. Remove `pullRequestStatusSync` to disable this behavior.
+
 ### Review requeue
 
 Enable `watcher.reviewComment` to send a pull request back to Symphony when it has a merge conflict

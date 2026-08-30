@@ -45,6 +45,41 @@ describe("requireSlackBotUserId", () => {
 });
 
 describe("watcher configuration", () => {
+  it("resolves and validates pull request status sync", async () => {
+    const config = resolveWatcherConfig(
+      {
+        ...baseConfig(),
+        watcher: { pullRequestStatusSync: { closed: " canceled " } },
+      },
+      { requireSlack: false },
+    );
+
+    assert.deepEqual(config.pullRequestStatusSync, { closed: "canceled" });
+    assert.equal(
+      resolveWatcherConfig(baseConfig(), { requireSlack: false }).pullRequestStatusSync,
+      undefined,
+    );
+    for (const pullRequestStatusSync of [null, {}, { closed: " " }]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            {
+              ...baseConfig(),
+              watcher: { pullRequestStatusSync: pullRequestStatusSync as never },
+            },
+            { requireSlack: false },
+          ),
+        /watcher\.pullRequestStatusSync/,
+      );
+    }
+    await assert.rejects(
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "Done"]),
+      /watcher\.pullRequestStatusSync\.closed references unknown Linear status "canceled"/,
+    );
+    const resolved = await resolveLinearWorkflowStatuses(config, async () => ["Todo", "Canceled"]);
+    assert.deepEqual(resolved.pullRequestStatusSync, { closed: "canceled" });
+  });
+
   it("uses the service's explicit Linear team ID", () => {
     const config = resolveWatcherConfig(
       {
