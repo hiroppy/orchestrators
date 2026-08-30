@@ -101,6 +101,14 @@ export async function reconcileLinearStatuses({
       rateLimitedTeams.add(teamName);
     }
   }
+  const deferredTaskIds = new Set(
+    tasks
+      .filter((task) => {
+        const teamName = linearTeamByService.get(task.serviceName);
+        return teamName ? rateLimitedTeams.has(teamName) : false;
+      })
+      .map((task) => task.id),
+  );
 
   for (const task of tasks) {
     const recoveringPersistedTerminalTask = pendingPersistedTerminalTaskIds.has(task.id);
@@ -144,7 +152,10 @@ export async function reconcileLinearStatuses({
       includeCreator: true,
       maxAttempts: 1,
     });
-    if (!linearIssue?.state) continue;
+    if (!linearIssue?.state) {
+      deferredTaskIds.add(task.id);
+      continue;
+    }
     const detailedSameStatus = normalizeStatus(linearIssue.state) === normalizeStatus(task.status);
     const effectiveStateType = effectiveLinearStateTypeForService(
       config,
@@ -235,14 +246,6 @@ export async function reconcileLinearStatuses({
       pendingPersistedTerminalTaskIds.delete(task.id);
     }
   }
-  const deferredTaskIds = new Set(
-    tasks
-      .filter((task) => {
-        const teamName = linearTeamByService.get(task.serviceName);
-        return teamName ? rateLimitedTeams.has(teamName) : false;
-      })
-      .map((task) => task.id),
-  );
   return { pendingPersistedTerminalTaskIds, deferredTaskIds };
 }
 

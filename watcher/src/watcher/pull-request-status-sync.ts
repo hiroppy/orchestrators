@@ -5,11 +5,12 @@ import { normalizeStatus } from "../domain/status.ts";
 import type { Task } from "../domain/task.ts";
 import { findPullRequestByUrl as findPullRequestByUrlDefault } from "../integrations/github/pull-requests.ts";
 import type { updateLinearIssueStatus } from "../integrations/linear/status.ts";
-import type { WatcherStore } from "../persistence/store.ts";
+import type { TaskEventInput, WatcherStore } from "../persistence/store.ts";
 import { REVIEW_REQUEUE_BASELINE_EVENT } from "./review-comments.ts";
 import { linearTeamForService } from "./runtime-config.ts";
 
-const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
+export const PULL_REQUEST_STATUS_SYNCED_EVENT = "pull_request_status_synced";
+export const PULL_REQUEST_STATUS_RECONCILED_EVENT = "pull_request_status_reconciled";
 const PASSING_CHECK_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
 export async function syncPullRequestStatuses({
@@ -88,6 +89,31 @@ export async function syncPullRequestStatuses({
       );
     }
   }
+}
+
+export function createPullRequestStatusReconciledEvent(
+  store: WatcherStore,
+  task: Task,
+  fromStatus: string,
+): TaskEventInput | undefined {
+  const synced = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT);
+  const reconciled = store.getLatestEvent(task.id, PULL_REQUEST_STATUS_RECONCILED_EVENT);
+  if (
+    !synced ||
+    (reconciled && reconciled.id >= synced.id) ||
+    normalizeStatus(synced.fromStatus ?? "") !== normalizeStatus(fromStatus) ||
+    normalizeStatus(synced.toStatus ?? "") !== normalizeStatus(task.status)
+  ) {
+    return undefined;
+  }
+  return {
+    taskId: task.id,
+    type: PULL_REQUEST_STATUS_RECONCILED_EVENT,
+    actor: "watcher",
+    fromStatus,
+    toStatus: task.status,
+    body: synced.body,
+  };
 }
 
 function targetStatusForPullRequest(

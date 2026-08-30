@@ -422,6 +422,161 @@ describe("watcher Linear reconciliation and snapshots", () => {
     });
   });
 
+  it("defers PR status sync when detailed Linear reconciliation fails", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: { identifier: "ENG-62", state: { name: "Done", type: "completed" } },
+            },
+          });
+        }
+        return new Response("temporary failure", { status: 500 });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review", "Done"]),
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        resolvedState: "In Progress",
+        resolvedStateType: "started",
+        pullRequest: { url: "https://github.com/acme/example/pull/42" },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      const updates: string[] = [];
+      let pullRequestLookups = 0;
+
+      await runOnce({
+        config,
+        store,
+        slackClient: fakeSlackClient([]),
+        slackChannelId: "C123",
+        findPullRequestByUrl: async (url) => {
+          pullRequestLookups += 1;
+          return {
+            url,
+            state: "OPEN",
+            isDraft: false,
+            checks: [{ name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+          };
+        },
+        updateLinearStatus: async (_issueIdentifier, status) => {
+          updates.push(status);
+        },
+      });
+
+      assert.equal(pullRequestLookups, 0);
+      assert.deepEqual(updates, []);
+      assert.equal(store.getTask(task.id)?.status, "In Progress");
+    });
+  });
+
+  it("allows repaired CI after reconciling a PR status requeue", async (context) => {
+    await withStore(async (store) => {
+      const nativeFetch = globalThis.fetch;
+      let linearStatus = "In Review";
+      context.mock.method(globalThis, "fetch", async (url, options) => {
+        if (String(url).startsWith("data:")) return nativeFetch(url, options);
+        const { query } = JSON.parse(String(options?.body)) as { query: string };
+        if (query.includes("OrchestratorWatcherIssueStateBatch")) {
+          return Response.json({
+            data: {
+              issue0: {
+                identifier: "ENG-62",
+                state: { name: linearStatus, type: "started" },
+              },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            issue: {
+              identifier: "ENG-62",
+              title: "Repair CI",
+              state: { name: linearStatus, type: "started" },
+              attachments: { nodes: [{ url: "https://github.com/acme/example/pull/42" }] },
+              relations: { nodes: [] },
+            },
+          },
+        });
+      });
+      const config = runtimeConfig({
+        services: [
+          {
+            name: "service-a",
+            url: dataUrl({ running: [], retrying: [], blocked: [] }),
+            linearTeam: "workspace-a-eng",
+          },
+        ],
+        linearTeams: linearTeams(["In Progress", "In Review"]),
+        reviewComment: {
+          inReviewStatus: "In Review",
+          inProgressStatus: "In Progress",
+        },
+      });
+      store.syncDefinitions(config.services, config.linearTeams);
+      const task = store.upsertTaskFromEvent({
+        type: "ended",
+        service: "service-a",
+        issueIdentifier: "ENG-62",
+        issueTitle: "Repair CI",
+        resolvedState: "In Review",
+        resolvedStateType: "started",
+        pullRequest: {
+          url: "https://github.com/acme/example/pull/42",
+          headRefOid: "head-1",
+        },
+      });
+      store.setParentMessage(task.id, "C123", "1.000", "{}");
+      let conclusion = "FAILURE";
+      const updates: string[] = [];
+      const run = () =>
+        runOnce({
+          config,
+          store,
+          slackClient: fakeSlackClient([]),
+          slackChannelId: "C123",
+          findPullRequestByUrl: async (url) => ({
+            url,
+            state: "OPEN",
+            isDraft: false,
+            headRefOid: "head-1",
+            checks: [{ name: "test", status: "COMPLETED", conclusion }],
+          }),
+          updateLinearStatus: async (_issueIdentifier, status) => {
+            updates.push(status);
+            linearStatus = status;
+          },
+        });
+
+      await run();
+      conclusion = "SUCCESS";
+      await run();
+
+      assert.deepEqual(updates, ["In Progress", "In Review"]);
+      assert.equal(store.getLatestEvent(task.id, "review_requeue_baseline"), undefined);
+      assert.ok(store.getLatestEvent(task.id, "pull_request_status_reconciled"));
+    });
+  });
+
   for (const batchFailure of ["request failure", "partial response"] as const) {
     it(`falls back to detailed reconciliation after a batch ${batchFailure}`, async (context) => {
       await withStore(async (store) => {

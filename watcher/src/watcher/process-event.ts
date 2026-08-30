@@ -7,6 +7,7 @@ import { taskIdFor, type WatcherStore } from "../persistence/store.ts";
 import { publishWatcherEvent } from "../slack/event-publisher.ts";
 import { checkReviewReadyNotificationSafely } from "./review-ready.ts";
 import { requeueReviewTask } from "./review-requeue.ts";
+import { createPullRequestStatusReconciledEvent } from "./pull-request-status-sync.ts";
 import {
   createReviewTransitionBaselineEvent,
   type ReviewRequeueDecision,
@@ -43,9 +44,15 @@ export async function processWatcherEvent({
       const taskWithPullRequest = event.pullRequest
         ? { ...task, pullRequest: event.pullRequest }
         : task;
+      const pullRequestStatusReconciled = createPullRequestStatusReconciledEvent(
+        store,
+        task,
+        fromStatus,
+      );
       return [
         createPendingStatusHookEvent(hooks, task, fromStatus, task.status, event.pullRequest),
-        createReviewTransitionBaselineEvent(config, taskWithPullRequest, fromStatus, task.status),
+        pullRequestStatusReconciled ??
+          createReviewTransitionBaselineEvent(config, taskWithPullRequest, fromStatus, task.status),
       ].filter((entry) => entry !== undefined);
     },
     afterPublish: async (task) => {
