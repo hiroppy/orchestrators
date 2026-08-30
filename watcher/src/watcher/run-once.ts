@@ -13,7 +13,6 @@ import { diffSnapshots, normalizeSnapshot } from "./diff.ts";
 import { enrichCreatorAssignee, enrichEvent } from "./event-enrichment.ts";
 import { processWatcherEvent } from "./process-event.ts";
 import { reconcileLinearStatuses } from "./reconcile-linear-statuses.ts";
-import { reconcileSlackStatusTransition } from "./reconcile-slack-status.ts";
 import { decideReviewRequeue } from "./review-comments.ts";
 import { deliverPendingReviewRequeueNotifications } from "./review-requeue-delivery.ts";
 import {
@@ -25,7 +24,7 @@ import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
 import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
 import { collectSnapshots } from "./snapshots.ts";
-import { createPendingStatusHookEvent, deliverPendingStatusHooksSafely } from "./status-hooks.ts";
+import { deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { publishTaskActivities } from "./task-activity.ts";
 
 interface RunOnceOptions {
@@ -121,37 +120,11 @@ export async function runOnce({
   });
   if (runPeriodicMaintenance) {
     const findPeriodicPullRequestByUrl = cachePullRequestLookups(findPullRequestByUrl);
-    await syncPullRequestStatuses({
+    const pullRequestStatusUpdates = await syncPullRequestStatuses({
       config,
       store,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       fetchLinearIssue: fetchLinearIssueState,
-      publishLinearUpdate: async (task, pullRequest) => {
-        const published = await reconcileSlackStatusTransition({
-          config,
-          store,
-          slackClient,
-          slackChannelId,
-          task,
-          pullRequestOverride: pullRequest ?? null,
-          createStatusTransitionEvent: (updatedTask, fromStatus) =>
-            createPendingStatusHookEvent(
-              serviceConfigFor(config, task.serviceName)?.statusHooks ?? [],
-              updatedTask,
-              fromStatus,
-              updatedTask.status,
-              pullRequest,
-            ),
-        });
-        if (!published) throw new Error(`Failed to publish ${task.issueIdentifier} status.`);
-        const reactionPullRequest =
-          pullRequest ?? (task.pullRequest ? { ...task.pullRequest, reactions: [] } : undefined);
-        await syncPullRequestReactionsSafely(
-          slackClient,
-          store.getTask(task.id),
-          reactionPullRequest,
-        );
-      },
       updateLinearStatus,
     });
     pendingPersistedTerminalTaskIds = await reconcileLinearStatuses({
@@ -159,7 +132,11 @@ export async function runOnce({
       store,
       slackClient,
       slackChannelId,
-      skipTaskIds: new Set([...processedTaskIds, ...taskIdsInSnapshots(current)]),
+      skipTaskIds: new Set(
+        [...processedTaskIds, ...taskIdsInSnapshots(current)].filter(
+          (taskId) => !pullRequestStatusUpdates.has(taskId),
+        ),
+      ),
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
       updateLinearStatus,
       persistedTerminalTaskIds,

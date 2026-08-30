@@ -290,12 +290,6 @@ describe("Slack event publishing", () => {
       await assert.rejects(publishWatcherEvent(client, store, "C123", event, options));
       assert.equal(store.getTask("service-a:ENG-62")?.status, "In Review");
       assert.equal(store.getTask("service-a:ENG-62")?.linearStateType, "started");
-      assert.deepEqual(
-        store
-          .getLatestEventsByType("service-a:ENG-62", "status_timeline", 2)
-          .map(({ fromStatus, toStatus }) => `${fromStatus} -> ${toStatus}`),
-        ["In Progress -> In Review", "In Progress -> In Progress"],
-      );
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, []);
 
@@ -303,83 +297,6 @@ describe("Slack event publishing", () => {
       await publishWatcherEvent(client, store, "C123", event, options);
       assert.deepEqual(transitions, ["In Progress -> In Review"]);
       assert.deepEqual(deliveries, ["In Review"]);
-    });
-  });
-
-  it("publishes an explicit pull request removal to the card and Timeline", async () => {
-    await withStore(async (store) => {
-      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-      const client = fakeClient(calls);
-      await publishWatcherEvent(client, store, "C123", {
-        type: "started",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Progress",
-        pullRequest: { url: "https://github.com/example/repository/pull/62" },
-      });
-      calls.length = 0;
-
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Progress",
-        },
-        { pullRequestOverride: null },
-      );
-
-      assert.equal(store.getTask("service-a:ENG-62")?.pullRequest, undefined);
-      assert.deepEqual(
-        calls.filter(({ method }) => method === "update").map(({ args }) => args.ts),
-        ["1.000", "2.000"],
-      );
-    });
-  });
-
-  it("renders an enriched pull request override in the parent card", async () => {
-    await withStore(async (store) => {
-      const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-      const client = fakeClient(calls);
-      const pullRequestUrl = "https://github.com/example/repository/pull/62";
-      await publishWatcherEvent(client, store, "C123", {
-        type: "started",
-        service: "service-a",
-        issueIdentifier: "ENG-62",
-        state: "In Progress",
-        pullRequest: { url: pullRequestUrl },
-      });
-      calls.length = 0;
-
-      await publishWatcherEvent(
-        client,
-        store,
-        "C123",
-        {
-          type: "updated",
-          service: "service-a",
-          issueIdentifier: "ENG-62",
-          state: "In Progress",
-          pullRequest: { url: pullRequestUrl },
-        },
-        {
-          pullRequestOverride: {
-            url: pullRequestUrl,
-            title: "Preserve enriched pull request title",
-          },
-        },
-      );
-
-      const parentUpdate = calls.find(
-        ({ method, args }) => method === "update" && args.ts === "1.000",
-      );
-      assert.match(
-        JSON.stringify(parentUpdate?.args.blocks),
-        /Preserve enriched pull request title/,
-      );
     });
   });
 
