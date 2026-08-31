@@ -162,6 +162,10 @@ review-requeue path.
   PR is intentionally closed before Symphony starts a fresh attempt.
   Successful observations are persisted; failures have no completion event and are retried by a
   later poll.
+- When `watcher.inReviewReminder` is enabled, the first maintenance cycle at or after its configured
+  local time posts one global Slack summary for tasks that have remained in the configured review
+  status for at least `afterDays`. Status-entry time is persisted with the task independently of
+  Slack timeline delivery, and the daily scan is persisted so restarts do not repeat it.
 - Access uses `gh pr view` and `gh api`.
 - Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
   presence only, not counts or authors, and removes only its own stale reactions.

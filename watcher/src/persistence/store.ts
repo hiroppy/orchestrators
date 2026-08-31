@@ -18,6 +18,7 @@ import {
   getTaskIdsWithIncompleteEvent,
   getUncompletedTaskEvents,
   hasRecordedSlackMessage,
+  hasTaskEventOfType,
   hasTaskEvent,
   setTaskEventSlackThreadTs,
 } from "./task-event-store.ts";
@@ -183,6 +184,10 @@ export class WatcherStore {
 
   hasEvent(taskId: string, type: string, body: string): boolean {
     return hasTaskEvent(this.db, taskId, type, body);
+  }
+
+  hasEventOfType(type: string, body: string): boolean {
+    return hasTaskEventOfType(this.db, type, body);
   }
 
   hasStatusTimelineEvent(taskId: string, statusEventKey: string): boolean {

@@ -69,6 +69,7 @@ export const tasks = sqliteTable(
     lastEventAt: text("last_event_at"),
     currentActivity: text("current_activity"),
     activityPublishedAt: text("activity_published_at"),
+    statusChangedAt: text("status_changed_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

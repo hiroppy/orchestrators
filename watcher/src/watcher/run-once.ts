@@ -23,6 +23,7 @@ import {
 import { syncPullRequestReactionsSafely } from "./pull-request-reactions.ts";
 import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 import { effectiveLinearStateTypeForService, serviceConfigFor } from "./runtime-config.ts";
+import { sendInReviewReminder } from "./in-review-reminder.ts";
 import { collectSnapshots } from "./snapshots.ts";
 import { deliverPendingStatusHooksSafely } from "./status-hooks.ts";
 import { publishTaskActivities } from "./task-activity.ts";
@@ -148,6 +149,14 @@ export async function runOnce({
       state: pullRequestMonitorState,
       findPullRequestByUrl: findPeriodicPullRequestByUrl,
     });
+    if (config.inReviewReminder) {
+      await sendInReviewReminder({
+        store,
+        slackClient,
+        channelId: slackChannelId,
+        config: config.inReviewReminder,
+      });
+    }
   }
   return {
     events,

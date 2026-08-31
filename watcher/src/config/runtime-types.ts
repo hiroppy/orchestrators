@@ -12,6 +12,13 @@ export interface ResolvedSlackConfig {
   channelId: string;
 }
 
+export interface ResolvedInReviewReminderConfig {
+  status: string;
+  afterDays: number;
+  postAt: string;
+  timeZone: string;
+}
+
 export interface WatcherRuntimeConfig {
   services: ServiceDefinition[];
   linearTeams: Record<string, LinearTeamConfig>;
@@ -19,6 +26,7 @@ export interface WatcherRuntimeConfig {
   endedTaskRetry: { maxAttempts: number; delayMs: number };
   pullRequestStatusSync: PullRequestStatusSyncConfig;
   reviewComment?: ReviewCommentConfig;
+  inReviewReminder?: ResolvedInReviewReminderConfig;
   defaultAssignees: string[];
   slack?: ResolvedSlackConfig;
 }

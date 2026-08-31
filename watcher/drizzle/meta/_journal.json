@@ -71,6 +71,13 @@
       "when": 1786844600162,
       "tag": "0009_spooky_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788161091926,
+      "tag": "0010_old_onslaught",
+      "breakpoints": true
     }
   ]
 }

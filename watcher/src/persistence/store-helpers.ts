@@ -132,6 +132,8 @@ export function taskFromRow(
       ? (JSON.parse(row.currentActivity) as TaskActivity)
       : undefined,
     activityPublishedAt: row.activityPublishedAt,
+    statusChangedAt: row.statusChangedAt,
+    createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }) as unknown as Task;
 }

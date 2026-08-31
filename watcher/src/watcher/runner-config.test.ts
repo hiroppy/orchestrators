@@ -369,6 +369,51 @@ tracker:
     }
   });
 
+  it("resolves and validates global In Review reminder settings", () => {
+    assert.deepEqual(
+      resolveWatcherConfig(
+        { ...baseConfig(), watcher: { inReviewReminder: {} } },
+        { requireSlack: false },
+      ).inReviewReminder,
+      {
+        status: "In Review",
+        afterDays: 3,
+        postAt: "09:00",
+        timeZone: "Asia/Tokyo",
+      },
+    );
+
+    assert.equal(
+      resolveWatcherConfig(
+        { ...baseConfig(), watcher: { inReviewReminder: { enabled: false } } },
+        { requireSlack: false },
+      ).inReviewReminder,
+      undefined,
+    );
+
+    for (const inReviewReminder of [
+      { enabled: "yes" as never },
+      { afterDays: null as never },
+      { afterDays: 0 },
+      { afterDays: 1.5 },
+      { postAt: "9:00" },
+      { postAt: "24:00" },
+      { postAt: " " },
+      { status: " " },
+      { timeZone: " " },
+      { timeZone: "Not/A_Zone" },
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            { ...baseConfig(), watcher: { inReviewReminder } },
+            { requireSlack: false },
+          ),
+        /watcher\.inReviewReminder/,
+      );
+    }
+  });
+
   it("resolves and validates TypeScript status hooks", async () => {
     const run = () => "ready";
     const config = resolveWatcherConfig(

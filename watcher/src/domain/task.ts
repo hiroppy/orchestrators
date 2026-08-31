@@ -23,6 +23,8 @@ export interface Task {
   lastEventAt?: string;
   currentActivity?: TaskActivity;
   activityPublishedAt?: string;
+  statusChangedAt?: string;
+  createdAt?: string;
   updatedAt: string;
 }
 
