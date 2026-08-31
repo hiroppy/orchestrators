@@ -33,7 +33,7 @@ export async function sendInReviewReminder({
   if (schedule.minutes < timeToMinutes(config.postAt)) return;
 
   const tasks = store.getTasksForLinearSync(new Set(), new Map(), true);
-  if (tasks.some((task) => store.hasEvent(task.id, IN_REVIEW_REMINDER_SCAN_EVENT, schedule.date))) {
+  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, schedule.date)) {
     return;
   }
 

@@ -50,6 +50,16 @@ export function hasRecordedSlackMessage(
   );
 }
 
+export function hasTaskEventOfType(db: WatcherDatabase, type: string, body: string): boolean {
+  return (
+    db
+      .select({ id: taskEvents.id })
+      .from(taskEvents)
+      .where(and(eq(taskEvents.type, type), eq(taskEvents.body, body)))
+      .get() !== undefined
+  );
+}
+
 export function hasTaskEvent(
   db: WatcherDatabase,
   taskId: string,

@@ -91,6 +91,22 @@ describe("global In Review reminders", () => {
       assert.equal(calls.length, 1);
     });
   });
+
+  it("keeps the daily scan marker when its anchor service becomes inactive", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+      const slackClient = fakeSlackClient(calls);
+      const now = new Date("2026-08-31T00:00:00.000Z");
+
+      await sendInReviewReminder({ store, slackClient, channelId: "C123", config, now });
+      store.syncDefinitions([], {});
+      createTask(store, "ENG-63", "2026-08-26T00:00:00.000Z", "U456", "service-b");
+      await sendInReviewReminder({ store, slackClient, channelId: "C123", config, now });
+
+      assert.equal(calls.length, 1);
+    });
+  });
 });
 
 function createTask(
@@ -98,14 +114,15 @@ function createTask(
   issueIdentifier: string,
   enteredReviewAt: string,
   assignee: string,
+  serviceName = "service-a",
 ): void {
-  store.syncDefinitions([{ name: "service-a", url: "", linearTeam: "team" }], {
+  store.syncDefinitions([{ name: serviceName, url: "", linearTeam: "team" }], {
     team: linearTeams(["In Review"])["workspace-a-eng"],
   });
   const task = store.upsertTaskFromEvent(
     {
       type: "started",
-      service: "service-a",
+      service: serviceName,
       issueIdentifier,
       issueTitle: `Review ${issueIdentifier}`,
       issueUrl: `https://linear.app/acme/issue/${issueIdentifier}`,

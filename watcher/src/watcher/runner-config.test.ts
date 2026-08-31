@@ -388,6 +388,9 @@ tracker:
       { afterDays: 1.5 },
       { postAt: "9:00" },
       { postAt: "24:00" },
+      { postAt: " " },
+      { status: " " },
+      { timeZone: " " },
       { timeZone: "Not/A_Zone" },
     ]) {
       assert.throws(

@@ -86,15 +86,23 @@ function resolveInReviewReminderConfig(
     throw new Error("watcher.inReviewReminder must be an object.");
   }
 
-  const status = config.status?.trim() || "In Review";
+  const status = config.status === undefined ? "In Review" : config.status.trim();
   const afterDays = config.afterDays ?? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS;
-  const postAt = config.postAt?.trim() || DEFAULT_IN_REVIEW_REMINDER_POST_AT;
-  const timeZone = config.timeZone?.trim() || DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE;
+  const postAt =
+    config.postAt === undefined ? DEFAULT_IN_REVIEW_REMINDER_POST_AT : config.postAt.trim();
+  const timeZone =
+    config.timeZone === undefined ? DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE : config.timeZone.trim();
+  if (!status) {
+    throw new Error("watcher.inReviewReminder.status must be a non-empty string.");
+  }
   if (!Number.isInteger(afterDays) || afterDays < 1) {
     throw new Error("watcher.inReviewReminder.afterDays must be a positive integer.");
   }
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(postAt)) {
     throw new Error("watcher.inReviewReminder.postAt must use 24-hour HH:mm format.");
+  }
+  if (!timeZone) {
+    throw new Error("watcher.inReviewReminder.timeZone must be a non-empty string.");
   }
   try {
     new Intl.DateTimeFormat("en-US", { timeZone }).format();
