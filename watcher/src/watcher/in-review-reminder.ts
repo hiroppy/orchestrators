@@ -75,9 +75,10 @@ function isStaleInReview(
   if (normalizeStatus(task.status) !== normalizeStatus(inReviewStatus)) return false;
   const transition = store.getLatestEventsByType(task.id, "status_timeline", 1)[0];
   const enteredAt =
-    transition && normalizeStatus(transition.toStatus) === normalizeStatus(task.status)
+    task.statusChangedAt ??
+    (transition && normalizeStatus(transition.toStatus) === normalizeStatus(task.status)
       ? transition.createdAt
-      : (task.createdAt ?? task.updatedAt);
+      : (task.createdAt ?? task.updatedAt));
   return Date.parse(enteredAt) <= cutoff;
 }
 

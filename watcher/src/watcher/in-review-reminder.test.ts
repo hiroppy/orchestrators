@@ -124,6 +124,45 @@ describe("global In Review reminders", () => {
       assert.match(String(calls[0]?.text), /Tasks in QA Review for 3\+ days/);
     });
   });
+
+  it("uses persisted status time when the status timeline is missing", async () => {
+    await withStore(async (store) => {
+      store.syncDefinitions([{ name: "service-a", url: "", linearTeam: "team" }], {
+        team: linearTeams(["In Progress", "In Review"])["workspace-a-eng"],
+      });
+      store.upsertTaskFromEvent(
+        {
+          type: "started",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Progress",
+        },
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+      const task = store.upsertTaskFromEvent(
+        {
+          type: "updated",
+          service: "service-a",
+          issueIdentifier: "ENG-62",
+          resolvedState: "In Review",
+        },
+        new Date("2026-08-31T00:00:00.000Z"),
+      );
+      store.assignTask(task.id, "U123");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:00:00.000Z"),
+      });
+
+      assert.equal(calls.length, 0);
+      assert.equal(store.getTask(task.id)?.statusChangedAt, "2026-08-31T00:00:00.000Z");
+    });
+  });
 });
 
 function createTask(

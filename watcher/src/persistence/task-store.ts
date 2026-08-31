@@ -114,6 +114,10 @@ export class TaskStore {
     if (!service) throw new Error(`Service not found: ${event.service}`);
     const statusName = event.resolvedState ?? event.state ?? existing?.status ?? "Unknown";
     const statusId = ensureStatus(db, service.id, statusName, timestamp);
+    const statusChangedAt =
+      existing && normalizeStatus(existing.status) === normalizeStatus(statusName)
+        ? (existing.statusChangedAt ?? existing.createdAt ?? timestamp)
+        : timestamp;
     const pullRequestLabels = JSON.stringify(event.pullRequest?.labels);
 
     db.insert(tasks)
@@ -130,6 +134,7 @@ export class TaskStore {
         pullRequestTitle: event.pullRequest?.title,
         pullRequestLabels,
         lastEventAt: event.lastEventAt ?? timestamp,
+        statusChangedAt,
         createdAt: timestamp,
         updatedAt: timestamp,
       })
@@ -145,6 +150,7 @@ export class TaskStore {
           pullRequestTitle: event.pullRequest?.title ?? existing?.pullRequest?.title,
           pullRequestLabels,
           lastEventAt: event.lastEventAt ?? timestamp,
+          statusChangedAt,
           updatedAt: timestamp,
         },
       })
@@ -250,6 +256,10 @@ export class TaskStore {
       .set({
         statusId: status.id,
         linearStateType: null,
+        statusChangedAt:
+          normalizeStatus(existing.status) === normalizeStatus(statusName)
+            ? (existing.statusChangedAt ?? existing.createdAt ?? timestamp)
+            : timestamp,
         updatedAt: timestamp,
       })
       .where(eq(tasks.id, taskId))
