@@ -7,7 +7,7 @@ import { sendInReviewReminder } from "./in-review-reminder.ts";
 
 const config = {
   status: "In Review",
-  afterDays: 4,
+  afterDays: 3,
   postAt: "09:00",
   timeZone: "Asia/Tokyo",
 };
@@ -16,7 +16,7 @@ describe("global In Review reminders", () => {
   it("posts stale tasks once per local day after the configured time", async () => {
     await withStore(async (store) => {
       createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
-      createTask(store, "ENG-63", "2026-08-28T00:00:00.000Z", "U456");
+      createTask(store, "ENG-63", "2026-08-29T00:00:00.000Z", "U456");
       const calls: Array<Record<string, unknown>> = [];
       const slackClient = fakeSlackClient(calls);
 
@@ -46,7 +46,7 @@ describe("global In Review reminders", () => {
 
       assert.equal(calls.length, 1);
       assert.equal(calls[0]?.channel, "C123");
-      assert.match(String(calls[0]?.text), /Tasks in In Review for 4\+ days/);
+      assert.match(String(calls[0]?.text), /Tasks in In Review for 3\+ days/);
       assert.match(String(calls[0]?.text), /ENG-62.*<@U123>/);
       assert.doesNotMatch(String(calls[0]?.text), /ENG-63/);
 

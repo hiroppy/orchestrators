@@ -85,6 +85,10 @@ function resolveInReviewReminderConfig(
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     throw new Error("watcher.inReviewReminder must be an object.");
   }
+  if (config.enabled !== undefined && typeof config.enabled !== "boolean") {
+    throw new Error("watcher.inReviewReminder.enabled must be a boolean.");
+  }
+  if (config.enabled === false) return undefined;
 
   const status = config.status === undefined ? "In Review" : config.status.trim();
   const afterDays = config.afterDays ?? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS;

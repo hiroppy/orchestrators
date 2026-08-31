@@ -32,6 +32,7 @@ export interface ReviewCommentConfig {
 }
 
 export interface InReviewReminderConfig {
+  enabled?: boolean;
   status?: string;
   afterDays?: number;
   postAt?: string;

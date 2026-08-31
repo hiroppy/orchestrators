@@ -377,13 +377,22 @@ tracker:
       ).inReviewReminder,
       {
         status: "In Review",
-        afterDays: 4,
+        afterDays: 3,
         postAt: "09:00",
         timeZone: "Asia/Tokyo",
       },
     );
 
+    assert.equal(
+      resolveWatcherConfig(
+        { ...baseConfig(), watcher: { inReviewReminder: { enabled: false } } },
+        { requireSlack: false },
+      ).inReviewReminder,
+      undefined,
+    );
+
     for (const inReviewReminder of [
+      { enabled: "yes" as never },
       { afterDays: 0 },
       { afterDays: 1.5 },
       { postAt: "9:00" },

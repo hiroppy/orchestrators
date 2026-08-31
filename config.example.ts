@@ -4,8 +4,9 @@ export default defineConfig({
   watcher: {
     // Posts a daily summary of stale In Review tasks to the global Slack channel.
     inReviewReminder: {
+      enabled: true,
       status: "In Review",
-      afterDays: 4,
+      afterDays: 3,
       postAt: "09:00",
       timeZone: "Asia/Tokyo",
     },

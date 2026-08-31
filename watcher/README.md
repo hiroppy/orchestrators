@@ -121,8 +121,9 @@ Enable a daily summary of stale review tasks in the global Slack channel with
 ```ts
 watcher: {
   inReviewReminder: {
+    enabled: true,
     status: "In Review",
-    afterDays: 4,
+    afterDays: 3,
     postAt: "09:00",
     timeZone: "Asia/Tokyo",
   },
@@ -130,9 +131,10 @@ watcher: {
 ```
 
 The watcher posts once per local calendar day, on the first maintenance cycle at or after `postAt`.
-Each stale task is listed with its task-specific Slack assignees. `afterDays` defaults to `4`,
-`postAt` to `09:00`, and `timeZone` to `Asia/Tokyo`. A failed Slack post remains eligible for the
-next maintenance cycle. This reminder is independent of `reviewComment.reviewReadyDelayMs`.
+Each stale task is listed with its task-specific Slack assignees. `enabled` defaults to `true`,
+`afterDays` to `3`, `postAt` to `09:00`, and `timeZone` to `Asia/Tokyo`. A failed Slack post remains
+eligible for the next maintenance cycle. Set `enabled: false` to disable the reminder without
+removing its settings. This reminder is independent of `reviewComment.reviewReadyDelayMs`.
 
 The configured status names must exist in every enabled instance's Linear workflow.
 
