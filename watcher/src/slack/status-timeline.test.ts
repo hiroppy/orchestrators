@@ -51,6 +51,37 @@ it("includes the current status in the timeline when there is no history", () =>
   assert.doesNotMatch(rendered, /Assignees/);
 });
 
+it("omits events that do not change the status from the timeline", () => {
+  const blocks = buildStatusCard({
+    events: [
+      {
+        fromStatus: "Todo",
+        toStatus: "Todo",
+        occurredAt: "2026-08-15T12:00:00.000Z",
+        source: { type: "automatic", label: "Updated" },
+      },
+      {
+        fromStatus: "Backlog",
+        toStatus: "Todo",
+        occurredAt: "2026-08-15T11:00:00.000Z",
+        source: { type: "automatic", label: "Queued" },
+      },
+      {
+        fromStatus: "Backlog",
+        toStatus: "Backlog",
+        occurredAt: "2026-08-15T10:00:00.000Z",
+        source: { type: "automatic", label: "Observed" },
+      },
+    ],
+    facts: {},
+  });
+  const timeline = JSON.stringify(blocks.at(-1));
+
+  assert.match(timeline, /Backlog → Todo/);
+  assert.doesNotMatch(timeline, /Todo → Todo/);
+  assert.doesNotMatch(timeline, /Backlog → Backlog/);
+});
+
 it("shows concise current activity and truncates the changed-file list upstream", () => {
   const blocks = buildStatusCard({
     events: [
@@ -92,6 +123,7 @@ it("rejects a new timeline card when Slack omits its timestamp", async () => {
       parentMessageTs: "10.000",
     }),
     getLatestDeliveredEventsByType: () => [],
+    getLatestDeliveredStatusChanges: () => [],
     getTaskAssignees: () => [],
     addEvent: () => {
       eventStored = true;
@@ -130,6 +162,7 @@ it("recovers after Slack succeeds but recording its timestamp fails", async () =
       parentMessageTs: "10.000",
     }),
     getLatestDeliveredEventsByType: () => [],
+    getLatestDeliveredStatusChanges: () => [],
     getTaskAssignees: () => [],
     addEvent: () => event,
     getUndeliveredStatusTimelineEvents: () => (delivered ? [] : [event]),
@@ -197,6 +230,7 @@ it("reuses the delivered anchor when newer pending events exceed the history lim
     }),
     getLatestEventsByType: () => [event, ...pendingEvents],
     getLatestDeliveredEventsByType: () => [deliveredEvent],
+    getLatestDeliveredStatusChanges: () => [deliveredEvent],
     getTaskAssignees: () => [],
     addEvent: () => event,
     setTaskEventSlackThreadTs: () => undefined,
