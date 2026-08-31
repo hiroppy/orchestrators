@@ -46,6 +46,7 @@ describe("global In Review reminders", () => {
 
       assert.equal(calls.length, 1);
       assert.equal(calls[0]?.channel, "C123");
+      assert.match(String(calls[0]?.text), /Tasks in In Review for 4\+ days/);
       assert.match(String(calls[0]?.text), /ENG-62.*<@U123>/);
       assert.doesNotMatch(String(calls[0]?.text), /ENG-63/);
 

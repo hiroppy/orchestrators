@@ -84,14 +84,14 @@ function isStaleInReview(
 function reminderText(store: WatcherStore, tasks: Task[], afterDays: number): string {
   const lines = tasks.map((task) => {
     const assignees = store.getTaskAssignees(task.id);
-    const mentions = assignees.length > 0 ? assignees.join(" ") : "担当者なし";
+    const mentions = assignees.length > 0 ? assignees.join(" ") : "Unassigned";
     const label = `${task.issueIdentifier}: ${task.title}`;
     const taskLink = task.linkUrl
       ? `<${task.linkUrl}|${escapeSlackLinkLabel(label)}>`
       : escapeSlack(label);
     return `• ${taskLink} — ${mentions}`;
   });
-  return [`*In Reviewのまま${afterDays}日以上経過しています*`, ...lines].join("\n");
+  return [`*Tasks in In Review for ${afterDays}+ days*`, ...lines].join("\n");
 }
 
 function localSchedule(now: Date, timeZone: string): { date: string; minutes: number } {
