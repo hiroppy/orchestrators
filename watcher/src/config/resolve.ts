@@ -1,5 +1,9 @@
 import {
+  DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS,
+  DEFAULT_IN_REVIEW_REMINDER_POST_AT,
+  DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE,
   DEFAULT_REVIEW_READY_DELAY_MS,
+  type InReviewReminderConfig,
   type InstanceConfig,
   type LinearTeamConfig,
   type MonitorConfig,
@@ -59,6 +63,7 @@ export function resolveWatcherConfig(
 
   validateEndedTaskRetry(endedTaskRetry);
   const reviewComment = resolveReviewCommentConfig(config.watcher?.reviewComment);
+  const inReviewReminder = resolveInReviewReminderConfig(config.watcher?.inReviewReminder);
   const pullRequestStatusSync = resolvePullRequestStatusSync(config.watcher?.pullRequestStatusSync);
   return {
     services,
@@ -67,9 +72,36 @@ export function resolveWatcherConfig(
     endedTaskRetry,
     pullRequestStatusSync,
     reviewComment,
+    inReviewReminder,
     defaultAssignees: resolveDefaultAssignees(config.slack?.defaultAssignees),
     slack: resolveSlackConfig(config.slack, requireSlack),
   };
+}
+
+function resolveInReviewReminderConfig(
+  config: InReviewReminderConfig | undefined,
+): WatcherRuntimeConfig["inReviewReminder"] {
+  if (config === undefined) return undefined;
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("watcher.inReviewReminder must be an object.");
+  }
+
+  const status = config.status?.trim() || "In Review";
+  const afterDays = config.afterDays ?? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS;
+  const postAt = config.postAt?.trim() || DEFAULT_IN_REVIEW_REMINDER_POST_AT;
+  const timeZone = config.timeZone?.trim() || DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE;
+  if (!Number.isInteger(afterDays) || afterDays < 1) {
+    throw new Error("watcher.inReviewReminder.afterDays must be a positive integer.");
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(postAt)) {
+    throw new Error("watcher.inReviewReminder.postAt must use 24-hour HH:mm format.");
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format();
+  } catch {
+    throw new Error("watcher.inReviewReminder.timeZone must be a valid IANA time zone.");
+  }
+  return { status, afterDays, postAt, timeZone };
 }
 
 function resolvePullRequestStatusSync(

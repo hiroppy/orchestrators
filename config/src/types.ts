@@ -31,6 +31,13 @@ export interface ReviewCommentConfig {
   symphonyGitHubLogins?: string[];
 }
 
+export interface InReviewReminderConfig {
+  status?: string;
+  afterDays?: number;
+  postAt?: string;
+  timeZone?: string;
+}
+
 export interface PullRequestStatusSyncConfig {
   closed: string;
 }
@@ -162,6 +169,7 @@ export interface WatcherSettings {
   };
   pullRequestStatusSync?: PullRequestStatusSyncConfig;
   reviewComment?: ReviewCommentConfig;
+  inReviewReminder?: InReviewReminderConfig;
 }
 
 export interface OrchestratorConfig {

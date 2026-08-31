@@ -4,6 +4,7 @@ export type {
   SlackCommandHelpers,
   EventType,
   InstanceConfig,
+  InReviewReminderConfig,
   LinearTeamConfig,
   MonitorConfig,
   MonitorContext,
@@ -23,4 +24,9 @@ export type {
   WatcherSettings,
 } from "./types.ts";
 export { defineConfig } from "./types.ts";
-export { DEFAULT_REVIEW_READY_DELAY_MS } from "./constants.ts";
+export {
+  DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS,
+  DEFAULT_IN_REVIEW_REMINDER_POST_AT,
+  DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE,
+  DEFAULT_REVIEW_READY_DELAY_MS,
+} from "./constants.ts";

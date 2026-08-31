@@ -2,6 +2,13 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
+    // Posts a daily summary of stale In Review tasks to the global Slack channel.
+    inReviewReminder: {
+      status: "In Review",
+      afterDays: 4,
+      postAt: "09:00",
+      timeZone: "Asia/Tokyo",
+    },
     // Requeues a Linear issue when a new inline review comment appears on its GitHub PR.
     // Remove this block to disable comment-based requeueing.
     reviewComment: {

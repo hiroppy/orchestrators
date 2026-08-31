@@ -125,6 +125,17 @@ function validateStatusRules(config: ResolvedWatcherRuntimeConfig): void {
     }
   }
 
+  if (config.inReviewReminder) {
+    const expected = config.inReviewReminder.status;
+    const normalizedExpected = normalizeStatus(expected);
+    for (const [teamName, team] of Object.entries(config.linearTeams)) {
+      if (team.statuses.some((status) => normalizeStatus(status) === normalizedExpected)) continue;
+      throw new Error(
+        `watcher.inReviewReminder.status references unknown Linear status "${expected}" for ${teamName}.`,
+      );
+    }
+  }
+
   for (const service of config.services) {
     const team = config.linearTeams[service.linearTeam];
     for (const [index, hook] of (service.statusHooks ?? []).entries()) {

@@ -369,6 +369,38 @@ tracker:
     }
   });
 
+  it("resolves and validates global In Review reminder settings", () => {
+    assert.deepEqual(
+      resolveWatcherConfig(
+        { ...baseConfig(), watcher: { inReviewReminder: {} } },
+        { requireSlack: false },
+      ).inReviewReminder,
+      {
+        status: "In Review",
+        afterDays: 4,
+        postAt: "09:00",
+        timeZone: "Asia/Tokyo",
+      },
+    );
+
+    for (const inReviewReminder of [
+      { afterDays: 0 },
+      { afterDays: 1.5 },
+      { postAt: "9:00" },
+      { postAt: "24:00" },
+      { timeZone: "Not/A_Zone" },
+    ]) {
+      assert.throws(
+        () =>
+          resolveWatcherConfig(
+            { ...baseConfig(), watcher: { inReviewReminder } },
+            { requireSlack: false },
+          ),
+        /watcher\.inReviewReminder/,
+      );
+    }
+  });
+
   it("resolves and validates TypeScript status hooks", async () => {
     const run = () => "ready";
     const config = resolveWatcherConfig(
