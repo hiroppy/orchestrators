@@ -51,6 +51,37 @@ it("includes the current status in the timeline when there is no history", () =>
   assert.doesNotMatch(rendered, /Assignees/);
 });
 
+it("omits events that do not change the status from the timeline", () => {
+  const blocks = buildStatusCard({
+    events: [
+      {
+        fromStatus: "Todo",
+        toStatus: "Todo",
+        occurredAt: "2026-08-15T12:00:00.000Z",
+        source: { type: "automatic", label: "Updated" },
+      },
+      {
+        fromStatus: "Backlog",
+        toStatus: "Todo",
+        occurredAt: "2026-08-15T11:00:00.000Z",
+        source: { type: "automatic", label: "Queued" },
+      },
+      {
+        fromStatus: "Backlog",
+        toStatus: "Backlog",
+        occurredAt: "2026-08-15T10:00:00.000Z",
+        source: { type: "automatic", label: "Observed" },
+      },
+    ],
+    facts: {},
+  });
+  const timeline = JSON.stringify(blocks.at(-1));
+
+  assert.match(timeline, /Backlog → Todo/);
+  assert.doesNotMatch(timeline, /Todo → Todo/);
+  assert.doesNotMatch(timeline, /Backlog → Backlog/);
+});
+
 it("shows concise current activity and truncates the changed-file list upstream", () => {
   const blocks = buildStatusCard({
     events: [

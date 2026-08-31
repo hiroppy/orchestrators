@@ -46,10 +46,11 @@ describe("Slack event publishing", () => {
         (threadPosts[0].args.blocks as Array<{ type: string }>).map(({ type }) => type),
         ["section", "section", "divider", "section"],
       );
-      assert.match(
+      assert.doesNotMatch(
         JSON.stringify(threadPosts[0].args.blocks),
         /\*Timeline\*.*In Progress → In Progress/,
       );
+      assert.match(JSON.stringify(updates[1].args.blocks), /\*Timeline\*.*In Progress → In Review/);
 
       const initialActions = (topLevelPosts[0].args.blocks as Array<Record<string, unknown>>).find(
         ({ type }) => type === "actions",

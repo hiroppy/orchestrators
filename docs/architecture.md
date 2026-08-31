@@ -96,7 +96,7 @@ metadata.
 
 For a running task, Slack publishing works as follows:
 
-- The first observation creates a Timeline card and its first transition entry.
+- The first observation creates a Timeline card. Its history includes only actual status changes.
 - The card refreshes at most once every 15 seconds with the latest Symphony activity and a bounded
   local Git diff summary.
 - Git inspection includes untracked text additions and limits command time, output, file count, and

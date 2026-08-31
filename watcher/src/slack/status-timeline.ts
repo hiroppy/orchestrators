@@ -225,10 +225,12 @@ export function buildStatusCard(card: StatusCard): KnownBlock[] {
       text: { type: "mrkdwn", text: `*Error*\n${escapeSlack(truncate(source.error, 180))}` },
     });
   }
-  const lines = card.events.map(({ source, fromStatus, occurredAt, toStatus }) => {
-    const attribution = source.type === "manual" ? ` by ${escapeSlack(source.actor.label)}` : "";
-    return `${formatTimelineTime(occurredAt)}\u2003${escapeSlack(fromStatus)} → ${escapeSlack(toStatus)}${attribution}`;
-  });
+  const lines = card.events
+    .filter(({ fromStatus, toStatus }) => fromStatus !== toStatus)
+    .map(({ source, fromStatus, occurredAt, toStatus }) => {
+      const attribution = source.type === "manual" ? ` by ${escapeSlack(source.actor.label)}` : "";
+      return `${formatTimelineTime(occurredAt)}\u2003${escapeSlack(fromStatus)} → ${escapeSlack(toStatus)}${attribution}`;
+    });
   const timeline = truncateTimeline(lines);
   return [
     ...blocks,
