@@ -152,6 +152,26 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("preserves a Rework issue when its previous pull request closes", async () => {
+    await withStore(async (store) => {
+      const config = setup(store, { closed: "Canceled" });
+      let lookups = 0;
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl, "Rework", "started"),
+        findPullRequestByUrl: async () => {
+          lookups += 1;
+          return pullRequest("CLOSED");
+        },
+        updateLinearStatus: async () => assert.fail("must not update Linear"),
+      });
+
+      assert.equal(lookups, 0);
+    });
+  });
+
   it("matches equivalent GitHub pull request URL variants", async () => {
     await withStore(async (store) => {
       const config = setup(store, { closed: "Canceled" });

@@ -39,6 +39,7 @@ export async function syncPullRequestStatuses({
         maxAttempts: 1,
       });
       if (!linearIssue) continue;
+      if (normalizeStatus(linearIssue.state) === "rework") continue;
 
       const liveStateType = effectiveLinearStateTypeForService(
         config,

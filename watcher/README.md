@@ -79,7 +79,8 @@ configured status only for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGE
 transitions remain owned by Linear's GitHub workflow automation. Before updating the status, the
 watcher confirms that Linear still has the same pull request attached, so a removed or replaced
 pull request is not applied. Issues that have already reached an effective terminal Linear state
-are also left unchanged.
+are also left unchanged. When an issue is in `Rework`, its old PR may be closed while Symphony
+starts a fresh attempt, so the watcher does not apply the closed-PR transition.
 
 Each successful closed-PR observation is recorded by pull request URL, state, and head commit so it
 is not applied again. GitHub lookup and Linear mutation failures are isolated per task and remain

@@ -158,7 +158,8 @@ review-requeue path.
 - Tracked nonterminal tasks with a PR are queried during maintenance. Closed, unmerged PRs move to
   `Canceled` by default; `watcher.pullRequestStatusSync.closed` overrides that target. The stored PR
   must still match the current Linear attachment before an update is applied, and an already
-  terminal Linear issue is preserved.
+  terminal Linear issue is preserved. Issues in `Rework` are also preserved because their previous
+  PR is intentionally closed before Symphony starts a fresh attempt.
   Successful observations are persisted; failures have no completion event and are retried by a
   later poll.
 - Access uses `gh pr view` and `gh api`.
