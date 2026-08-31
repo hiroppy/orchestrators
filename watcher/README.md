@@ -58,8 +58,9 @@ The root `config.ts` is gitignored. Use environment variables for credentials as
 
 ### Closed pull requests
 
-Enable `watcher.pullRequestStatusSync` to move a linked Linear issue when GitHub reports that its
-pull request was closed without merging:
+When GitHub reports that a linked pull request was closed without merging, the watcher moves its
+Linear issue to `Canceled` by default. Override the target status when your workflow uses another
+name:
 
 ```ts
 export default defineConfig({
@@ -72,16 +73,17 @@ export default defineConfig({
 });
 ```
 
-The configured status must exist in every enabled Linear team. During periodic maintenance, the
-watcher checks tracked nonterminal tasks with a pull request and applies the configured status only
-for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGED`; merged transitions remain owned by
-Linear's GitHub workflow automation. Before updating the status, the watcher confirms that Linear
-still has the same pull request attached, so a removed or replaced pull request is not applied.
-Issues that have already reached an effective terminal Linear state are also left unchanged.
+The default or configured status must exist in every enabled Linear team. During periodic
+maintenance, the watcher checks tracked nonterminal tasks with a pull request and applies the
+configured status only for GitHub's `CLOSED` state. It ignores `OPEN` and `MERGED`; merged
+transitions remain owned by Linear's GitHub workflow automation. Before updating the status, the
+watcher confirms that Linear still has the same pull request attached, so a removed or replaced
+pull request is not applied. Issues that have already reached an effective terminal Linear state
+are also left unchanged.
 
 Each successful closed-PR observation is recorded by pull request URL, state, and head commit so it
 is not applied again. GitHub lookup and Linear mutation failures are isolated per task and remain
-eligible for the next maintenance poll. Remove `pullRequestStatusSync` to disable this behavior.
+eligible for the next maintenance poll.
 
 ### Review requeue
 

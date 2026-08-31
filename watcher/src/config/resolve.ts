@@ -22,6 +22,7 @@ import { validateEndedTaskRetry, validateInstance, validateLinearTeam } from "./
 const POLL_INTERVAL_MS = 3_000;
 const DEFAULT_ENDED_TASK_MAX_ATTEMPTS = 2;
 const DEFAULT_ENDED_TASK_RETRY_DELAY_MS = 5_000;
+const DEFAULT_PULL_REQUEST_CLOSED_STATUS = "Canceled";
 const DEFAULT_STATUS_HOOK_MAX_ATTEMPTS = 10;
 const MAX_ASSIGNEES_LENGTH = 2_000;
 const OBSERVABILITY_PATH = "/api/v1/state";
@@ -73,8 +74,8 @@ export function resolveWatcherConfig(
 
 function resolvePullRequestStatusSync(
   config: PullRequestStatusSyncConfig | undefined,
-): PullRequestStatusSyncConfig | undefined {
-  if (config === undefined) return undefined;
+): PullRequestStatusSyncConfig {
+  if (config === undefined) return { closed: DEFAULT_PULL_REQUEST_CLOSED_STATUS };
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     throw new Error("watcher.pullRequestStatusSync must be an object.");
   }

@@ -23,7 +23,6 @@ export async function syncPullRequestStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
-  if (!statusSync) return;
 
   for (const task of store.getTasksForLinearSync()) {
     if (task.issueIdentifier.startsWith("watcher:") || !task.pullRequest?.url) continue;
