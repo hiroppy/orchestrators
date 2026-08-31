@@ -16,7 +16,7 @@ import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 const pullRequestUrl = "https://github.com/acme/example/pull/42";
 
 describe("pull request status sync", () => {
-  it("uses Canceled when the setting is omitted", async () => {
+  it("moves a closed pull request to Canceled", async () => {
     await withStore(async (store) => {
       const config = setup(store);
       const updates: unknown[][] = [];

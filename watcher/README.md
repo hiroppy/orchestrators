@@ -66,7 +66,7 @@ name:
 export default defineConfig({
   watcher: {
     pullRequestStatusSync: {
-      closed: "Canceled",
+      closed: "Declined",
     },
   },
   // linearTeams, instances, and Slack configuration...
