@@ -42,7 +42,7 @@ export async function sendInReviewReminder({
   if (staleTasks.length > 0) {
     await slackClient.chat.postMessage({
       channel: channelId,
-      text: reminderText(store, staleTasks, config.afterDays),
+      text: reminderText(store, staleTasks, config.status, config.afterDays),
     });
   }
 
@@ -81,7 +81,12 @@ function isStaleInReview(
   return Date.parse(enteredAt) <= cutoff;
 }
 
-function reminderText(store: WatcherStore, tasks: Task[], afterDays: number): string {
+function reminderText(
+  store: WatcherStore,
+  tasks: Task[],
+  status: string,
+  afterDays: number,
+): string {
   const lines = tasks.map((task) => {
     const assignees = store.getTaskAssignees(task.id);
     const mentions = assignees.length > 0 ? assignees.join(" ") : "Unassigned";
@@ -91,7 +96,7 @@ function reminderText(store: WatcherStore, tasks: Task[], afterDays: number): st
       : escapeSlack(label);
     return `• ${taskLink} — ${mentions}`;
   });
-  return [`*Tasks in In Review for ${afterDays}+ days*`, ...lines].join("\n");
+  return [`*Tasks in ${escapeSlack(status)} for ${afterDays}+ days*`, ...lines].join("\n");
 }
 
 function localSchedule(now: Date, timeZone: string): { date: string; minutes: number } {

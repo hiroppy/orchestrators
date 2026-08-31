@@ -107,6 +107,23 @@ describe("global In Review reminders", () => {
       assert.equal(calls.length, 1);
     });
   });
+
+  it("uses the configured review status in the heading", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123", "service-a", "QA Review");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls),
+        channelId: "C123",
+        config: { ...config, status: "QA Review" },
+        now: new Date("2026-08-31T00:00:00.000Z"),
+      });
+
+      assert.match(String(calls[0]?.text), /Tasks in QA Review for 3\+ days/);
+    });
+  });
 });
 
 function createTask(
@@ -115,9 +132,10 @@ function createTask(
   enteredReviewAt: string,
   assignee: string,
   serviceName = "service-a",
+  status = "In Review",
 ): void {
   store.syncDefinitions([{ name: serviceName, url: "", linearTeam: "team" }], {
-    team: linearTeams(["In Review"])["workspace-a-eng"],
+    team: linearTeams([status])["workspace-a-eng"],
   });
   const task = store.upsertTaskFromEvent(
     {
@@ -126,7 +144,7 @@ function createTask(
       issueIdentifier,
       issueTitle: `Review ${issueIdentifier}`,
       issueUrl: `https://linear.app/acme/issue/${issueIdentifier}`,
-      resolvedState: "In Review",
+      resolvedState: status,
     },
     new Date(enteredReviewAt),
   );
@@ -134,7 +152,7 @@ function createTask(
     taskId: task.id,
     type: "status_timeline",
     fromStatus: "In Progress",
-    toStatus: "In Review",
+    toStatus: status,
     createdAt: new Date(enteredReviewAt),
   });
   store.assignTask(task.id, assignee);
