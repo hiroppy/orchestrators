@@ -91,7 +91,8 @@ function resolveInReviewReminderConfig(
   if (config.enabled === false) return undefined;
 
   const status = config.status === undefined ? "In Review" : config.status.trim();
-  const afterDays = config.afterDays ?? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS;
+  const afterDays =
+    config.afterDays === undefined ? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS : config.afterDays;
   const postAt =
     config.postAt === undefined ? DEFAULT_IN_REVIEW_REMINDER_POST_AT : config.postAt.trim();
   const timeZone =
