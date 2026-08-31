@@ -12,6 +12,7 @@ import {
   countTaskEventsWithBody,
   getLatestTaskEvent,
   getLatestDeliveredTaskEventsByType,
+  getLatestDeliveredStatusChanges,
   getLatestTaskEventsByType,
   getUndeliveredStatusTimelineEvents,
   hasStatusTimelineEvent,
@@ -212,6 +213,10 @@ export class WatcherStore {
 
   getLatestDeliveredEventsByType(taskId: string, type: string, limit: number): TaskEvent[] {
     return getLatestDeliveredTaskEventsByType(this.db, taskId, type, limit);
+  }
+
+  getLatestDeliveredStatusChanges(taskId: string, limit: number): TaskEvent[] {
+    return getLatestDeliveredStatusChanges(this.db, taskId, limit);
   }
 
   getUndeliveredStatusTimelineEvents(): TaskEvent[] {

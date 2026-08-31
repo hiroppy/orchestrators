@@ -123,6 +123,7 @@ it("rejects a new timeline card when Slack omits its timestamp", async () => {
       parentMessageTs: "10.000",
     }),
     getLatestDeliveredEventsByType: () => [],
+    getLatestDeliveredStatusChanges: () => [],
     getTaskAssignees: () => [],
     addEvent: () => {
       eventStored = true;
@@ -161,6 +162,7 @@ it("recovers after Slack succeeds but recording its timestamp fails", async () =
       parentMessageTs: "10.000",
     }),
     getLatestDeliveredEventsByType: () => [],
+    getLatestDeliveredStatusChanges: () => [],
     getTaskAssignees: () => [],
     addEvent: () => event,
     getUndeliveredStatusTimelineEvents: () => (delivered ? [] : [event]),
@@ -228,6 +230,7 @@ it("reuses the delivered anchor when newer pending events exceed the history lim
     }),
     getLatestEventsByType: () => [event, ...pendingEvents],
     getLatestDeliveredEventsByType: () => [deliveredEvent],
+    getLatestDeliveredStatusChanges: () => [deliveredEvent],
     getTaskAssignees: () => [],
     addEvent: () => event,
     setTaskEventSlackThreadTs: () => undefined,

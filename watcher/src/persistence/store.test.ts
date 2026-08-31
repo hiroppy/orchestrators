@@ -495,6 +495,19 @@ describe("WatcherStore", () => {
         store.getLatestDeliveredEventsByType(task.id, "status_timeline", 1)[0]?.slackThreadTs,
         "20.000",
       );
+
+      for (let index = 0; index < 12; index += 1) {
+        const unchanged = store.addEvent({
+          taskId: task.id,
+          type: "status_timeline",
+          fromStatus: "Done",
+          toStatus: "Done",
+          createdAt: new Date(`2026-08-15T14:${String(index).padStart(2, "0")}:00Z`),
+        });
+        store.setTaskEventSlackThreadTs(unchanged.id, `21.${String(index).padStart(3, "0")}`);
+      }
+
+      assert.equal(store.getLatestDeliveredStatusChanges(task.id, 1)[0]?.id, delivered.id);
     });
   });
 });

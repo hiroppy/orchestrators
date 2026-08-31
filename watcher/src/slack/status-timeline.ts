@@ -106,15 +106,16 @@ async function deliverStatusTimelineEvent(
 ): Promise<void> {
   const task = store.getTask(event.taskId);
   if (!task?.parentChannelId || !task.parentMessageTs) return;
+  const historyLimit =
+    event.fromStatus === event.toStatus
+      ? MAX_TIMELINE_HISTORY_EVENTS + 1
+      : MAX_TIMELINE_HISTORY_EVENTS;
   const previous = store
-    .getLatestDeliveredEventsByType(
-      event.taskId,
-      STATUS_TIMELINE_EVENT,
-      MAX_TIMELINE_HISTORY_EVENTS + 1,
-    )
+    .getLatestDeliveredStatusChanges(event.taskId, historyLimit + 1)
     .filter((candidate) => candidate.id !== event.id)
-    .slice(0, MAX_TIMELINE_HISTORY_EVENTS);
-  const anchorTs = previous[0]?.slackThreadTs;
+    .slice(0, historyLimit);
+  const anchorTs = store.getLatestDeliveredEventsByType(event.taskId, STATUS_TIMELINE_EVENT, 1)[0]
+    ?.slackThreadTs;
   const storedEvents = [event, ...previous].sort(
     (left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id,
   );
@@ -157,13 +158,16 @@ export async function reloadStatusTimeline(
   taskId: string,
 ): Promise<boolean> {
   const task = store.getTask(taskId);
-  const storedEvents = store.getLatestDeliveredEventsByType(
+  const anchorEvent = store.getLatestDeliveredEventsByType(taskId, STATUS_TIMELINE_EVENT, 1)[0];
+  const messageTs = anchorEvent?.slackThreadTs;
+  if (!task?.parentChannelId || !anchorEvent || !messageTs) return false;
+  const statusChanges = store.getLatestDeliveredStatusChanges(
     taskId,
-    STATUS_TIMELINE_EVENT,
     MAX_TIMELINE_HISTORY_EVENTS + 1,
   );
-  const messageTs = storedEvents[0]?.slackThreadTs;
-  if (!task?.parentChannelId || !messageTs) return false;
+  const storedEvents = statusChanges.some((event) => event.id === anchorEvent.id)
+    ? statusChanges
+    : [anchorEvent, ...statusChanges];
 
   const events = await Promise.all(storedEvents.map((event) => toStatusCardEvent(client, event)));
   const [latest, ...history] = events;

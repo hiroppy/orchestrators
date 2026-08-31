@@ -8,6 +8,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   notExists,
   sql,
 } from "drizzle-orm";
@@ -166,12 +167,21 @@ export function getLatestDeliveredTaskEventsByType(
   return queryLatestTaskEvents(db, taskId, type, limit, true);
 }
 
+export function getLatestDeliveredStatusChanges(
+  db: WatcherDatabase,
+  taskId: string,
+  limit: number,
+): TaskEvent[] {
+  return queryLatestTaskEvents(db, taskId, "status_timeline", limit, true, true);
+}
+
 function queryLatestTaskEvents(
   db: WatcherDatabase,
   taskId: string,
   type: string,
   limit: number,
   deliveredOnly = false,
+  statusChangesOnly = false,
 ): TaskEvent[] {
   const fromStatuses = alias(statuses, "typed_event_from_status");
   const toStatuses = alias(statuses, "typed_event_to_status");
@@ -185,6 +195,7 @@ function queryLatestTaskEvents(
         eq(taskEvents.taskId, taskId),
         eq(taskEvents.type, type),
         deliveredOnly ? isNotNull(taskEvents.slackThreadTs) : undefined,
+        statusChangesOnly ? ne(taskEvents.fromStatusId, taskEvents.toStatusId) : undefined,
       ),
     )
     .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
