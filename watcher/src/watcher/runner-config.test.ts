@@ -55,9 +55,9 @@ describe("watcher configuration", () => {
     );
 
     assert.deepEqual(config.pullRequestStatusSync, { closed: "canceled" });
-    assert.equal(
+    assert.deepEqual(
       resolveWatcherConfig(baseConfig(), { requireSlack: false }).pullRequestStatusSync,
-      undefined,
+      { closed: "Canceled" },
     );
     for (const pullRequestStatusSync of [null, {}, { closed: " " }]) {
       assert.throws(
@@ -192,7 +192,7 @@ describe("watcher configuration", () => {
     const calls = [];
     const resolved = await resolveLinearWorkflowStatuses(unresolved, async (teamId, options) => {
       calls.push({ teamId, options });
-      return ["Todo", "In Progress", "In Review", "Done"];
+      return ["Todo", "In Progress", "In Review", "Done", "Canceled"];
     });
 
     assert.deepEqual(calls, [{ teamId: "team-id", options: { apiKey: "lin_test" } }]);
@@ -201,12 +201,14 @@ describe("watcher configuration", () => {
       "In Progress",
       "In Review",
       "Done",
+      "Canceled",
     ]);
 
     await assert.rejects(
-      resolveLinearWorkflowStatuses(unresolved, async () =>
-        Array.from({ length: 101 }, (_, index) => `Status ${index}`),
-      ),
+      resolveLinearWorkflowStatuses(unresolved, async () => [
+        "Canceled",
+        ...Array.from({ length: 100 }, (_, index) => `Status ${index}`),
+      ]),
       /cannot contain more than 100 statuses/,
     );
   });
@@ -244,7 +246,7 @@ tracker:
       })),
     };
 
-    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done"]);
+    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done", "Canceled"]);
 
     for (const [group, activeStates, terminalStates] of [
       ["active_states", ["Todo", "Ready for realease"], ["Done"]],
@@ -260,7 +262,7 @@ tracker:
               terminalStates,
             })),
           },
-          async () => ["Todo", "Done"],
+          async () => ["Todo", "Done", "Canceled"],
         ),
         new RegExp(`${group} references unknown Linear status "Ready for realease" for service-a`),
       );
@@ -382,7 +384,12 @@ tracker:
       { id: "app-distribution", status: "In Review", maxAttempts: 10, run },
     ]);
     await assert.rejects(
-      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Progress", "Done"]),
+      resolveLinearWorkflowStatuses(config, async () => [
+        "Todo",
+        "In Progress",
+        "Done",
+        "Canceled",
+      ]),
       /instances\.service-a\.statusHooks\[0\]\.status references unknown Linear status "In Review"/,
     );
     assert.throws(

@@ -91,9 +91,10 @@ feedback, and completion:
    reviewers again. You can also change Linear status directly from the Slack
    card whenever manual intervention is needed.
 
-Optionally, the watcher can move the Linear issue to a configured status when
-its pull request closes without merging. Merged pull requests remain under
-Linear's GitHub workflow automation.
+When a pull request closes without merging, the watcher moves its Linear issue
+to `Canceled` by default. You can configure a different target status. Merged
+pull requests remain under Linear's GitHub workflow automation, and issues in
+`Rework` are preserved when Symphony closes an old PR to start a fresh attempt.
 
 See [Architecture](docs/architecture.md#review-requeue-lifecycle) for
 polling, comment handling, persistence, and recovery details.

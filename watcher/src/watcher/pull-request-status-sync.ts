@@ -23,7 +23,6 @@ export async function syncPullRequestStatuses({
   updateLinearStatus: typeof updateLinearIssueStatus;
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
-  if (!statusSync) return;
 
   for (const task of store.getTasksForLinearSync()) {
     if (task.issueIdentifier.startsWith("watcher:") || !task.pullRequest?.url) continue;
@@ -40,6 +39,7 @@ export async function syncPullRequestStatuses({
         maxAttempts: 1,
       });
       if (!linearIssue) continue;
+      if (normalizeStatus(linearIssue.state) === "rework") continue;
 
       const liveStateType = effectiveLinearStateTypeForService(
         config,

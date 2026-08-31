@@ -16,23 +16,20 @@ import { syncPullRequestStatuses } from "./pull-request-status-sync.ts";
 const pullRequestUrl = "https://github.com/acme/example/pull/42";
 
 describe("pull request status sync", () => {
-  it("is disabled when the setting is omitted", async () => {
+  it("moves a closed pull request to Canceled", async () => {
     await withStore(async (store) => {
       const config = setup(store);
-      let lookups = 0;
+      const updates: unknown[][] = [];
 
       await syncPullRequestStatuses({
         config,
         store,
-        fetchLinearIssue: async () => assert.fail("must not fetch Linear"),
-        findPullRequestByUrl: async () => {
-          lookups += 1;
-          return pullRequest("CLOSED");
-        },
-        updateLinearStatus: async () => assert.fail("must not update Linear"),
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl),
+        findPullRequestByUrl: async () => pullRequest("CLOSED"),
+        updateLinearStatus: async (...args: unknown[]) => updates.push(args),
       });
 
-      assert.equal(lookups, 0);
+      assert.deepEqual(updates, [["ENG-42", "Canceled", { apiKey: "lin_test", teamId: "team-a" }]]);
     });
   });
 
@@ -155,6 +152,26 @@ describe("pull request status sync", () => {
     });
   });
 
+  it("preserves a Rework issue when its previous pull request closes", async () => {
+    await withStore(async (store) => {
+      const config = setup(store, { closed: "Canceled" });
+      let lookups = 0;
+
+      await syncPullRequestStatuses({
+        config,
+        store,
+        fetchLinearIssue: async () => linearIssue(pullRequestUrl, "Rework", "started"),
+        findPullRequestByUrl: async () => {
+          lookups += 1;
+          return pullRequest("CLOSED");
+        },
+        updateLinearStatus: async () => assert.fail("must not update Linear"),
+      });
+
+      assert.equal(lookups, 0);
+    });
+  });
+
   it("matches equivalent GitHub pull request URL variants", async () => {
     await withStore(async (store) => {
       const config = setup(store, { closed: "Canceled" });
@@ -207,7 +224,7 @@ describe("pull request status sync", () => {
 
 function setup(
   store: WatcherStore,
-  pullRequestStatusSync?: { closed: string },
+  pullRequestStatusSync = { closed: "Canceled" },
   url = dataUrl({ running: [], retrying: [], blocked: [] }),
 ) {
   const services = [{ name: "service-a", url, linearTeam: "workspace-a-eng" }];

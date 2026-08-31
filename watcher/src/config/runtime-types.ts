@@ -17,7 +17,7 @@ export interface WatcherRuntimeConfig {
   linearTeams: Record<string, LinearTeamConfig>;
   pollIntervalMs: number;
   endedTaskRetry: { maxAttempts: number; delayMs: number };
-  pullRequestStatusSync?: PullRequestStatusSyncConfig;
+  pullRequestStatusSync: PullRequestStatusSyncConfig;
   reviewComment?: ReviewCommentConfig;
   defaultAssignees: string[];
   slack?: ResolvedSlackConfig;

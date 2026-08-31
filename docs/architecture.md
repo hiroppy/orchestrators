@@ -133,7 +133,7 @@ Each watcher cycle processes observations in this order:
    Timeline.
 5. Apply an eligible review requeue and synchronize PR reactions.
 6. Replace the persisted snapshots only after all changed tasks succeed.
-7. Refresh running-task activity, optionally apply configured closed-PR Linear transitions, then
+7. Refresh running-task activity, apply closed-PR Linear transitions, then
    reconcile stored tasks that did not produce a snapshot event.
 
 Persisting task state before Slack delivery allows a failed delivery to resume. Delaying snapshot
@@ -143,21 +143,23 @@ review-requeue path.
 
 ## Polling and API calls
 
-| Trigger              |                   Typical interval | External work                                                                  |
-| -------------------- | ---------------------------------: | ------------------------------------------------------------------------------ |
-| Symphony observation |                          3 seconds | Read each enabled instance's local observability API                           |
-| Snapshot change      | Event-driven after a 3-second poll | Read Linear; query the task's PR when needed                                   |
-| Periodic maintenance |                         30 seconds | Optionally sync closed PRs; reconcile nonterminal tasks; query review comments |
-| Slack interaction    |                       Event-driven | Update Linear when needed, then update the Slack task card                     |
+| Trigger              |                   Typical interval | External work                                                       |
+| -------------------- | ---------------------------------: | ------------------------------------------------------------------- |
+| Symphony observation |                          3 seconds | Read each enabled instance's local observability API                |
+| Snapshot change      | Event-driven after a 3-second poll | Read Linear; query the task's PR when needed                        |
+| Periodic maintenance |                         30 seconds | Sync closed PRs; reconcile nonterminal tasks; query review comments |
+| Slack interaction    |                       Event-driven | Update Linear when needed, then update the Slack task card          |
 
 ### GitHub access
 
 - GitHub is queried during event enrichment when PR data is needed.
 - Tasks in the configured review status are queried during 30-second reconciliation, even if their
   Symphony snapshot has not changed.
-- When `watcher.pullRequestStatusSync` is enabled, tracked nonterminal tasks with a PR are queried
-  during maintenance. The stored PR must still match the current Linear attachment before a
-  closed/unmerged status update is applied, and an already terminal Linear issue is preserved.
+- Tracked nonterminal tasks with a PR are queried during maintenance. Closed, unmerged PRs move to
+  `Canceled` by default; `watcher.pullRequestStatusSync.closed` overrides that target. The stored PR
+  must still match the current Linear attachment before an update is applied, and an already
+  terminal Linear issue is preserved. Issues in `Rework` are also preserved because their previous
+  PR is intentionally closed before Symphony starts a fresh attempt.
   Successful observations are persisted; failures have no completion event and are retried by a
   later poll.
 - Access uses `gh pr view` and `gh api`.

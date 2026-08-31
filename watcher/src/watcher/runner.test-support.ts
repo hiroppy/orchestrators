@@ -9,7 +9,7 @@ export function dataUrl(value: unknown): string {
   return `data:application/json,${encodeURIComponent(JSON.stringify(value))}`;
 }
 
-export function linearTeams(statuses = ["Todo", "Done"]) {
+export function linearTeams(statuses = ["Todo", "Done", "Canceled"]) {
   return {
     "workspace-a-eng": {
       apiKey: "lin_test",
@@ -38,6 +38,7 @@ export function runtimeConfig<T extends object>(config: T) {
       maxAttempts: 2,
       delayMs: 5_000,
     },
+    pullRequestStatusSync: { closed: "Canceled" },
     ...config,
   };
 }
