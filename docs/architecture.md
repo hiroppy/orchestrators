@@ -165,8 +165,9 @@ review-requeue path.
 - Unless `watcher.inReviewReminder.enabled` is `false`, the first maintenance cycle at or after its
   configured local time posts one global Slack summary for tasks that have remained in the
   configured review status for at least `afterDays`. The reminder uses defaults when its config is
-  omitted. Status-entry time is persisted with the task independently of Slack timeline delivery,
-  and the daily scan is persisted so restarts do not repeat it.
+  omitted. Each task name links to its Slack thread, assignees remain Slack mentions, and link
+  previews are disabled. Status-entry time is persisted with the task independently of Slack
+  timeline delivery, and the daily scan is persisted so restarts do not repeat it.
 - Access uses `gh pr view` and `gh api`.
 - Supported reactions on the PR body are mirrored to the Slack thread parent. The watcher syncs
   presence only, not counts or authors, and removes only its own stale reactions.
