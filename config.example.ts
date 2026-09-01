@@ -2,7 +2,7 @@ import { defineConfig } from "orchestrator-config";
 
 export default defineConfig({
   watcher: {
-    // Posts a daily summary of stale In Review tasks to the global Slack channel.
+    // Optional overrides for the daily stale In Review summary, which is enabled by default.
     inReviewReminder: {
       enabled: true,
       status: "In Review",

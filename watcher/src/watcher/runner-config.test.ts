@@ -73,10 +73,14 @@ describe("watcher configuration", () => {
       );
     }
     await assert.rejects(
-      resolveLinearWorkflowStatuses(config, async () => ["Todo", "Done"]),
+      resolveLinearWorkflowStatuses(config, async () => ["Todo", "In Review", "Done"]),
       /watcher\.pullRequestStatusSync\.closed references unknown Linear status "canceled"/,
     );
-    const resolved = await resolveLinearWorkflowStatuses(config, async () => ["Todo", "Canceled"]);
+    const resolved = await resolveLinearWorkflowStatuses(config, async () => [
+      "Todo",
+      "In Review",
+      "Canceled",
+    ]);
     assert.deepEqual(resolved.pullRequestStatusSync, { closed: "canceled" });
   });
 
@@ -246,7 +250,12 @@ tracker:
       })),
     };
 
-    await resolveLinearWorkflowStatuses(withOverrides, async () => ["Todo", "Done", "Canceled"]);
+    await resolveLinearWorkflowStatuses(withOverrides, async () => [
+      "Todo",
+      "In Review",
+      "Done",
+      "Canceled",
+    ]);
 
     for (const [group, activeStates, terminalStates] of [
       ["active_states", ["Todo", "Ready for realease"], ["Done"]],
@@ -262,7 +271,7 @@ tracker:
               terminalStates,
             })),
           },
-          async () => ["Todo", "Done", "Canceled"],
+          async () => ["Todo", "In Review", "Done", "Canceled"],
         ),
         new RegExp(`${group} references unknown Linear status "Ready for realease" for service-a`),
       );
@@ -370,6 +379,13 @@ tracker:
   });
 
   it("resolves and validates global In Review reminder settings", () => {
+    assert.deepEqual(resolveWatcherConfig(baseConfig(), { requireSlack: false }).inReviewReminder, {
+      status: "In Review",
+      afterDays: 3,
+      postAt: "09:00",
+      timeZone: "Asia/Tokyo",
+    });
+
     assert.deepEqual(
       resolveWatcherConfig(
         { ...baseConfig(), watcher: { inReviewReminder: {} } },
@@ -421,6 +437,7 @@ tracker:
         ...configWithService({
           statusHooks: [{ id: " app-distribution ", status: " In Review ", run }],
         }),
+        watcher: { inReviewReminder: { enabled: false } },
       },
       { requireSlack: false },
     );
