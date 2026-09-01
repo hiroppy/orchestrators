@@ -12,7 +12,8 @@ import { buildInReviewReminder } from "../slack/views/in-review-reminder.ts";
 
 const IN_REVIEW_REMINDER_SCAN_EVENT = "in_review_reminder_scan";
 const IN_REVIEW_REMINDER_NOTIFIED_EVENT = "in_review_reminder_notified";
-const DAY_MS = 24 * 60 * 60 * 1_000;
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 const REMINDER_WINDOW_MINUTES = 5;
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -37,15 +38,16 @@ export async function sendInReviewReminder({
   now?: Date;
 }): Promise<void> {
   const schedule = localSchedule(now, config.timeZone);
-  const reminderDate = reminderDateInWindow(schedule, timeToMinutes(config.postAt));
-  if (!reminderDate) return;
+  const reminderSchedule = reminderScheduleInWindow(schedule, timeToMinutes(config.postAt));
+  if (!reminderSchedule) return;
 
   const tasks = store.getTasksForLinearSync(new Set(), new Map(), true);
-  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, reminderDate)) {
+  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, reminderSchedule.date)) {
     return;
   }
 
-  const cutoff = now.getTime() - config.afterDays * DAY_MS;
+  const scheduledAt = now.getTime() - reminderSchedule.differenceMinutes * MINUTE_MS;
+  const cutoff = scheduledAt - config.afterDays * DAY_MS;
   const staleTasks = tasks.filter((task) => isStaleInReview(store, task, config.status, cutoff));
   if (staleTasks.length > 0) {
     const threadLinks = await getThreadLinks(slackClient, staleTasks);
@@ -73,14 +75,14 @@ export async function sendInReviewReminder({
       taskId: anchor.id,
       type: IN_REVIEW_REMINDER_SCAN_EVENT,
       actor: "watcher",
-      body: reminderDate,
+      body: reminderSchedule.date,
       createdAt: now,
     },
     ...staleTasks.map((task) => ({
       taskId: task.id,
       type: IN_REVIEW_REMINDER_NOTIFIED_EVENT,
       actor: "watcher",
-      body: reminderDate,
+      body: reminderSchedule.date,
       createdAt: now,
     })),
   ]);
@@ -146,10 +148,10 @@ function timeToMinutes(time: string): number {
   return hour! * 60 + minute!;
 }
 
-function reminderDateInWindow(
+function reminderScheduleInWindow(
   schedule: { date: string; minutes: number },
   targetMinutes: number,
-): string | undefined {
+): { date: string; differenceMinutes: number } | undefined {
   const sameDayDifference = schedule.minutes - targetMinutes;
   const candidates = [
     { difference: sameDayDifference, dayOffset: 0 },
@@ -160,7 +162,10 @@ function reminderDateInWindow(
     Math.abs(candidate.difference) < Math.abs(current.difference) ? candidate : current,
   );
   if (Math.abs(closest.difference) > REMINDER_WINDOW_MINUTES) return undefined;
-  return shiftDate(schedule.date, closest.dayOffset);
+  return {
+    date: shiftDate(schedule.date, closest.dayOffset),
+    differenceMinutes: closest.difference,
+  };
 }
 
 function shiftDate(date: string, days: number): string {
