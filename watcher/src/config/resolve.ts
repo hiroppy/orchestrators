@@ -81,22 +81,28 @@ export function resolveWatcherConfig(
 function resolveInReviewReminderConfig(
   config: InReviewReminderConfig | undefined,
 ): WatcherRuntimeConfig["inReviewReminder"] {
-  if (config === undefined) return undefined;
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
+  if (config !== undefined && (!config || typeof config !== "object" || Array.isArray(config))) {
     throw new Error("watcher.inReviewReminder must be an object.");
   }
-  if (config.enabled !== undefined && typeof config.enabled !== "boolean") {
+  const reminderConfig = config ?? {};
+  if (reminderConfig.enabled !== undefined && typeof reminderConfig.enabled !== "boolean") {
     throw new Error("watcher.inReviewReminder.enabled must be a boolean.");
   }
-  if (config.enabled === false) return undefined;
+  if (reminderConfig.enabled === false) return undefined;
 
-  const status = config.status === undefined ? "In Review" : config.status.trim();
+  const status = reminderConfig.status === undefined ? "In Review" : reminderConfig.status.trim();
   const afterDays =
-    config.afterDays === undefined ? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS : config.afterDays;
+    reminderConfig.afterDays === undefined
+      ? DEFAULT_IN_REVIEW_REMINDER_AFTER_DAYS
+      : reminderConfig.afterDays;
   const postAt =
-    config.postAt === undefined ? DEFAULT_IN_REVIEW_REMINDER_POST_AT : config.postAt.trim();
+    reminderConfig.postAt === undefined
+      ? DEFAULT_IN_REVIEW_REMINDER_POST_AT
+      : reminderConfig.postAt.trim();
   const timeZone =
-    config.timeZone === undefined ? DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE : config.timeZone.trim();
+    reminderConfig.timeZone === undefined
+      ? DEFAULT_IN_REVIEW_REMINDER_TIME_ZONE
+      : reminderConfig.timeZone.trim();
   if (!status) {
     throw new Error("watcher.inReviewReminder.status must be a non-empty string.");
   }
