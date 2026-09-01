@@ -1,17 +1,25 @@
-import type { ChatPostMessageArguments } from "@slack/web-api";
+import type {
+  ChatGetPermalinkArguments,
+  ChatGetPermalinkResponse,
+  ChatPostMessageArguments,
+} from "@slack/web-api";
 
 import type { ResolvedInReviewReminderConfig } from "../config/runtime-types.ts";
 import { normalizeStatus } from "../domain/status.ts";
 import type { Task } from "../domain/task.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { escapeSlack, escapeSlackLinkLabel } from "../slack/view-formatting.ts";
+import { buildInReviewReminder } from "../slack/views/in-review-reminder.ts";
 
 const IN_REVIEW_REMINDER_SCAN_EVENT = "in_review_reminder_scan";
 const IN_REVIEW_REMINDER_NOTIFIED_EVENT = "in_review_reminder_notified";
-const DAY_MS = 24 * 60 * 60 * 1_000;
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+const REMINDER_WINDOW_MINUTES = 5;
+const MINUTES_PER_DAY = 24 * 60;
 
 interface ReminderSlackClient {
   chat: {
+    getPermalink(args: ChatGetPermalinkArguments): Promise<ChatGetPermalinkResponse>;
     postMessage(args: ChatPostMessageArguments): Promise<unknown>;
   };
 }
@@ -30,19 +38,34 @@ export async function sendInReviewReminder({
   now?: Date;
 }): Promise<void> {
   const schedule = localSchedule(now, config.timeZone);
-  if (schedule.minutes < timeToMinutes(config.postAt)) return;
+  const reminderSchedule = reminderScheduleInWindow(schedule, timeToMinutes(config.postAt));
+  if (!reminderSchedule) return;
 
   const tasks = store.getTasksForLinearSync(new Set(), new Map(), true);
-  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, schedule.date)) {
+  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, reminderSchedule.date)) {
     return;
   }
 
-  const cutoff = now.getTime() - config.afterDays * DAY_MS;
+  const currentMinute = now.getTime() - now.getUTCSeconds() * 1_000 - now.getUTCMilliseconds();
+  const scheduledAt = currentMinute - reminderSchedule.differenceMinutes * MINUTE_MS;
+  const cutoff = scheduledAt - config.afterDays * DAY_MS;
   const staleTasks = tasks.filter((task) => isStaleInReview(store, task, config.status, cutoff));
   if (staleTasks.length > 0) {
+    const threadLinks = await getThreadLinks(slackClient, staleTasks);
     await slackClient.chat.postMessage({
       channel: channelId,
-      text: reminderText(store, staleTasks, config.status, config.afterDays),
+      text: buildInReviewReminder(
+        staleTasks.map((task) => ({
+          issueIdentifier: task.issueIdentifier,
+          title: task.title,
+          assignees: store.getTaskAssignees(task.id),
+          threadLink: threadLinks.get(task.id),
+        })),
+        config.status,
+        config.afterDays,
+      ),
+      unfurl_links: false,
+      unfurl_media: false,
     });
   }
 
@@ -53,14 +76,14 @@ export async function sendInReviewReminder({
       taskId: anchor.id,
       type: IN_REVIEW_REMINDER_SCAN_EVENT,
       actor: "watcher",
-      body: schedule.date,
+      body: reminderSchedule.date,
       createdAt: now,
     },
     ...staleTasks.map((task) => ({
       taskId: task.id,
       type: IN_REVIEW_REMINDER_NOTIFIED_EVENT,
       actor: "watcher",
-      body: schedule.date,
+      body: reminderSchedule.date,
       createdAt: now,
     })),
   ]);
@@ -82,22 +105,25 @@ function isStaleInReview(
   return Date.parse(enteredAt) <= cutoff;
 }
 
-function reminderText(
-  store: WatcherStore,
+async function getThreadLinks(
+  slackClient: ReminderSlackClient,
   tasks: Task[],
-  status: string,
-  afterDays: number,
-): string {
-  const lines = tasks.map((task) => {
-    const assignees = store.getTaskAssignees(task.id);
-    const mentions = assignees.length > 0 ? assignees.join(" ") : "Unassigned";
-    const label = `${task.issueIdentifier}: ${task.title}`;
-    const taskLink = task.linkUrl
-      ? `<${task.linkUrl}|${escapeSlackLinkLabel(label)}>`
-      : escapeSlack(label);
-    return `• ${taskLink} — ${mentions}`;
-  });
-  return [`*Tasks in ${escapeSlack(status)} for ${afterDays}+ days*`, ...lines].join("\n");
+): Promise<Map<string, string>> {
+  const entries = await Promise.all(
+    tasks.map(async (task): Promise<readonly [string, string] | undefined> => {
+      if (!task.parentChannelId || !task.parentMessageTs) return undefined;
+      try {
+        const response = await slackClient.chat.getPermalink({
+          channel: task.parentChannelId,
+          message_ts: task.parentMessageTs,
+        });
+        return response.permalink ? [task.id, response.permalink] : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return new Map(entries.filter((entry) => entry !== undefined));
 }
 
 function localSchedule(now: Date, timeZone: string): { date: string; minutes: number } {
@@ -121,4 +147,30 @@ function localSchedule(now: Date, timeZone: string): { date: string; minutes: nu
 function timeToMinutes(time: string): number {
   const [hour, minute] = time.split(":").map(Number);
   return hour! * 60 + minute!;
+}
+
+function reminderScheduleInWindow(
+  schedule: { date: string; minutes: number },
+  targetMinutes: number,
+): { date: string; differenceMinutes: number } | undefined {
+  const sameDayDifference = schedule.minutes - targetMinutes;
+  const candidates = [
+    { difference: sameDayDifference, dayOffset: 0 },
+    { difference: sameDayDifference + MINUTES_PER_DAY, dayOffset: -1 },
+    { difference: sameDayDifference - MINUTES_PER_DAY, dayOffset: 1 },
+  ];
+  const closest = candidates.reduce((current, candidate) =>
+    Math.abs(candidate.difference) < Math.abs(current.difference) ? candidate : current,
+  );
+  if (Math.abs(closest.difference) > REMINDER_WINDOW_MINUTES) return undefined;
+  return {
+    date: shiftDate(schedule.date, closest.dayOffset),
+    differenceMinutes: closest.difference,
+  };
+}
+
+function shiftDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
 }

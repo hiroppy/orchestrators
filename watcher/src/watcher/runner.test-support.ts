@@ -46,6 +46,7 @@ export function runtimeConfig<T extends object>(config: T) {
 export function fakeSlackClient(
   calls: Array<Record<string, unknown>>,
   options: {
+    rejectGetPermalink?: (args: Record<string, unknown>) => boolean;
     rejectPostMessage?: (args: Record<string, unknown>) => boolean;
     rejectUpdate?: (args: Record<string, unknown>) => boolean;
   } = {},
@@ -61,6 +62,7 @@ export function fakeSlackClient(
     chat: {
       async getPermalink(args: Record<string, unknown>) {
         calls.push({ method: "getPermalink", ...args });
+        if (options.rejectGetPermalink?.(args)) throw new Error("Simulated Slack failure");
         return {
           ok: true,
           channel: String(args.channel),

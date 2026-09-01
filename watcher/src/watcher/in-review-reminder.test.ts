@@ -25,7 +25,7 @@ describe("global In Review reminders", () => {
         slackClient,
         channelId: "C123",
         config,
-        now: new Date("2026-08-30T23:59:00.000Z"),
+        now: new Date("2026-08-30T23:54:00.000Z"),
       });
       assert.equal(calls.length, 0);
 
@@ -41,14 +41,17 @@ describe("global In Review reminders", () => {
         slackClient,
         channelId: "C123",
         config,
-        now: new Date("2026-08-31T03:00:00.000Z"),
+        now: new Date("2026-08-31T00:04:00.000Z"),
       });
 
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0]?.channel, "C123");
-      assert.match(String(calls[0]?.text), /Tasks in In Review for 3\+ days/);
-      assert.match(String(calls[0]?.text), /ENG-62.*<@U123>/);
-      assert.doesNotMatch(String(calls[0]?.text), /ENG-63/);
+      const firstPost = calls.find(({ method }) => method === "postMessage");
+      assert.equal(firstPost?.channel, "C123");
+      assert.equal(firstPost?.unfurl_links, false);
+      assert.equal(firstPost?.unfurl_media, false);
+      assert.match(String(firstPost?.text), /Tasks in In Review for 3\+ days/);
+      assert.match(String(firstPost?.text), /<@U123>.*example\.slack\.com.*ENG-62/s);
+      assert.doesNotMatch(String(firstPost?.text), /linear\.app/);
+      assert.doesNotMatch(String(firstPost?.text), /ENG-63/);
 
       await sendInReviewReminder({
         store,
@@ -57,9 +60,71 @@ describe("global In Review reminders", () => {
         config,
         now: new Date("2026-09-01T00:00:00.000Z"),
       });
-      assert.equal(calls.length, 2);
-      assert.match(String(calls[1]?.text), /ENG-62.*<@U123>/);
-      assert.match(String(calls[1]?.text), /ENG-63.*<@U456>/);
+      const posts = calls.filter(({ method }) => method === "postMessage");
+      assert.equal(posts.length, 2);
+      assert.match(String(posts[1]?.text), /<@U123>.*ENG-62/s);
+      assert.match(String(posts[1]?.text), /<@U456>.*ENG-63/s);
+    });
+  });
+
+  it("only posts within five minutes of the configured local time", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+      const slackClient = fakeSlackClient(calls);
+
+      await sendInReviewReminder({
+        store,
+        slackClient,
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:06:00.000Z"),
+      });
+      assert.equal(calls.length, 0);
+
+      await sendInReviewReminder({
+        store,
+        slackClient,
+        channelId: "C123",
+        config,
+        now: new Date("2026-09-01T23:55:00.000Z"),
+      });
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
+  it("evaluates staleness at the scheduled time when posting early", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-28T00:00:00.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-30T23:55:00.000Z"),
+      });
+
+      const post = calls.find(({ method }) => method === "postMessage");
+      assert.match(String(post?.text), /ENG-62/);
+    });
+  });
+
+  it("removes poll seconds from the scheduled staleness boundary", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-28T00:00:30.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:04:59.900Z"),
+      });
+
+      assert.equal(calls.length, 0);
     });
   });
 
@@ -88,7 +153,30 @@ describe("global In Review reminders", () => {
         config,
         now,
       });
-      assert.equal(calls.length, 1);
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
+    });
+  });
+
+  it("posts other tasks when one Slack permalink lookup fails", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
+      createTask(store, "ENG-63", "2026-08-26T00:00:00.000Z", "U456");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls, {
+          rejectGetPermalink: ({ message_ts }) => message_ts === "62.000",
+        }),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:00:00.000Z"),
+      });
+
+      const post = calls.find(({ method }) => method === "postMessage");
+      assert.match(String(post?.text), /◦ ENG-62: Review ENG-62/);
+      assert.match(String(post?.text), /example\.slack\.com.*ENG-63/s);
+      assert.doesNotMatch(String(post?.text), /linear\.app/);
     });
   });
 
@@ -104,7 +192,7 @@ describe("global In Review reminders", () => {
       createTask(store, "ENG-63", "2026-08-26T00:00:00.000Z", "U456", "service-b");
       await sendInReviewReminder({ store, slackClient, channelId: "C123", config, now });
 
-      assert.equal(calls.length, 1);
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
     });
   });
 
@@ -121,7 +209,8 @@ describe("global In Review reminders", () => {
         now: new Date("2026-08-31T00:00:00.000Z"),
       });
 
-      assert.match(String(calls[0]?.text), /Tasks in QA Review for 3\+ days/);
+      const post = calls.find(({ method }) => method === "postMessage");
+      assert.match(String(post?.text), /Tasks in QA Review for 3\+ days/);
     });
   });
 
@@ -195,4 +284,5 @@ function createTask(
     createdAt: new Date(enteredReviewAt),
   });
   store.assignTask(task.id, assignee);
+  store.setParentMessage(task.id, "C123", `${issueIdentifier.slice(4)}.000`, "summary");
 }

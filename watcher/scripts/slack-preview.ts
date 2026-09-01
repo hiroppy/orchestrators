@@ -28,6 +28,7 @@ import {
   type TaskCard,
 } from "../src/slack/views.ts";
 import { buildStatusCard } from "../src/slack/status-timeline.ts";
+import { buildInReviewReminder } from "../src/slack/views/in-review-reminder.ts";
 
 const PREVIEW_STATUSES = ["Todo", "In Progress", "Rework", "In Review", "Done"];
 const DEFAULT_ATTENTION_TARGET = "@attention-target";
@@ -51,6 +52,7 @@ export const SLACK_PREVIEW_TYPES = [
   "closed",
   "next",
   "status",
+  "reminder",
 ] as const;
 
 type SlackPreviewCategory = (typeof SLACK_PREVIEW_CATEGORIES)[number];
@@ -132,6 +134,11 @@ export function resolveSlackPreviewCase(
   }
   if (category === "thread" && type === "closed") {
     throw new Error(`Slack preview type closed is only available for post previews.\n${usage}`);
+  }
+  if (type === "reminder" && category !== "assignees") {
+    throw new Error(
+      `Slack preview type reminder is only available for assignee previews.\n${usage}`,
+    );
   }
   if (extraValue !== undefined) {
     throw new Error(`Unexpected Slack preview argument: ${extraValue}.\n${usage}`);
@@ -333,6 +340,34 @@ export function buildSlackPreviewMessage(
       blocks: buildStatusSummaryBlocks(tasks, slackLinks, statusSummary),
     };
   }
+  if (type === "reminder") {
+    return {
+      text: buildInReviewReminder(
+        [
+          {
+            issueIdentifier: "PREVIEW-122",
+            title: "Review the Slack reminder format",
+            assignees: ["<@UREVIEWERONE>"],
+            threadLink: "https://example.slack.com/archives/C123/p122",
+          },
+          {
+            issueIdentifier: "PREVIEW-125",
+            title: "Verify the reminder notification",
+            assignees: ["<@UREVIEWERONE>"],
+            threadLink: "https://example.slack.com/archives/C123/p125",
+          },
+          {
+            issueIdentifier: "PREVIEW-126",
+            title: "Approve the reminder notification",
+            assignees: ["<@UREVIEWERTWO>"],
+            threadLink: "https://example.slack.com/archives/C123/p126",
+          },
+        ],
+        "In Review",
+        3,
+      ),
+    };
+  }
 
   const eventPreviewType = type === "attention" ? "start" : type;
   const assignee =
@@ -492,7 +527,7 @@ export function postSlackPreview(
   return client.chat.postMessage({
     channel: channelId,
     ...buildSlackPreviewMessage(previewCase, now, options),
-    ...(previewCase.category === "assignees" && previewCase.type === "status"
+    ...(previewCase.category === "assignees" && ["status", "reminder"].includes(previewCase.type)
       ? { unfurl_links: false, unfurl_media: false }
       : {}),
   });

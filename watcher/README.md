@@ -130,12 +130,14 @@ watcher: {
 }
 ```
 
-The watcher posts once per local calendar day, on the first maintenance cycle at or after `postAt`.
-Each stale task is listed with its task-specific Slack assignees. The reminder is enabled even when
-`inReviewReminder` is omitted. `afterDays` defaults to `3`, `postAt` to `09:00`, and `timeZone` to
-`Asia/Tokyo`. A failed Slack post remains eligible for the next maintenance cycle. Set
-`enabled: false` to disable the reminder. This reminder is independent of
-`reviewComment.reviewReadyDelayMs`.
+The watcher posts once per local calendar day on the first maintenance cycle within five minutes
+before or after `postAt`; starting outside that window does not post a late reminder. Tasks are
+grouped under their task-specific Slack assignee mentions, and each task name links to its Slack
+thread without expanding a link preview. A missing or inaccessible thread renders as unlinked text
+without suppressing other tasks. The reminder is enabled even when `inReviewReminder` is omitted.
+`afterDays` defaults to `3`, `postAt` to `09:00`, and `timeZone` to `Asia/Tokyo`. A failed Slack post
+remains eligible for the next maintenance cycle inside the same window. Set `enabled: false` to
+disable the reminder. This reminder is independent of `reviewComment.reviewReadyDelayMs`.
 
 The configured status names must exist in every enabled instance's Linear workflow.
 
