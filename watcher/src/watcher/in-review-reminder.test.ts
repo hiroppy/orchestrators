@@ -111,6 +111,23 @@ describe("global In Review reminders", () => {
     });
   });
 
+  it("removes poll seconds from the scheduled staleness boundary", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-28T00:00:30.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:04:59.900Z"),
+      });
+
+      assert.equal(calls.length, 0);
+    });
+  });
+
   it("retries the daily post when Slack fails", async () => {
     await withStore(async (store) => {
       createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");

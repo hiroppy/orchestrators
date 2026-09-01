@@ -46,7 +46,8 @@ export async function sendInReviewReminder({
     return;
   }
 
-  const scheduledAt = now.getTime() - reminderSchedule.differenceMinutes * MINUTE_MS;
+  const currentMinute = now.getTime() - now.getUTCSeconds() * 1_000 - now.getUTCMilliseconds();
+  const scheduledAt = currentMinute - reminderSchedule.differenceMinutes * MINUTE_MS;
   const cutoff = scheduledAt - config.afterDays * DAY_MS;
   const staleTasks = tasks.filter((task) => isStaleInReview(store, task, config.status, cutoff));
   if (staleTasks.length > 0) {
