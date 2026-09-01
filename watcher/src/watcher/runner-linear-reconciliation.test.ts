@@ -337,6 +337,8 @@ describe("watcher Linear reconciliation and snapshots", () => {
     await withStore(async (store) => {
       const nativeFetch = globalThis.fetch;
       let linearFetches = 0;
+      const warnings: string[] = [];
+      context.mock.method(console, "warn", (message) => warnings.push(String(message)));
       context.mock.method(globalThis, "fetch", async (url, options) => {
         if (String(url).startsWith("data:")) return nativeFetch(url, options);
         linearFetches += 1;
@@ -381,6 +383,9 @@ describe("watcher Linear reconciliation and snapshots", () => {
       });
 
       assert.equal(linearFetches, 1);
+      assert.deepEqual(warnings, [
+        "Linear reconciliation deferred for workspace-a-eng: rate limit exceeded.",
+      ]);
       assert.equal(store.getTask(task.id)?.status, "In Review");
       assert.equal(store.getTask(secondTask.id)?.status, "In Review");
     });

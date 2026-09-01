@@ -64,17 +64,38 @@ describe("pull request status sync", () => {
         [pullRequestUrl, "OPEN"],
         ["https://github.com/acme/example/pull/43", "MERGED"],
       ]);
+      await syncPullRequestStatuses({
+        config,
+        store,
+        fetchLinearIssue: async () => assert.fail("must not fetch Linear"),
+        findPullRequestByUrl: async (url) => pullRequest(states.get(url) ?? "CLOSED", url),
+        updateLinearStatus: async () => assert.fail("must not update Linear"),
+      });
+    });
+  });
+
+  it("checks pull requests concurrently", async () => {
+    await withStore(async (store) => {
+      const config = setup(store, { closed: "Canceled" });
+      addTask(store, "ENG-43", "https://github.com/acme/example/pull/43");
+      let activeLookups = 0;
+      let maxActiveLookups = 0;
 
       await syncPullRequestStatuses({
         config,
         store,
-        fetchLinearIssue: async (identifier) =>
-          linearIssue(
-            identifier === "ENG-42" ? pullRequestUrl : "https://github.com/acme/example/pull/43",
-          ),
-        findPullRequestByUrl: async (url) => pullRequest(states.get(url) ?? "CLOSED", url),
+        fetchLinearIssue: async () => assert.fail("must not fetch Linear for open PRs"),
+        findPullRequestByUrl: async (url) => {
+          activeLookups += 1;
+          maxActiveLookups = Math.max(maxActiveLookups, activeLookups);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          activeLookups -= 1;
+          return pullRequest("OPEN", url);
+        },
         updateLinearStatus: async () => assert.fail("must not update Linear"),
       });
+
+      assert.equal(maxActiveLookups, 2);
     });
   });
 
@@ -126,7 +147,7 @@ describe("pull request status sync", () => {
           updateLinearStatus: async () => assert.fail("must not update Linear"),
         });
 
-        assert.equal(lookups, 0);
+        assert.equal(lookups, 1);
         assert.equal(store.countEvents("service-a:ENG-42", "pull_request_status_synced"), 0);
       });
     }
@@ -148,7 +169,7 @@ describe("pull request status sync", () => {
         updateLinearStatus: async () => assert.fail("must not update Linear"),
       });
 
-      assert.equal(lookups, 0);
+      assert.equal(lookups, 1);
     });
   });
 
@@ -168,7 +189,7 @@ describe("pull request status sync", () => {
         updateLinearStatus: async () => assert.fail("must not update Linear"),
       });
 
-      assert.equal(lookups, 0);
+      assert.equal(lookups, 1);
     });
   });
 

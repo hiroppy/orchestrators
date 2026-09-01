@@ -24,65 +24,67 @@ export async function syncPullRequestStatuses({
 }): Promise<void> {
   const statusSync = config.pullRequestStatusSync;
 
-  for (const task of store.getTasksForLinearSync()) {
-    if (task.issueIdentifier.startsWith("watcher:") || !task.pullRequest?.url) continue;
+  await Promise.all(
+    store.getTasksForLinearSync().map(async (task) => {
+      if (task.issueIdentifier.startsWith("watcher:") || !task.pullRequest?.url) return;
 
-    try {
-      const team = linearTeamForService(config, task.serviceName);
-      const targetStatus = team?.statuses.find(
-        (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
-      );
-      if (!team || !targetStatus) continue;
+      try {
+        const team = linearTeamForService(config, task.serviceName);
+        const targetStatus = team?.statuses.find(
+          (status) => normalizeStatus(status) === normalizeStatus(statusSync.closed),
+        );
+        if (!team || !targetStatus) return;
 
-      const linearIssue = await fetchLinearIssue(task.issueIdentifier, {
-        apiKey: team.apiKey,
-        maxAttempts: 1,
-      });
-      if (!linearIssue) continue;
-      if (normalizeStatus(linearIssue.state) === "rework") continue;
+        const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
+        if (!pullRequest || normalizeStatus(pullRequest.state) !== "closed") return;
 
-      const liveStateType = effectiveLinearStateTypeForService(
-        config,
-        task.serviceName,
-        linearIssue.state,
-        linearIssue.stateType,
-      );
-      if (isTerminalLinearStateType(liveStateType)) continue;
+        const observation = JSON.stringify({
+          url: pullRequest.url,
+          state: "closed",
+          headRefOid: pullRequest.headRefOid ?? null,
+        });
+        if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, observation)) return;
 
-      const storedPullRequestIdentity = pullRequestIdentity(task.pullRequest.url);
-      const currentPullRequestIdentity = pullRequestIdentity(linearIssue.pullRequest?.url);
-      if (!storedPullRequestIdentity || currentPullRequestIdentity !== storedPullRequestIdentity)
-        continue;
+        const linearIssue = await fetchLinearIssue(task.issueIdentifier, {
+          apiKey: team.apiKey,
+          maxAttempts: 1,
+        });
+        if (!linearIssue) return;
+        if (normalizeStatus(linearIssue.state) === "rework") return;
 
-      const pullRequest = await findPullRequestByUrl(task.pullRequest.url);
-      if (!pullRequest || normalizeStatus(pullRequest.state) !== "closed") continue;
+        const liveStateType = effectiveLinearStateTypeForService(
+          config,
+          task.serviceName,
+          linearIssue.state,
+          linearIssue.stateType,
+        );
+        if (isTerminalLinearStateType(liveStateType)) return;
 
-      const observation = JSON.stringify({
-        url: pullRequest.url,
-        state: "closed",
-        headRefOid: pullRequest.headRefOid ?? null,
-      });
-      if (store.hasEvent(task.id, PULL_REQUEST_STATUS_SYNCED_EVENT, observation)) continue;
+        const storedPullRequestIdentity = pullRequestIdentity(task.pullRequest.url);
+        const currentPullRequestIdentity = pullRequestIdentity(linearIssue.pullRequest?.url);
+        if (!storedPullRequestIdentity || currentPullRequestIdentity !== storedPullRequestIdentity)
+          return;
 
-      await updateLinearStatus(task.issueIdentifier, targetStatus, {
-        apiKey: team.apiKey,
-        teamId: team.teamId,
-      });
-      store.addEvent({
-        taskId: task.id,
-        type: PULL_REQUEST_STATUS_SYNCED_EVENT,
-        actor: "watcher",
-        fromStatus: task.status,
-        toStatus: targetStatus,
-        body: observation,
-      });
-    } catch (error) {
-      console.error(
-        `Pull request status sync failed for ${task.issueIdentifier}; it will be retried:`,
-        error,
-      );
-    }
-  }
+        await updateLinearStatus(task.issueIdentifier, targetStatus, {
+          apiKey: team.apiKey,
+          teamId: team.teamId,
+        });
+        store.addEvent({
+          taskId: task.id,
+          type: PULL_REQUEST_STATUS_SYNCED_EVENT,
+          actor: "watcher",
+          fromStatus: task.status,
+          toStatus: targetStatus,
+          body: observation,
+        });
+      } catch (error) {
+        console.error(
+          `Pull request status sync failed for ${task.issueIdentifier}; it will be retried:`,
+          error,
+        );
+      }
+    }),
+  );
 }
 
 function pullRequestIdentity(value: string | undefined): string | undefined {
