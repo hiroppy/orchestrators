@@ -25,7 +25,7 @@ describe("global In Review reminders", () => {
         slackClient,
         channelId: "C123",
         config,
-        now: new Date("2026-08-30T23:59:00.000Z"),
+        now: new Date("2026-08-30T23:54:00.000Z"),
       });
       assert.equal(calls.length, 0);
 
@@ -41,7 +41,7 @@ describe("global In Review reminders", () => {
         slackClient,
         channelId: "C123",
         config,
-        now: new Date("2026-08-31T03:00:00.000Z"),
+        now: new Date("2026-08-31T00:04:00.000Z"),
       });
 
       const firstPost = calls.find(({ method }) => method === "postMessage");
@@ -49,7 +49,7 @@ describe("global In Review reminders", () => {
       assert.equal(firstPost?.unfurl_links, false);
       assert.equal(firstPost?.unfurl_media, false);
       assert.match(String(firstPost?.text), /Tasks in In Review for 3\+ days/);
-      assert.match(String(firstPost?.text), /example\.slack\.com.*ENG-62.*<@U123>/);
+      assert.match(String(firstPost?.text), /<@U123>.*example\.slack\.com.*ENG-62/s);
       assert.doesNotMatch(String(firstPost?.text), /linear\.app/);
       assert.doesNotMatch(String(firstPost?.text), /ENG-63/);
 
@@ -62,8 +62,34 @@ describe("global In Review reminders", () => {
       });
       const posts = calls.filter(({ method }) => method === "postMessage");
       assert.equal(posts.length, 2);
-      assert.match(String(posts[1]?.text), /ENG-62.*<@U123>/);
-      assert.match(String(posts[1]?.text), /ENG-63.*<@U456>/);
+      assert.match(String(posts[1]?.text), /<@U123>.*ENG-62/s);
+      assert.match(String(posts[1]?.text), /<@U456>.*ENG-63/s);
+    });
+  });
+
+  it("only posts within five minutes of the configured local time", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
+      const calls: Array<Record<string, unknown>> = [];
+      const slackClient = fakeSlackClient(calls);
+
+      await sendInReviewReminder({
+        store,
+        slackClient,
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:06:00.000Z"),
+      });
+      assert.equal(calls.length, 0);
+
+      await sendInReviewReminder({
+        store,
+        slackClient,
+        channelId: "C123",
+        config,
+        now: new Date("2026-09-01T23:55:00.000Z"),
+      });
+      assert.equal(calls.filter(({ method }) => method === "postMessage").length, 1);
     });
   });
 

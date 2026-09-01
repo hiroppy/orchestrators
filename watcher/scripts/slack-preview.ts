@@ -353,8 +353,14 @@ export function buildSlackPreviewMessage(
           {
             issueIdentifier: "PREVIEW-125",
             title: "Verify the reminder notification",
-            assignees: ["<@UREVIEWERTWO>"],
+            assignees: ["<@UREVIEWERONE>"],
             threadLink: "https://example.slack.com/archives/C123/p125",
+          },
+          {
+            issueIdentifier: "PREVIEW-126",
+            title: "Approve the reminder notification",
+            assignees: ["<@UREVIEWERTWO>"],
+            threadLink: "https://example.slack.com/archives/C123/p126",
           },
         ],
         "In Review",

@@ -13,6 +13,8 @@ import { buildInReviewReminder } from "../slack/views/in-review-reminder.ts";
 const IN_REVIEW_REMINDER_SCAN_EVENT = "in_review_reminder_scan";
 const IN_REVIEW_REMINDER_NOTIFIED_EVENT = "in_review_reminder_notified";
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const REMINDER_WINDOW_MINUTES = 5;
+const MINUTES_PER_DAY = 24 * 60;
 
 interface ReminderSlackClient {
   chat: {
@@ -35,10 +37,11 @@ export async function sendInReviewReminder({
   now?: Date;
 }): Promise<void> {
   const schedule = localSchedule(now, config.timeZone);
-  if (schedule.minutes < timeToMinutes(config.postAt)) return;
+  const reminderDate = reminderDateInWindow(schedule, timeToMinutes(config.postAt));
+  if (!reminderDate) return;
 
   const tasks = store.getTasksForLinearSync(new Set(), new Map(), true);
-  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, schedule.date)) {
+  if (store.hasEventOfType(IN_REVIEW_REMINDER_SCAN_EVENT, reminderDate)) {
     return;
   }
 
@@ -70,14 +73,14 @@ export async function sendInReviewReminder({
       taskId: anchor.id,
       type: IN_REVIEW_REMINDER_SCAN_EVENT,
       actor: "watcher",
-      body: schedule.date,
+      body: reminderDate,
       createdAt: now,
     },
     ...staleTasks.map((task) => ({
       taskId: task.id,
       type: IN_REVIEW_REMINDER_NOTIFIED_EVENT,
       actor: "watcher",
-      body: schedule.date,
+      body: reminderDate,
       createdAt: now,
     })),
   ]);
@@ -137,4 +140,27 @@ function localSchedule(now: Date, timeZone: string): { date: string; minutes: nu
 function timeToMinutes(time: string): number {
   const [hour, minute] = time.split(":").map(Number);
   return hour! * 60 + minute!;
+}
+
+function reminderDateInWindow(
+  schedule: { date: string; minutes: number },
+  targetMinutes: number,
+): string | undefined {
+  const sameDayDifference = schedule.minutes - targetMinutes;
+  const candidates = [
+    { difference: sameDayDifference, dayOffset: 0 },
+    { difference: sameDayDifference + MINUTES_PER_DAY, dayOffset: -1 },
+    { difference: sameDayDifference - MINUTES_PER_DAY, dayOffset: 1 },
+  ];
+  const closest = candidates.reduce((current, candidate) =>
+    Math.abs(candidate.difference) < Math.abs(current.difference) ? candidate : current,
+  );
+  if (Math.abs(closest.difference) > REMINDER_WINDOW_MINUTES) return undefined;
+  return shiftDate(schedule.date, closest.dayOffset);
+}
+
+function shiftDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
 }

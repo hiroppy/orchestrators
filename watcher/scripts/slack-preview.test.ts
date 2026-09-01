@@ -204,8 +204,11 @@ describe("Slack preview", () => {
       messages[4].text,
       [
         "*Tasks in In Review for 3+ days*",
-        "• <https://example.slack.com/archives/C123/p122|PREVIEW-122: Review the Slack reminder format> — <@UREVIEWERONE>",
-        "• <https://example.slack.com/archives/C123/p125|PREVIEW-125: Verify the reminder notification> — <@UREVIEWERTWO>",
+        "• <@UREVIEWERONE>",
+        "  ◦ <https://example.slack.com/archives/C123/p122|PREVIEW-122: Review the Slack reminder format>",
+        "  ◦ <https://example.slack.com/archives/C123/p125|PREVIEW-125: Verify the reminder notification>",
+        "• <@UREVIEWERTWO>",
+        "  ◦ <https://example.slack.com/archives/C123/p126|PREVIEW-126: Approve the reminder notification>",
       ].join("\n"),
     );
     assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125/);
@@ -426,6 +429,6 @@ describe("Slack preview", () => {
 
     assert.equal(calls[0]?.unfurl_links, false);
     assert.equal(calls[0]?.unfurl_media, false);
-    assert.match(String(calls[0]?.text), /PREVIEW-122.*<@UREVIEWERONE>/);
+    assert.match(String(calls[0]?.text), /<@UREVIEWERONE>.*PREVIEW-122/s);
   });
 });
