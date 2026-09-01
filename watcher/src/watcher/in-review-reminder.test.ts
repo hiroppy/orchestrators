@@ -122,6 +122,29 @@ describe("global In Review reminders", () => {
     });
   });
 
+  it("posts other tasks when one Slack permalink lookup fails", async () => {
+    await withStore(async (store) => {
+      createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");
+      createTask(store, "ENG-63", "2026-08-26T00:00:00.000Z", "U456");
+      const calls: Array<Record<string, unknown>> = [];
+
+      await sendInReviewReminder({
+        store,
+        slackClient: fakeSlackClient(calls, {
+          rejectGetPermalink: ({ message_ts }) => message_ts === "62.000",
+        }),
+        channelId: "C123",
+        config,
+        now: new Date("2026-08-31T00:00:00.000Z"),
+      });
+
+      const post = calls.find(({ method }) => method === "postMessage");
+      assert.match(String(post?.text), /◦ ENG-62: Review ENG-62/);
+      assert.match(String(post?.text), /example\.slack\.com.*ENG-63/s);
+      assert.doesNotMatch(String(post?.text), /linear\.app/);
+    });
+  });
+
   it("keeps the daily scan marker when its anchor service becomes inactive", async () => {
     await withStore(async (store) => {
       createTask(store, "ENG-62", "2026-08-26T00:00:00.000Z", "U123");

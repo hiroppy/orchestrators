@@ -109,11 +109,15 @@ async function getThreadLinks(
   const entries = await Promise.all(
     tasks.map(async (task): Promise<readonly [string, string] | undefined> => {
       if (!task.parentChannelId || !task.parentMessageTs) return undefined;
-      const response = await slackClient.chat.getPermalink({
-        channel: task.parentChannelId,
-        message_ts: task.parentMessageTs,
-      });
-      return response.permalink ? [task.id, response.permalink] : undefined;
+      try {
+        const response = await slackClient.chat.getPermalink({
+          channel: task.parentChannelId,
+          message_ts: task.parentMessageTs,
+        });
+        return response.permalink ? [task.id, response.permalink] : undefined;
+      } catch {
+        return undefined;
+      }
     }),
   );
   return new Map(entries.filter((entry) => entry !== undefined));
