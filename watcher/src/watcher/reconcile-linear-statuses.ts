@@ -96,6 +96,7 @@ export async function reconcileLinearStatuses({
     } catch (error) {
       if (!isLinearRateLimitError(error)) throw error;
       rateLimitedTeams.add(teamName);
+      console.warn(`Linear reconciliation deferred for ${teamName}: rate limit exceeded.`);
     }
   }
 

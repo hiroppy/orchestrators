@@ -155,11 +155,13 @@ review-requeue path.
 - GitHub is queried during event enrichment when PR data is needed.
 - Tasks in the configured review status are queried during 30-second reconciliation, even if their
   Symphony snapshot has not changed.
-- Tracked nonterminal tasks with a PR are queried during maintenance. Closed, unmerged PRs move to
-  `Canceled` by default; `watcher.pullRequestStatusSync.closed` overrides that target. The stored PR
-  must still match the current Linear attachment before an update is applied, and an already
-  terminal Linear issue is preserved. Issues in `Rework` are also preserved because their previous
-  PR is intentionally closed before Symphony starts a fresh attempt.
+- Tracked nonterminal tasks with a PR are queried concurrently on GitHub during maintenance. Only
+  closed, unmerged PRs cause a Linear read, avoiding one Linear request per open or merged PR.
+  Eligible closed PRs move to `Canceled` by default, while
+  `watcher.pullRequestStatusSync.closed` overrides that target. The stored PR must still match the
+  current Linear attachment before an update is applied, and an already terminal Linear issue is
+  preserved. Issues in `Rework` are also preserved because their previous PR is intentionally
+  closed before Symphony starts a fresh attempt.
   Successful observations are persisted; failures have no completion event and are retried by a
   later poll.
 - Unless `watcher.inReviewReminder.enabled` is `false`, the first maintenance cycle within five
