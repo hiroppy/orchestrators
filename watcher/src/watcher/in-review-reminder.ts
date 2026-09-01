@@ -8,7 +8,7 @@ import type { ResolvedInReviewReminderConfig } from "../config/runtime-types.ts"
 import { normalizeStatus } from "../domain/status.ts";
 import type { Task } from "../domain/task.ts";
 import type { WatcherStore } from "../persistence/store.ts";
-import { escapeSlack, escapeSlackLinkLabel } from "../slack/view-formatting.ts";
+import { buildInReviewReminder } from "../slack/views/in-review-reminder.ts";
 
 const IN_REVIEW_REMINDER_SCAN_EVENT = "in_review_reminder_scan";
 const IN_REVIEW_REMINDER_NOTIFIED_EVENT = "in_review_reminder_notified";
@@ -48,7 +48,16 @@ export async function sendInReviewReminder({
     const threadLinks = await getThreadLinks(slackClient, staleTasks);
     await slackClient.chat.postMessage({
       channel: channelId,
-      text: reminderText(store, staleTasks, threadLinks, config.status, config.afterDays),
+      text: buildInReviewReminder(
+        staleTasks.map((task) => ({
+          issueIdentifier: task.issueIdentifier,
+          title: task.title,
+          assignees: store.getTaskAssignees(task.id),
+          threadLink: threadLinks.get(task.id),
+        })),
+        config.status,
+        config.afterDays,
+      ),
       unfurl_links: false,
       unfurl_media: false,
     });
@@ -88,26 +97,6 @@ function isStaleInReview(
       ? transition.createdAt
       : (task.createdAt ?? task.updatedAt));
   return Date.parse(enteredAt) <= cutoff;
-}
-
-function reminderText(
-  store: WatcherStore,
-  tasks: Task[],
-  threadLinks: ReadonlyMap<string, string>,
-  status: string,
-  afterDays: number,
-): string {
-  const lines = tasks.map((task) => {
-    const assignees = store.getTaskAssignees(task.id);
-    const mentions = assignees.length > 0 ? assignees.join(" ") : "Unassigned";
-    const label = `${task.issueIdentifier}: ${task.title}`;
-    const threadLink = threadLinks.get(task.id);
-    const taskLink = threadLink
-      ? `<${threadLink}|${escapeSlackLinkLabel(label)}>`
-      : escapeSlack(label);
-    return `• ${taskLink} — ${mentions}`;
-  });
-  return [`*Tasks in ${escapeSlack(status)} for ${afterDays}+ days*`, ...lines].join("\n");
 }
 
 async function getThreadLinks(

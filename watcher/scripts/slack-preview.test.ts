@@ -182,6 +182,7 @@ describe("Slack preview", () => {
       { category: "post", type: "closed" },
       { category: "thread", type: "next" },
       { category: "assignees", type: "status" },
+      { category: "assignees", type: "reminder" },
     ] as const;
     const messages = cases.map((previewCase) => buildSlackPreviewMessage(previewCase));
 
@@ -198,6 +199,14 @@ describe("Slack preview", () => {
     assert.equal(
       messages[3].blocks.some(({ fields }) => fields !== undefined),
       false,
+    );
+    assert.equal(
+      messages[4].text,
+      [
+        "*Tasks in In Review for 3+ days*",
+        "• <https://example.slack.com/archives/C123/p122|PREVIEW-122: Review the Slack reminder format> — <@UREVIEWERONE>",
+        "• <https://example.slack.com/archives/C123/p125|PREVIEW-125: Verify the reminder notification> — <@UREVIEWERTWO>",
+      ].join("\n"),
     );
     assert.match(JSON.stringify(messages[3].blocks), /PREVIEW-124.*PREVIEW-125/);
     assert.equal(
@@ -302,6 +311,7 @@ describe("Slack preview", () => {
       "closed",
       "next",
       "status",
+      "reminder",
     ]);
     assert.throws(
       () => resolveSlackPreviewCase(),
@@ -334,6 +344,10 @@ describe("Slack preview", () => {
     assert.throws(
       () => resolveSlackPreviewCase("thread", "closed"),
       /closed is only available for post previews/,
+    );
+    assert.throws(
+      () => resolveSlackPreviewCase("post", "reminder"),
+      /reminder is only available for assignee previews/,
     );
   });
 
@@ -395,5 +409,23 @@ describe("Slack preview", () => {
     assert.equal(calls[0].channel, "C123");
     assert.equal(calls[0].text, "🔥 Preview [preview-service] Confirm the watcher Slack output");
     assert.match(JSON.stringify(calls[0].blocks), /Waiting for required credentials/);
+  });
+
+  it("posts the reminder preview without link expansion", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client: SlackPreviewClient = {
+      chat: {
+        async postMessage(args) {
+          calls.push(args);
+          return { ok: true, channel: args.channel, ts: "1.000" };
+        },
+      },
+    };
+
+    await postSlackPreview(client, "C123", { category: "assignees", type: "reminder" });
+
+    assert.equal(calls[0]?.unfurl_links, false);
+    assert.equal(calls[0]?.unfurl_media, false);
+    assert.match(String(calls[0]?.text), /PREVIEW-122.*<@UREVIEWERONE>/);
   });
 });
