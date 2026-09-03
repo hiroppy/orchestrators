@@ -8,6 +8,7 @@ minimumReleaseAgeExclude:
   - "@oxfmt/*"
   - oxlint
   - "@oxlint/*"
+  - "@slack/bolt"
   - "@slack/types"
   - "@slack/web-api"
 overrides:
