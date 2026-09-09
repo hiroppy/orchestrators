@@ -2,7 +2,7 @@ diff --git a/elixir/WORKFLOW.md b/elixir/WORKFLOW.md
 index c87d048..1b2ea79 100644
 --- a/elixir/WORKFLOW.md
 +++ b/elixir/WORKFLOW.md
-@@ -70,6 +70,18 @@ Instructions:
+@@ -70,6 +70,26 @@ Instructions:
  2. Only stop early for a true external blocker (missing required tools, auth, permissions, or secrets). If blocked, record it in the workpad and move the issue according to the workflow.
  3. Final message must report completed actions and blockers only. Do not include "next steps for user".
  
@@ -17,6 +17,14 @@ index c87d048..1b2ea79 100644
 +
 +- Write pull request titles that follow Conventional Commits.
 +- If the repository contains a pull request template, use it as the basis for the pull request description.
++- Do not start or delegate to external pull request monitoring workflows, agents, skills, automations, or background tasks.
++- Symphony owns pull request, CI, and review monitoring through this issue-state workflow.
++
++## Workspace isolation
++
++- The provided repository copy is already an isolated, issue-specific workspace managed by Symphony.
++- Work directly in the provided repository copy.
++- Do not create, switch to, or delegate work into additional Git worktrees, clones, or workspaces.
 +
  Work only in the provided repository copy. Do not touch any other path.
  
