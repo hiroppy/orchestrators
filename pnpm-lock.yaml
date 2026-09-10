@@ -158,8 +158,8 @@ importers:
         specifier: 9.6.0
         version: 9.6.0
       '@types/node':
-        specifier: 26.5.0
-        version: 26.5.0
+        specifier: 26.5.1
+        version: 26.5.1
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
@@ -1171,6 +1171,9 @@ packages:
 
   '@types/node@26.5.0':
     resolution: {integrity: sha512-dVSGpriSoCgz8WnDNTuSSuSv1PC/ALXihO4ulRZt7Md8k9mlbdin3lGOcDE8SnWOgf513ByWlXd7BK4azmyg/A==}
+
+  '@types/node@26.5.1':
+    resolution: {integrity: sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -2456,7 +2459,7 @@ snapshots:
 
   '@types/better-sqlite3@9.6.0':
     dependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -2494,6 +2497,10 @@ snapshots:
       undici-types: 8.3.0
 
   '@types/node@26.5.0':
+    dependencies:
+      undici-types: 8.9.0
+
+  '@types/node@26.5.1':
     dependencies:
       undici-types: 8.9.0
 
