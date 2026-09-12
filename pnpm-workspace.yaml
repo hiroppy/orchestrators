@@ -3,6 +3,7 @@ packages:
   - watcher
 minimumReleaseAgeExclude:
   - knip
+  - yaml
   - "@types/node"
   - oxfmt
   - "@oxfmt/*"
