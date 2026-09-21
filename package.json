@@ -20,8 +20,8 @@
   },
   "devDependencies": {
     "knip": "6.37.0",
-    "oxfmt": "0.68.0",
-    "oxlint": "1.83.0"
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0"
   },
   "packageManager": "pnpm@12.5.1"
 }
