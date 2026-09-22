@@ -12,6 +12,8 @@ minimumReleaseAgeExclude:
   - "@slack/bolt"
   - "@slack/types"
   - "@slack/web-api"
+  - drizzle-kit
+  - drizzle-orm
 overrides:
   "@slack/types": "3.1.0"
   "@slack/web-api": "8.1.1"
