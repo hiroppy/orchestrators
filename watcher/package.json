@@ -17,14 +17,14 @@
     "@slack/bolt": "5.1.0",
     "@slack/web-api": "8.1.1",
     "better-sqlite3": "13.0.3",
-    "drizzle-orm": "0.45.2",
+    "drizzle-orm": "0.45.3",
     "orchestrator-config": "workspace:*",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.2",
-    "drizzle-kit": "0.31.10",
+    "drizzle-kit": "0.31.11",
     "typescript": "7.0.2"
   }
 }
