@@ -19,7 +19,7 @@
     "orchestrator-config": "workspace:*"
   },
   "devDependencies": {
-    "knip": "6.38.0",
+    "knip": "6.39.0",
     "oxfmt": "0.71.0",
     "oxlint": "1.86.0"
   },
