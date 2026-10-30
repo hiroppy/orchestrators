@@ -16,7 +16,7 @@ minimumReleaseAgeExclude:
   - drizzle-orm
 overrides:
   "@slack/types": "3.2.0"
-  "@slack/web-api": "8.2.0"
+  "@slack/web-api": "8.3.0"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
