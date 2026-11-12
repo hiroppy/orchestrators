@@ -16,7 +16,7 @@
   "dependencies": {
     "@slack/bolt": "5.1.0",
     "@slack/web-api": "8.3.0",
-    "better-sqlite3": "13.0.3",
+    "better-sqlite3": "13.1.1",
     "drizzle-orm": "0.45.4",
     "orchestrator-config": "workspace:*",
     "yaml": "2.9.1"
