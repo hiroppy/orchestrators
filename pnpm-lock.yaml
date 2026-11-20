@@ -173,7 +173,7 @@ settings:
 
 overrides:
   '@slack/types': 3.3.0
-  '@slack/web-api': 8.4.0
+  '@slack/web-api': 8.5.0
 
 importers:
 
@@ -196,8 +196,8 @@ importers:
   config:
     dependencies:
       '@slack/web-api':
-        specifier: 8.4.0
-        version: 8.4.0
+        specifier: 8.5.0
+        version: 8.5.0
 
   watcher:
     dependencies:
@@ -205,8 +205,8 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@types/express@5.0.6)(undici@7.29.0)
       '@slack/web-api':
-        specifier: 8.4.0
-        version: 8.4.0
+        specifier: 8.5.0
+        version: 8.5.0
       better-sqlite3:
         specifier: 13.2.0
         version: 13.2.0
@@ -1201,8 +1201,8 @@ packages:
     resolution: {integrity: sha512-11r2kM9Zy/UlaV6OwPibZueVlyNJ5xtHEHK/iYDnPLyhQcxRtsifNAwNhJ1Lm0nszW4jrWCHThXCHCNJC/hvqg==}
     engines: {node: '>= 20', npm: '>=9.6.4'}
 
-  '@slack/web-api@8.4.0':
-    resolution: {integrity: sha512-SZSa8Xqz0jkvGfw9lLKQt17u44Xi5+O2QRMFo6f2vTEP0fPS+ThxOR0++AwJAPOkf3PKxA7lLmrL9Y4Y2J693w==}
+  '@slack/web-api@8.5.0':
+    resolution: {integrity: sha512-mbqNGN/geNqV4j0VB8pq/HR5RA2KpvwPxuSe3Y0VZtel9b419hZNeIyEx4aluuIaxXSEhEZiFnp0QniBsk8/SA==}
     engines: {node: '>= 20', npm: '>=9.6.4'}
 
   '@tybys/wasm-util@0.10.3':
@@ -2466,7 +2466,7 @@ snapshots:
       '@slack/oauth': 4.0.0
       '@slack/socket-mode': 3.0.1(undici@7.29.0)
       '@slack/types': 3.3.0
-      '@slack/web-api': 8.4.0
+      '@slack/web-api': 8.5.0
       '@types/express': 5.0.6
       express: 5.2.1
       path-to-regexp: 8.4.2
@@ -2483,7 +2483,7 @@ snapshots:
   '@slack/oauth@4.0.0':
     dependencies:
       '@slack/logger': 5.0.0
-      '@slack/web-api': 8.4.0
+      '@slack/web-api': 8.5.0
       '@types/jsonwebtoken': 9.0.10
       '@types/node': 26.6.6
       jsonwebtoken: 9.0.3
@@ -2491,14 +2491,14 @@ snapshots:
   '@slack/socket-mode@3.0.1(undici@7.29.0)':
     dependencies:
       '@slack/logger': 5.0.0
-      '@slack/web-api': 8.4.0
+      '@slack/web-api': 8.5.0
       '@types/node': 26.6.6
       eventemitter3: 5.0.4
       undici: 7.29.0
 
   '@slack/types@3.3.0': {}
 
-  '@slack/web-api@8.4.0':
+  '@slack/web-api@8.5.0':
     dependencies:
       '@slack/logger': 5.0.0
       '@slack/types': 3.3.0
